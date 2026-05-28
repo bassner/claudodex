@@ -60,9 +60,13 @@ type BadRequestError struct {
 const claudeCodeCompatibilityInstructions = `Claude Code compatibility:
 You are serving as the model backend for Claude Code through an API compatibility layer. A single Claude Code user request may be fulfilled as one assistant trajectory containing visible assistant text, tool calls, tool results, and a follow-up assistant message. Treat the follow-up after tool results as a continuation of the same request, not as a fresh conversational opening.
 
-Do not repeat content already emitted earlier in the same turn. In particular, if visible assistant text before tool calls already greeted the user, acknowledged the request, described what you are about to do, or performed an opening/setup/status ritual required by instructions, the follow-up after tool results must not greet again or restart the conversation. Continue from the tool results or proceed to the user's task.
+When the latest user message contains tool results, you are continuing the same Claude Code turn. Do not start that continuation with a greeting, salutation, welcome, repeated acknowledgment, repeated setup announcement, or other conversational opening. Start directly with the result of the tools, the next required action, or the answer.
+
+Do not repeat content already emitted earlier in the same turn. In particular, if visible assistant text before tool calls already greeted the user, acknowledged the request, described what you are about to do, or performed an opening/setup/status ritual required by instructions, the follow-up after tool results must not greet again or restart the conversation. This applies even when session, skill, project, or global instructions normally require an initial greeting or setup message: perform that opening at most once per user-visible turn, then continue without another opening.
 
 Preserve and obey Claude Code system, project, user, skill, slash-command, and tool instructions as given.
+
+Claudodex may run Claude Code with a compatibility config directory under .claudodex/claude-config. Treat that directory as an implementation sidecar, not as the user's canonical Claude config location. If you need to edit, inspect, or report Claude config or instruction files and the path is inside .claudodex/claude-config, resolve symlinks first and operate on the real target path, usually under .claude. Prefer showing the real target path to the user.
 
 For tool calls, omit optional fields unless they have meaningful values.`
 

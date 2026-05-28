@@ -129,7 +129,7 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	if runtimeModel, ok := explicitModelArg(childArgs); ok {
 		childEnv = WithFriendlyCustomModelOption(childEnv, runtimeModel)
 	}
-	claudePath = prepareClaudeExecutable(ctx, cfg.Home, claudePath, cfg.Version, modelCfg)
+	claudePath = prepareClaudeExecutable(ctx, cfg.Home, claudePath, cfg.Version, modelCfg, stderr)
 	childErr := runChild(ctx, claudePath, childArgs, childEnv, stdin, stdout, stderr, !cfg.Interactive)
 	return errors.Join(childErr, configMirror.Close())
 }

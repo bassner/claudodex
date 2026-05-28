@@ -104,4 +104,10 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 	if !strings.Contains(instructions, "the follow-up after tool results must not greet again or restart the conversation") {
 		t.Fatalf("installed Claude request is missing Claudodex same-turn greeting guard; instructions=%q request=%#v", instructions, captured)
 	}
+	if !strings.Contains(instructions, "perform that opening at most once per user-visible turn") {
+		t.Fatalf("installed Claude request is missing Claudodex setup continuation guard; instructions=%q request=%#v", instructions, captured)
+	}
+	if !strings.Contains(instructions, "resolve symlinks first and operate on the real target path") {
+		t.Fatalf("installed Claude request is missing Claudodex sidecar path guidance; instructions=%q request=%#v", instructions, captured)
+	}
 }

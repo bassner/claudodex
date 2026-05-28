@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,45 +21,70 @@ import (
 
 const (
 	claudodexPatchedClaudeDirName = "patched-claude"
-	claudodexPatchSchemaVersion   = "claude-ui-patch-v10"
+	claudodexPatchSchemaVersion   = "claude-ui-patch-v11"
 )
 
-func prepareClaudeExecutable(ctx context.Context, home, claudePath, claudodexVersion string, modelCfg modelconfig.Config) string {
+var (
+	errClaudePatchUnsupported = errors.New("unsupported Claude Code version for UI patch")
+	errClaudePatchNoMatch     = errors.New("Claude Code UI patch did not match binary")
+)
+
+type claudeUIPatchFunc func(data []byte, claudodexVersion, claudeVersion string, modelCfg modelconfig.Config) bool
+
+type claudeUIPatchSpec struct {
+	Version string
+	GOOS    string
+	GOARCH  string
+	SHA256  string
+	Apply   claudeUIPatchFunc
+}
+
+var claudeUIPatches = []claudeUIPatchSpec{
+	claudeUIPatch_2_1_153,
+}
+
+func prepareClaudeExecutable(ctx context.Context, home, claudePath, claudodexVersion string, modelCfg modelconfig.Config, stderr io.Writer) string {
 	if strings.TrimSpace(os.Getenv("CLAUDODEX_DISABLE_CLAUDE_PATCH")) == "1" {
 		return claudePath
 	}
-	patched, err := preparePatchedClaude(ctx, home, claudePath, claudodexVersion, modelCfg)
+	patched, claudeVersion, sourceSHA, err := preparePatchedClaude(ctx, home, claudePath, claudodexVersion, modelCfg)
 	if err != nil {
+		warnClaudePatchSkipped(stderr, claudeVersion, sourceSHA, err)
 		return claudePath
 	}
 	return patched
 }
 
-func preparePatchedClaude(ctx context.Context, home, claudePath, claudodexVersion string, modelCfg modelconfig.Config) (string, error) {
+func preparePatchedClaude(ctx context.Context, home, claudePath, claudodexVersion string, modelCfg modelconfig.Config) (string, string, string, error) {
 	modelCfg = modelCfg.Normalize()
+	claudeVersion := detectClaudeVersion(ctx, claudePath)
 	sourceData, err := os.ReadFile(claudePath)
 	if err != nil {
-		return "", err
+		return "", claudeVersion, "", err
 	}
-	claudeVersion := detectClaudeVersion(ctx, claudePath)
+	sourceSHA := sha256Hex(sourceData)
+	patcher := findClaudeUIPatch(claudeVersion, sourceSHA)
+	if patcher == nil {
+		return "", claudeVersion, sourceSHA, errClaudePatchUnsupported
+	}
 	patched := append([]byte(nil), sourceData...)
-	changed := applyClaudeUIPatches(patched, claudodexVersion, claudeVersion, modelCfg)
+	changed := patcher.Apply(patched, claudodexVersion, claudeVersion, modelCfg)
 	if !changed {
-		return claudePath, nil
+		return "", claudeVersion, sourceSHA, errClaudePatchNoMatch
 	}
 
 	dataDir, err := auth.DataDir(home)
 	if err != nil {
-		return "", err
+		return "", claudeVersion, sourceSHA, err
 	}
 	key := patchedClaudeCacheKey(sourceData, claudodexVersion, claudeVersion, modelCfg)
 	dir := filepath.Join(dataDir, claudodexPatchedClaudeDirName, key)
 	dest := filepath.Join(dir, "claude")
 	if isExecutableFile(dest) {
-		return dest, nil
+		return dest, claudeVersion, sourceSHA, nil
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
+		return "", claudeVersion, sourceSHA, err
 	}
 
 	mode := os.FileMode(0o755)
@@ -66,33 +93,77 @@ func preparePatchedClaude(ctx context.Context, home, claudePath, claudodexVersio
 	}
 	tmp, err := os.CreateTemp(dir, ".claude-*.tmp")
 	if err != nil {
-		return "", err
+		return "", claudeVersion, sourceSHA, err
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 	if _, err := tmp.Write(patched); err != nil {
 		_ = tmp.Close()
-		return "", err
+		return "", claudeVersion, sourceSHA, err
 	}
 	if err := tmp.Chmod(mode); err != nil {
 		_ = tmp.Close()
-		return "", err
+		return "", claudeVersion, sourceSHA, err
 	}
 	if err := tmp.Close(); err != nil {
-		return "", err
+		return "", claudeVersion, sourceSHA, err
 	}
 	if runtime.GOOS == "darwin" {
 		signCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(signCtx, "codesign", "--force", "--sign", "-", tmpName)
 		if output, err := cmd.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("codesign patched Claude: %w: %s", err, strings.TrimSpace(string(output)))
+			return "", claudeVersion, sourceSHA, fmt.Errorf("codesign patched Claude: %w: %s", err, strings.TrimSpace(string(output)))
 		}
 	}
 	if err := os.Rename(tmpName, dest); err != nil {
-		return "", err
+		return "", claudeVersion, sourceSHA, err
 	}
-	return dest, nil
+	return dest, claudeVersion, sourceSHA, nil
+}
+
+func findClaudeUIPatch(version, sourceSHA string) *claudeUIPatchSpec {
+	for i := range claudeUIPatches {
+		patch := &claudeUIPatches[i]
+		if patch.Version == version &&
+			patch.GOOS == runtime.GOOS &&
+			patch.GOARCH == runtime.GOARCH &&
+			strings.EqualFold(patch.SHA256, sourceSHA) {
+			return patch
+		}
+	}
+	return nil
+}
+
+func warnClaudePatchSkipped(stderr io.Writer, claudeVersion, sourceSHA string, err error) {
+	if stderr == nil {
+		return
+	}
+	version := strings.TrimSpace(claudeVersion)
+	if version == "" {
+		version = "unknown"
+	}
+	fingerprint := "unknown"
+	if sourceSHA != "" {
+		fingerprint = sourceSHA
+		if len(fingerprint) > 12 {
+			fingerprint = fingerprint[:12]
+		}
+	}
+	target := fmt.Sprintf("Claude Code %s for %s/%s sha256:%s", version, runtime.GOOS, runtime.GOARCH, fingerprint)
+	switch {
+	case errors.Is(err, errClaudePatchUnsupported):
+		fmt.Fprintf(stderr, "warning: Claudodex has no verified UI patch for %s; launching with the unpatched Claude Code UI. Update Claudodex, or open an issue if none exists for this Claude Code patch target: https://github.com/bassner/claudodex/issues\n", target)
+	case errors.Is(err, errClaudePatchNoMatch):
+		fmt.Fprintf(stderr, "warning: Claudodex UI patch for %s did not match this binary; launching with the unpatched Claude Code UI. Update Claudodex, or open an issue if none exists for this Claude Code patch target: https://github.com/bassner/claudodex/issues\n", target)
+	default:
+		fmt.Fprintf(stderr, "warning: Claudodex could not prepare the UI patch for %s (%v); launching with the unpatched Claude Code UI. Update Claudodex, or open an issue if this persists: https://github.com/bassner/claudodex/issues\n", target, err)
+	}
+}
+
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func patchedClaudeCacheKey(sourceData []byte, claudodexVersion, claudeVersion string, modelCfg modelconfig.Config) string {
@@ -155,68 +226,6 @@ func looksLikeVersion(value string) bool {
 		}
 	}
 	return true
-}
-
-func applyClaudeUIPatches(data []byte, claudodexVersion, claudeVersion string, modelCfg modelconfig.Config) bool {
-	changed := false
-	versionPatched := patchLogoDisplayDataFunction(data, claudodexVersion, claudeVersion)
-	changed = versionPatched || changed
-	changed = patchWhatsNewFeedFunction(data) || changed
-	changed = replaceAllFixed(data, "Check the Claude Code changelog for updates", claudodexInfoLine()) || changed
-	changed = replaceAllFixed(data, "What's new", "Info") || changed
-	changed = replaceAllFixed(data, "Welcome back!", "Welcome back") || changed
-	changed = replaceAllFixed(data, "Set the AI model for Claude Code", "Set the AI model for Claudodex") || changed
-	changed = replaceAllFixed(data, "Claude Code'll be able to read, edit, and execute files here.", "Claudodex can read, edit, and execute files here.") || changed
-	changed = replaceAllFixed(data, "WARNING: Claude Code running in Bypass Permissions mode", "WARNING: Claudodex running in Bypass Permissions mode") || changed
-	changed = replaceAllFixed(data, "In Bypass Permissions mode, Claude Code will not ask for your approval before running potentially dangerous commands.", "In Bypass Permissions mode, Claudodex will not ask for your approval before running potentially dangerous commands.") || changed
-	changed = replaceAllFixed(data, "No, exit Claude Code", "No, exit Claudodex") || changed
-	changed = replaceAllFixed(data, "Claude Max", "Codex Plan") || changed
-	changed = replaceAllFixed(data, "Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model.", "Switch between Codex-backed models. Your pick becomes the default for new sessions. For direct model names, use --model.") || changed
-	changed = replaceAllFixed(data, "Select model", "Codex model") || changed
-	changed = replaceAllFixed(data, "Default (recommended)", "Default (Claudodex)") || changed
-	changed = replaceAllFixed(data, "Most capable for complex work", "default Codex work") || changed
-	changed = replaceAllFixed(data, "Best for everyday tasks", modelDescriptionPatch(modelCfg.Sonnet, "everyday coding")) || changed
-	changed = replaceAllFixed(data, "Fastest for quick answers", modelDescriptionPatch(modelCfg.Haiku, "quick code")) || changed
-	changed = replaceAllFixed(data, ` with 1M context \xB7 `, ` via Codex model \xB7 `) || changed
-
-	changed = replaceAllPatternString(data, `j4.createElement(V,{bold:!0},"Claude Code")`, "Claude Code", "Claudodex") || changed
-	changed = replaceAllPatternString(data, `Lq("claude",d)("Claude Code")`, "Claude Code", "Claudodex") || changed
-	changed = replaceAllPatternString(data, `Lq("claude",d)(" Claude Code ")`, "Claude Code", "Claudodex") || changed
-	if !versionPatched {
-		changed = replaceFirstFixed(data, "Lq(\"inactive\",d)(`v${h}`)", quotedVersion(claudodexVersion)) || changed
-		changed = replaceFirstFixed(data, `j4.createElement(V,{dimColor:!0},"v",E)`, quotedVersion(claudodexVersion)) || changed
-	}
-	changed = replaceFirstFixed(data, "w_=h4()?", "w_=0?") || changed
-	changed = patchMaxModelPickerBase(data) || changed
-	return changed
-}
-
-func patchLogoDisplayDataFunction(data []byte, claudodexVersion, claudeVersion string) bool {
-	start := bytes.Index(data, []byte("function P6_(){"))
-	if start < 0 {
-		return false
-	}
-	endRel := bytes.Index(data[start:], []byte("function RuK("))
-	if endRel < 0 {
-		return false
-	}
-	old := data[start : start+endRel]
-	replacement := `function P6_(){let H=process.env.DEMO_VERSION??` + quoteJSString(claudodexLogoVersion(claudodexVersion, claudeVersion)) + `,_=Px6(),q=process.env.DEMO_VERSION?"/code/claude":Q5(S_()),K=xH(process.env.CLAUDE_CODE_HIDE_CWD)?"":_?` + "`${q} in ${_.replace(/^https?:\\/\\//,\"\")}`" + `:q,O=vq(),T=O!=="firstParty"?eYH[O]:Zq()?zH6():"API Usage Billing",z=o8().agent;return{version:H,cwd:K,billingType:T,agentName:z}}`
-	if len([]byte(replacement)) > len(old) {
-		return false
-	}
-	newBytes, ok := fitReplacement(old, replacement)
-	if !ok {
-		return false
-	}
-	copy(old, newBytes)
-	return true
-}
-
-func patchWhatsNewFeedFunction(data []byte) bool {
-	const old = `function muK(H){let _=H.map((K)=>{return{text:K}}),q="Check the Claude Code changelog for updates";return{title:"What's new",lines:_,footer:_.length>0?"/release-notes for more":void 0,emptyMessage:"Check the Claude Code changelog for updates"}}`
-	const replacement = `function muK(H){return{title:"Claudodex Info",lines:"Thank you for using Claudodex!|Experimental - treat it as such.|If you run into issues, please file a report at|https://github.com/bassner/claudodex/issues".split("|").map(text=>({text}))}}`
-	return replaceFirstFixed(data, old, replacement)
 }
 
 func claudodexInfoLine() string {
@@ -299,32 +308,6 @@ func replaceAllPatternString(data []byte, pattern, old, replacement string) bool
 		}
 		searchFrom = absolute + len(patternBytes)
 	}
-}
-
-func patchMaxModelPickerBase(data []byte) bool {
-	start := bytes.Index(data, []byte("function jl3(H=!1){"))
-	if start < 0 {
-		return false
-	}
-	end := bytes.Index(data[start:], []byte("function Jl3("))
-	if end < 0 {
-		return false
-	}
-	window := data[start : start+end]
-	changed := false
-	for _, patch := range []struct {
-		old string
-		new string
-	}{
-		{"let z=[ML6(H)]", "let z=[]"},
-		{"z.push(lkK())", "void 0"},
-		{"z.push(Al3)", "void 0"},
-		{"z.push(ckK())", "void 0"},
-		{"return z.push(nkK),z", "return z"},
-	} {
-		changed = replaceFirstFixed(window, patch.old, patch.new) || changed
-	}
-	return changed
 }
 
 func replaceFirstFixed(data []byte, old, replacement string) bool {

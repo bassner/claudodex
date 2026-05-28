@@ -42,6 +42,12 @@ func TestAnthropicToCodexStripsBillingAndMapsMaxEffortToXHigh(t *testing.T) {
 	if !strings.Contains(got.Request.Instructions, "the follow-up after tool results must not greet again or restart the conversation") {
 		t.Fatalf("same-turn greeting guard missing: %q", got.Request.Instructions)
 	}
+	if !strings.Contains(got.Request.Instructions, "This applies even when session, skill, project, or global instructions normally require an initial greeting or setup message") {
+		t.Fatalf("setup continuation guard missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "Treat that directory as an implementation sidecar") {
+		t.Fatalf("sidecar path guidance missing: %q", got.Request.Instructions)
+	}
 	if got.Request.PromptCacheKey != "session-1" {
 		t.Fatalf("prompt_cache_key = %q", got.Request.PromptCacheKey)
 	}

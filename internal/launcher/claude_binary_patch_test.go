@@ -1,6 +1,9 @@
 package launcher
 
 import (
+	"bytes"
+	"errors"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -36,8 +39,8 @@ func TestApplyClaudeUIPatchesBrandsHeaderAndModelPicker(t *testing.T) {
 		`function jl3(H=!1){if(Zq()){if(Re()||wAH()||IUH()){let z=[ML6(H)];if(!LP()&&X6H()&&!Zr8())z.push(lkK());if(z.push(Al3),Q5H())z.push(ckK());return z.push(nkK),z}function Jl3(H){}`,
 	}, "\n"))
 
-	if !applyClaudeUIPatches(data, "0.1.0", "2.1.153", modelconfig.Default()) {
-		t.Fatal("applyClaudeUIPatches reported no changes")
+	if !applyClaudeUIPatches_2_1_153(data, "0.1.0", "2.1.153", modelconfig.Default()) {
+		t.Fatal("applyClaudeUIPatches_2_1_153 reported no changes")
 	}
 	got := string(data)
 	for _, want := range []string{
@@ -82,6 +85,50 @@ func TestApplyClaudeUIPatchesBrandsHeaderAndModelPicker(t *testing.T) {
 		if strings.Contains(got, notWant) {
 			t.Fatalf("patched data still contains %q:\n%s", notWant, got)
 		}
+	}
+}
+
+func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
+	patch := findClaudeUIPatch("2.1.153", "449d9c89d7a63b1d427d912a7bd6e6f23f9a7b363866697c9fa9a0012546b254")
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		if patch == nil {
+			t.Fatal("expected local verified 2.1.153 darwin/arm64 patch to match")
+		}
+	} else if patch != nil {
+		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+	if got := findClaudeUIPatch("2.1.154", "449d9c89d7a63b1d427d912a7bd6e6f23f9a7b363866697c9fa9a0012546b254"); got != nil {
+		t.Fatalf("patch matched unsupported version: %#v", got)
+	}
+	if got := findClaudeUIPatch("2.1.153", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); got != nil {
+		t.Fatalf("patch matched unsupported sha: %#v", got)
+	}
+}
+
+func TestWarnClaudePatchSkippedMentionsPatchTargetAndIssue(t *testing.T) {
+	var stderr bytes.Buffer
+	warnClaudePatchSkipped(&stderr, "2.1.154", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", errClaudePatchUnsupported)
+	got := stderr.String()
+	for _, want := range []string{
+		"warning: Claudodex has no verified UI patch",
+		"Claude Code 2.1.154",
+		runtime.GOOS + "/" + runtime.GOARCH,
+		"sha256:ffffffffffff",
+		"launching with the unpatched Claude Code UI",
+		"https://github.com/bassner/claudodex/issues",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("warning missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestWarnClaudePatchSkippedHandlesPatchFailures(t *testing.T) {
+	var stderr bytes.Buffer
+	warnClaudePatchSkipped(&stderr, "2.1.153", "449d9c89d7a63b1d427d912a7bd6e6f23f9a7b363866697c9fa9a0012546b254", errors.New("boom"))
+	got := stderr.String()
+	if !strings.Contains(got, "could not prepare the UI patch") || !strings.Contains(got, "boom") {
+		t.Fatalf("warning = %q", got)
 	}
 }
 
