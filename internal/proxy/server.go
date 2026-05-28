@@ -322,9 +322,9 @@ func bootstrapResponse(modelCfg modelconfig.Config) map[string]any {
 	return map[string]any{
 		"client_data": nil,
 		"additional_model_options": []map[string]string{
-			{"model": "opus", "name": "Opus", "description": "Routes to " + modelCfg.Opus},
-			{"model": "sonnet", "name": "Sonnet", "description": "Routes to " + modelCfg.Sonnet},
-			{"model": "haiku", "name": "Haiku", "description": "Routes to " + modelCfg.Haiku},
+			{"model": modelconfig.WithLongContext(modelCfg.Opus), "name": modelCfg.Opus, "description": modelCfg.Opus + " - default complex-work model"},
+			{"model": modelconfig.WithLongContext(modelCfg.Sonnet), "name": modelCfg.Sonnet, "description": modelCfg.Sonnet + " - everyday coding model"},
+			{"model": modelconfig.WithLongContext(modelCfg.Haiku), "name": modelCfg.Haiku, "description": modelCfg.Haiku + " - quick-answer model"},
 		},
 	}
 }

@@ -92,8 +92,28 @@ func validClientVersion(version string) bool {
 }
 
 func modelsClientVersion(version string) string {
-	if validClientVersion(version) {
+	if validClientVersion(version) && !versionLess(version, DefaultModelsClientVersion) {
 		return version
 	}
 	return DefaultModelsClientVersion
+}
+
+func versionLess(left, right string) bool {
+	leftParts := strings.Split(left, ".")
+	rightParts := strings.Split(right, ".")
+	for i := 0; i < len(leftParts) && i < len(rightParts); i++ {
+		l, r := parseVersionPart(leftParts[i]), parseVersionPart(rightParts[i])
+		if l != r {
+			return l < r
+		}
+	}
+	return len(leftParts) < len(rightParts)
+}
+
+func parseVersionPart(part string) int {
+	value := 0
+	for _, ch := range part {
+		value = value*10 + int(ch-'0')
+	}
+	return value
 }

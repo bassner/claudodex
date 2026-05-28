@@ -86,6 +86,7 @@ func WithFriendlyCustomModelOption(envList []string, runtimeModel string) []stri
 }
 
 func applyPrivacyEnv(env map[string]string) {
+	env["CLAUDE_CODE_FORCE_FULL_LOGO"] = "1"
 	env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
 	env["DISABLE_TELEMETRY"] = "1"
 	env["DO_NOT_TRACK"] = "1"

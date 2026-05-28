@@ -244,6 +244,14 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 	if clientData["kelp_forest_sonnet"] != "300000" {
 		t.Fatalf("kelp_forest_sonnet = %#v, want 300000", clientData["kelp_forest_sonnet"])
 	}
+	options := globalConfig["additionalModelOptionsCache"].([]any)
+	if len(options) != 3 {
+		t.Fatalf("additional model options length = %d, want 3: %#v", len(options), options)
+	}
+	first := options[0].(map[string]any)
+	if first["value"] != "gpt-5.5[1m]" || first["label"] != "gpt-5.5" {
+		t.Fatalf("first additional model option = %#v", first)
+	}
 }
 
 func TestPrepareClaudeConfigSidecarConcurrentLaunches(t *testing.T) {

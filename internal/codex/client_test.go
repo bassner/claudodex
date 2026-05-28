@@ -157,3 +157,18 @@ func TestClientFetchModelsUsesProtocolVersionForInvalidDevVersion(t *testing.T) 
 		t.Fatal(err)
 	}
 }
+
+func TestClientFetchModelsUsesProtocolVersionForOlderProductVersion(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("client_version"); got != DefaultModelsClientVersion {
+			t.Fatalf("client_version = %q", got)
+		}
+		_, _ = io.WriteString(w, `{"models":[]}`)
+	}))
+	defer upstream.Close()
+
+	client := Client{BaseURL: upstream.URL, HTTPClient: upstream.Client(), Version: "0.1.0"}
+	if _, err := client.FetchModels(context.Background(), Credentials{AccessToken: "access-1"}); err != nil {
+		t.Fatal(err)
+	}
+}

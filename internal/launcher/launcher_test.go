@@ -82,6 +82,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		  echo "fc_overrides:$CLAUDE_INTERNAL_FC_OVERRIDES"
 		  echo "custom_model_option:$ANTHROPIC_CUSTOM_MODEL_OPTION"
 		  echo "custom_model_option_name:$ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"
+		  echo "full_logo:$CLAUDE_CODE_FORCE_FULL_LOGO"
 		  echo "nonessential:$CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"
   echo "telemetry:$DISABLE_TELEMETRY"
   echo "dnt:$DO_NOT_TRACK"
@@ -159,6 +160,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		`"contextWindow":400000`,
 		"custom_model_option:gpt-5.4[1m]",
 		"custom_model_option_name:gpt-5.4",
+		"full_logo:1",
 		"nonessential:1",
 		"telemetry:1",
 		"dnt:1",
@@ -194,6 +196,13 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 	globalConfig := mustReadJSONMap(t, filepath.Join(home, ".claudodex", "claude-config", claudeGlobalConfigName))
 	if got := globalConfig["clientDataCache"].(map[string]any)["kelp_forest_sonnet"]; got != "300000" {
 		t.Fatalf("kelp_forest_sonnet = %#v, want 300000", got)
+	}
+	modelOptions := globalConfig["additionalModelOptionsCache"].([]any)
+	if len(modelOptions) != 3 {
+		t.Fatalf("additional model options length = %d, want 3: %#v", len(modelOptions), modelOptions)
+	}
+	if got := modelOptions[0].(map[string]any)["value"]; got != "gpt-5.5[1m]" {
+		t.Fatalf("first additional model option value = %#v, want gpt-5.5[1m]", got)
 	}
 	if runtime.GOOS == "darwin" {
 		wantPrefix := "path:" + filepath.Join(home, ".claudodex", "claude-config", claudodexShimDirName) + string(os.PathListSeparator)

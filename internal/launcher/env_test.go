@@ -64,6 +64,7 @@ func TestBuildClaudeEnv(t *testing.T) {
 		"CLAUDODEX_STATUSLINE_SOURCE":              filepath.Join("/tmp/claudodex-claude", claudodexStatuslineSourceName),
 		"CLAUDE_CODE_AUTO_COMPACT_WINDOW":          "272000",
 		"CLAUDE_CODE_MAX_CONTEXT_TOKENS":           "272000",
+		"CLAUDE_CODE_FORCE_FULL_LOGO":              "1",
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
 		"DISABLE_TELEMETRY":                        "1",
 		"DO_NOT_TRACK":                             "1",
@@ -171,7 +172,7 @@ func TestBuildClaudePrivacyEnvDoesNotSetProxy(t *testing.T) {
 	if got["ANTHROPIC_BASE_URL"] != "http://old" {
 		t.Fatalf("ANTHROPIC_BASE_URL = %q", got["ANTHROPIC_BASE_URL"])
 	}
-	if got["DISABLE_GROWTHBOOK"] != "1" || got["DO_NOT_TRACK"] != "1" {
+	if got["CLAUDE_CODE_FORCE_FULL_LOGO"] != "1" || got["DISABLE_GROWTHBOOK"] != "1" || got["DO_NOT_TRACK"] != "1" {
 		t.Fatalf("privacy flags not forced: %#v", got)
 	}
 }

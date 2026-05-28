@@ -96,9 +96,39 @@ func writeClaudeContextCompatibilityCache(sidecarDir string, models []codex.Mode
 		}
 		clientData["kelp_forest_sonnet"] = strconv.FormatInt(modelContextWindow(models, modelCfg.Sonnet), 10)
 		next["clientDataCache"] = clientData
+		next["additionalModelOptionsCache"] = claudeAdditionalModelOptions(modelCfg)
 		if reflect.DeepEqual(config, next) {
 			return nil
 		}
 		return writeJSONFile(path, next, 0o600)
 	})
+}
+
+func claudeAdditionalModelOptions(modelCfg modelconfig.Config) []map[string]string {
+	modelCfg = modelCfg.Normalize()
+	specs := modelconfig.DirectRuntimeModelSpecs(modelCfg)
+	out := make([]map[string]string, 0, len(specs))
+	for _, spec := range specs {
+		target := modelCfg.Target(spec.Family)
+		out = append(out, map[string]string{
+			"value":       spec.ID,
+			"label":       modelconfig.StripLongContext(target),
+			"description": claudodexModelOptionDescription(spec.Family, target),
+		})
+	}
+	return out
+}
+
+func claudodexModelOptionDescription(family modelconfig.Family, target string) string {
+	target = modelconfig.StripLongContext(target)
+	switch family {
+	case modelconfig.FamilyOpus:
+		return target + " - default complex-work model"
+	case modelconfig.FamilySonnet:
+		return target + " - everyday coding model"
+	case modelconfig.FamilyHaiku:
+		return target + " - quick-answer model"
+	default:
+		return target
+	}
 }
