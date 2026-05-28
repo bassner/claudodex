@@ -28,6 +28,8 @@ func applyClaudeUIPatches_2_1_154(data []byte, claudodexVersion, claudeVersion s
 	changed = fastFooterPatched || changed
 	contextWarningHintPatched := patchContextWarningHint_2_1_154(data)
 	changed = contextWarningHintPatched || changed
+	resumeHintsPatched := patchResumeCommandHints_2_1_154(data)
+	changed = resumeHintsPatched || changed
 	changed = replaceAllFixed(data, "Check the Claude Code changelog for updates", claudodexInfoLine()) || changed
 	changed = replaceAllFixed(data, "What's new", "Info") || changed
 	changed = replaceAllFixed(data, "Welcome back!", "Welcome back") || changed
@@ -64,7 +66,7 @@ func applyClaudeUIPatches_2_1_154(data []byte, claudodexVersion, claudeVersion s
 	changed = replaceFirstFixed(data, "w_=h4()?", "w_=0?") || changed
 	modelPickerPatched := patchMaxModelPickerBase_2_1_154(data)
 	changed = modelPickerPatched || changed
-	if !versionPatched || !usagePatched || !whatsNewPatched || !defaultDescriptionPatched || !fastFooterPatched || !contextWarningHintPatched || !modelPickerPatched {
+	if !versionPatched || !usagePatched || !whatsNewPatched || !defaultDescriptionPatched || !fastFooterPatched || !contextWarningHintPatched || !resumeHintsPatched || !modelPickerPatched {
 		return false
 	}
 	return changed
@@ -145,6 +147,26 @@ func patchContextWarningHint_2_1_154(data []byte) bool {
 	const old = `let j=w,J=Y,M=!Gc()&&!VH_(K,O),D=!1;`
 	const replacement = `let j=0,J=Y,M=!Gc()&&!VH_(K,O),D=!1;`
 	return replaceFirstFixed(window, old, replacement)
+}
+
+func patchResumeCommandHints_2_1_154(data []byte) bool {
+	const shutdownOld = `Resume this session with:
+claude ${O}--resume ${q}
+`
+	const shutdownReplacement = `Resume with:
+claudodex ${O}--resume ${q}
+`
+	shutdownPatched := replaceFirstFixed(data, shutdownOld, shutdownReplacement)
+
+	changed := shutdownPatched
+	changed = replaceAllFixed(data, " resume with: claude --resume ", " resume: claudodex --resume ") || changed
+	changed = replaceAllFixed(data, "Run claude --continue or claude --resume to resume a conversation", "Run claudodex --resume to resume a conversation") || changed
+	changed = replaceAllFixed(data, "Open `claude agents` to attach to it, or stop it there first to resume here.", "Open `claudodex agents` to attach, or stop it there first to resume here.") || changed
+	changed = replaceAllFixed(data, "). Use `claude agents` to find and attach to it, or add --fork-session to branch off a copy.", "). Use `claudodex agents` to attach, or add --fork-session to branch off a copy.") || changed
+	changed = replaceAllFixed(data, "command:`cd ${AK([H.projectPath])} ${ce8()} claude --resume ${T}`", "command:`cd ${AK([H.projectPath])}; claudodex --resume ${T}`") || changed
+	changed = replaceAllFixed(data, `kO.default.createElement(V,{bold:!0},"claude agents")," to attach to it, or run:"`, `kO.default.createElement(V,{bold:!0},"claudodex agents")," or run:"`) || changed
+	changed = replaceAllFixed(data, `kO.default.createElement(V,null," ",$,"claude --resume ",q," --fork-session")`, `kO.default.createElement(V,null,$,"claudodex --resume ",q," --fork-session")`) || changed
+	return shutdownPatched && changed
 }
 
 func patchMaxModelPickerBase_2_1_154(data []byte) bool {

@@ -126,6 +126,13 @@ func TestApplyClaudeUIPatches154BrandsHeaderAndModelPicker(t *testing.T) {
 		`CLAUDE_LOCAL_OAUTH_API_BASE`,
 		`fetch(H+"/api/oauth/usage"`,
 		`let j=0,J=Y,M=!Gc()&&!VH_(K,O),D=!1;`,
+		"Resume with:\nclaudodex ${O}--resume ${q}\n",
+		" resume: claudodex --resume ",
+		"Run claudodex --resume to resume a conversation",
+		"Open `claudodex agents` to attach",
+		`command:` + "`" + `cd ${AK([H.projectPath])}; claudodex --resume ${T}` + "`",
+		`kO.default.createElement(V,{bold:!0},"claudodex agents")," or run:"`,
+		`kO.default.createElement(V,null,$,"claudodex --resume ",q," --fork-session")`,
 		`r=Y4.createElement(V,{bold:!0},"Claudodex")`,
 		`"Claudodex  "`,
 		`"0.1.0 using Claude Code v2.1.154"`,
@@ -157,6 +164,13 @@ func TestApplyClaudeUIPatches154BrandsHeaderAndModelPicker(t *testing.T) {
 		"_.push(Wi3(H))",
 		"_.push(Gi3())",
 		`let j=w,J=Y,M=!Gc()&&!VH_(K,O),D=!1;`,
+		"Resume this session with:\nclaude ${O}--resume ${q}\n",
+		" resume with: claude --resume ",
+		"Run claude --continue or claude --resume to resume a conversation",
+		"Open `claude agents`",
+		`command:` + "`" + `cd ${AK([H.projectPath])} ${ce8()} claude --resume ${T}` + "`",
+		`kO.default.createElement(V,{bold:!0},"claude agents")," to attach to it, or run:"`,
+		`kO.default.createElement(V,null," ",$,"claude --resume ",q," --fork-session")`,
 	} {
 		if strings.Contains(got, notWant) {
 			t.Fatalf("patched data still contains %q:\n%s", notWant, got)
@@ -177,6 +191,14 @@ func TestApplyClaudeUIPatches154FailsWhenCriticalContextHintPatchMissing(t *test
 
 	if applyClaudeUIPatches_2_1_154(data, "0.1.0", "2.1.154", modelconfig.Default()) {
 		t.Fatal("applyClaudeUIPatches_2_1_154 succeeded without the critical context hint patch target")
+	}
+}
+
+func TestApplyClaudeUIPatches154FailsWhenCriticalResumeHintPatchMissing(t *testing.T) {
+	data := []byte(strings.ReplaceAll(string(claude154PatchFixture(t)), "Resume this session with:", "Resume target missing:"))
+
+	if applyClaudeUIPatches_2_1_154(data, "0.1.0", "2.1.154", modelconfig.Default()) {
+		t.Fatal("applyClaudeUIPatches_2_1_154 succeeded without the critical resume hint patch target")
 	}
 }
 
@@ -223,6 +245,16 @@ func claude154PatchFixture(t *testing.T) []byte {
 		`var bR_=R(()=>{Jq();lH();t2();Y6();fX()});`,
 		`function qpK(H){let _=H.map((K)=>{return{text:K}}),q="Check the Claude Code changelog for updates";return{title:"What's new",lines:_,footer:_.length>0?"/release-notes for more":void 0,emptyMessage:"Check the Claude Code changelog for updates"}}`,
 		`function d44(H){let _=Q44.c(15),{tokenUsage:q,model:K}=H,O=M_(NZO),T;if(_[0]!==O||_[1]!==K||_[2]!==q)T=XSH(q,K,O),_[0]=O,_[1]=K,_[2]=q,_[3]=T;else T=_[3];let $=T,z=sE6();if($.level==="ok"||z)return null;let Y=$.pctLeft,A=fG(),w;if(_[4]===Symbol.for("react.memo_cache_sentinel"))w=CrH("warning"),_[4]=w;else w=_[4];let j=w,J=Y,M=!Gc()&&!VH_(K,O),D=!1;if(M||D){let Z=$qH(K,O),W;if(_[5]!==Z||_[6]!==q)W=Math.round((Z-q)/Z*100),_[5]=Z,_[6]=q,_[7]=W;else W=_[7];J=Math.max(0,W)}let f=M?` + "`" + `${100-J}% context used` + "`" + `:` + "`" + `${J}% until auto-compact` + "`" + `;if(A){let Z=j?` + "`" + `${f} \xB7 ${j}` + "`" + `:f,W;if(_[9]!==Z)W=ly_.createElement(V,{dimColor:!0,wrap:"truncate"},Z),_[9]=Z,_[10]=W;else W=_[10];return W}let X;if(_[11]!==Y)X=j?` + "`" + `Context low (${Y}% remaining) \xB7 ${j}` + "`" + `:xH(process.env.DISABLE_COMPACT)?` + "`" + `Context low (${Y}% remaining)` + "`" + `:` + "`" + `Context low (${Y}% remaining) \xB7 Run /compact to compact & continue` + "`" + `,_[11]=Y,_[12]=X;else X=_[12];let P;if(_[13]!==X)P=ly_.createElement(V,{color:"error",wrap:"truncate"},X),_[13]=X,_[14]=P;else P=_[14];return P}function NZO(H){return H.autoCompactWindow}`,
+		`Resume this session with:
+claude ${O}--resume ${q}
+`,
+		`Previous session saved \xB7 resume with: claude --resume ${I}`,
+		`Run claude --continue or claude --resume to resume a conversation`,
+		`Open ` + "`" + `claude agents` + "`" + ` to attach to it, or stop it there first to resume here.`,
+		`). Use ` + "`" + `claude agents` + "`" + ` to find and attach to it, or add --fork-session to branch off a copy.`,
+		`command:` + "`" + `cd ${AK([H.projectPath])} ${ce8()} claude --resume ${T}` + "`",
+		`kO.default.createElement(V,{bold:!0},"claude agents")," to attach to it, or run:"`,
+		`kO.default.createElement(V,null," ",$,"claude --resume ",q," --fork-session")`,
 		`function ki3(H=!1){if(Lq()){if(pe()||RAH()||UUH()){let $=[cL6(H)];if(!VP()&&to()&&!Lo8())$.push(zNK());if($.push(Ri3),s5H())$.push($NK());return $.push(YNK),$}let T=[cL6(H)];if(s5H())T.push($NK());if(VP())T.push(MNK(!1));else if(T.push(JNK(!1)),to()&&!Lo8())T.push(zNK());return T.push(YNK),T}if(UT()){let T=[cL6(H)],$=qNK();if($!==void 0)T.push($);else if(!VP()&&to()&&!Lo8())T.push(ONK(H));let z=HNK();if(z!==void 0)T.push(z);else if(T.push(_NK()),s5H())T.push(KNK());return T.push(TNK()??jNK()),T}let _=[cL6(H)],q=HNK();if(q!==void 0)_.push(q);else if(_.push(_NK()),s5H())_.push(KNK());let K=qNK();if(K!==void 0)_.push(K);else{if(_.push(fi3()),_.push(Pi3()),to()&&!Ie(zO().opus48))_.push(ONK());if(_.push(ANK()),to()&&!Ie(zO().opus47))_.push(wNK());if(_.push(Xi3()),to())_.push(Wi3(H))}let O=TNK();if(O!==void 0)_.push(O);else _.push(Gi3());return _}function Vi3(H){}`,
 	}, "\n"))
 }
@@ -244,7 +276,18 @@ func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 	} else if patch != nil {
 		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
+	patch = findClaudeUIPatch("2.1.156", "9c1e8601031f5cbb3101e49dda22bf8ba31183692c705e267a6923585fa2ba09")
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		if patch == nil {
+			t.Fatal("expected local verified 2.1.156 darwin/arm64 patch to match")
+		}
+	} else if patch != nil {
+		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
 	if got := findClaudeUIPatch("2.1.154", "449d9c89d7a63b1d427d912a7bd6e6f23f9a7b363866697c9fa9a0012546b254"); got != nil {
+		t.Fatalf("patch matched unsupported sha: %#v", got)
+	}
+	if got := findClaudeUIPatch("2.1.156", "bc9881b107d7be1743c64c8b72dd66798f5d0947dbc48ed0d77964c473661fd4"); got != nil {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
 	if got := findClaudeUIPatch("2.1.153", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); got != nil {
