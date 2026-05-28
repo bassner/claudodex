@@ -19,7 +19,7 @@ import (
 
 const (
 	claudodexPatchedClaudeDirName = "patched-claude"
-	claudodexPatchSchemaVersion   = "claude-ui-patch-v5"
+	claudodexPatchSchemaVersion   = "claude-ui-patch-v6"
 )
 
 func prepareClaudeExecutable(ctx context.Context, home, claudePath, claudodexVersion string, modelCfg modelconfig.Config) string {
@@ -159,8 +159,9 @@ func looksLikeVersion(value string) bool {
 
 func applyClaudeUIPatches(data []byte, claudodexVersion, claudeVersion string, modelCfg modelconfig.Config) bool {
 	changed := false
-	changed = replaceAllFixed(data, "Check the Claude Code changelog for updates", claudodexNewsLine(claudodexVersion, claudeVersion)) || changed
-	changed = replaceAllFixed(data, "What's new", "Codex news") || changed
+	changed = replaceAllFixed(data, "Check the Claude Code changelog for updates", claudodexInfoLine()) || changed
+	changed = replaceAllFixed(data, "What's new", "Info") || changed
+	changed = replaceAllFixed(data, "Welcome back!", "Welcome back") || changed
 	changed = replaceAllFixed(data, "Claude Max", "Codex Plan") || changed
 	changed = replaceAllFixed(data, "Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model.", "Switch between Codex-backed models. Your pick becomes the default for new sessions. For direct model names, use --model.") || changed
 	changed = replaceAllFixed(data, "Select model", "Codex model") || changed
@@ -180,16 +181,8 @@ func applyClaudeUIPatches(data []byte, claudodexVersion, claudeVersion string, m
 	return changed
 }
 
-func claudodexNewsLine(claudodexVersion, claudeVersion string) string {
-	claudodexVersion = strings.TrimSpace(claudodexVersion)
-	if claudodexVersion == "" {
-		claudodexVersion = "dev"
-	}
-	claudeVersion = strings.TrimSpace(claudeVersion)
-	if claudeVersion == "" {
-		claudeVersion = "unknown"
-	}
-	return "Claudodex v" + claudodexVersion + " using Claude Code v" + claudeVersion
+func claudodexInfoLine() string {
+	return "Issues: github.com/bassner/claudodex/issues"
 }
 
 func quotedVersion(version string) string {

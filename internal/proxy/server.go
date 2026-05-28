@@ -177,7 +177,7 @@ func claudeProfileResponse() map[string]any {
 			"uuid":          "00000000-0000-4000-8000-000000000001",
 			"email":         "claudodex@local",
 			"email_address": "claudodex@local",
-			"display_name":  "Claudodex",
+			"display_name":  "",
 			"created_at":    "2026-01-01T00:00:00Z",
 		},
 		"organization": map[string]any{

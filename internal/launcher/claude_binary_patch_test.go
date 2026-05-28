@@ -11,6 +11,7 @@ func TestApplyClaudeUIPatchesBrandsHeaderAndModelPicker(t *testing.T) {
 	data := []byte(strings.Join([]string{
 		`Check the Claude Code changelog for updates`,
 		`What's new`,
+		`Welcome back!`,
 		`Claude Max`,
 		`Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model.`,
 		`Select model`,
@@ -33,8 +34,9 @@ func TestApplyClaudeUIPatchesBrandsHeaderAndModelPicker(t *testing.T) {
 	}
 	got := string(data)
 	for _, want := range []string{
-		"Claudodex v0.1.0 using Claude Code v2.1.153",
-		"Codex news",
+		"Issues: github.com/bassner/claudodex/issues",
+		"Info",
+		"Welcome back",
 		"Codex Plan",
 		"Switch between Codex-backed models.",
 		"Codex model",
