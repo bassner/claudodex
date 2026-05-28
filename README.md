@@ -1,72 +1,113 @@
-# Claudodex
+<p align="center">
+  <img src="assets/claudodex-logo.svg" alt="Claudodex" width="620">
+</p>
 
-Claudodex is a focused Claude Code launcher/proxy for Codex subscription
-models. It runs the installed `claude` binary, points it at a local
-Anthropic-compatible proxy, and sends model requests to the Codex/ChatGPT
-backend.
+<p align="center">
+  <strong>Claude Code, routed through your OpenAI Codex subscription.</strong>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0f766e"></a>
+  <img alt="Language: Go" src="https://img.shields.io/badge/language-Go-2563eb">
+  <img alt="Status: experimental" src="https://img.shields.io/badge/status-experimental-b45309">
+</p>
+
+Claudodex is a focused launcher and compatibility proxy for running the real
+`claude` binary against OpenAI Codex subscription models. It is not a
+multi-provider proxy, not a Codex CLI wrapper, and not a replacement terminal
+UI. You still use Claude Code. Claudodex swaps the model backend.
 
 ```text
-human -> claudodex -> installed claude -> local proxy -> Codex Responses
+you -> claudodex -> installed claude -> local Anthropic-compatible proxy -> Codex
 ```
 
-It is intentionally not a multi-provider proxy and does not use Codex CLI as the
-interactive runtime.
+## What It Does
+
+- Runs your installed `claude` binary with normal Claude Code flags.
+- Authenticates to OpenAI through `claudodex clx:auth-login`.
+- Maps Claude model families to Codex models:
+  - Opus -> `gpt-5.5`
+  - Sonnet -> `gpt-5.4`
+  - Haiku -> `gpt-5.4-mini`
+- Maps Claude Code `max` effort to Codex `xhigh`.
+- Fetches live Codex model metadata for context windows, model capabilities, and
+  auto-compact limits.
+- Keeps Claude Code settings shared with normal Claude Code while keeping
+  Claudodex auth isolated.
+- Sets Claude privacy flags by default:
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, `DISABLE_TELEMETRY=1`,
+  `DO_NOT_TRACK=1`, and `DISABLE_GROWTHBOOK=1`.
+- Provides Codex-backed usage through `claudodex clx:usage`.
 
 ## Current Status
 
-The Go implementation has the core path in place:
+Claudodex is experimental. The core request path, streaming conversion, OAuth,
+usage mapping, settings sync, model metadata, and installed-Claude smoke tests
+are implemented. The project intentionally stays narrow: Claude Code to Codex
+subscription models only.
 
-- first-run OpenAI OAuth token storage under `~/.claudodex`
-- launcher pass-through for normal Claude Code flags
-- required Claude privacy env vars set to `1`
-- Claude settings shared with normal Claude Code while Claudodex auth stays
-  isolated
-- Opus/Sonnet/Haiku mapped by default to
-  `gpt-5.5`/`gpt-5.4`/`gpt-5.4-mini`
-- Claude-facing model IDs use Claude Code's `[1m]` suffix and
-  `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is capped from live Codex metadata, so
-  auto-compact can trigger at the real Codex context limit without patching the
-  Claude binary
-- Claude-facing `/v1/models`, model capability cache, statusline context, and
-  auto-compact limits all use the same live Codex model metadata
-- shared Claude settings keep Claude-safe model aliases (`opus`, `sonnet`,
-  `haiku`) even when Claudodex runs the corresponding Codex runtime models
-- unknown models falling back to the configured Opus target
-- Claude `max` effort mapped to Codex `xhigh`
-- `POST /v1/messages` backed by Codex Responses HTTP SSE
-- `/api/oauth/usage` backed by Codex `/wham/usage`
-- fake-upstream tests for request conversion, streaming, usage, errors, and
-  token refresh retry
-- opt-in installed-`claude` smoke test for `claudodex -p` against a fake Codex
-  upstream
-- live installed-`claude` smoke coverage against a real Codex login when local
-  credentials are available
+The polished Claude Code UI branding patch is currently gated to known Claude
+Code binaries by OS, architecture, version, and SHA. Unsupported Claude Code
+versions still launch, but without UI patching. The rest of the compatibility
+layer is designed to keep working when Claude Code updates.
 
-The remaining documented caveat is Claude Code's own built-in interactive
-`/usage` privacy gate. Claudodex's Codex-backed usage endpoint and `clx:usage`
-are implemented and live-tested.
+## Requirements
+
+- Go 1.25 or newer.
+- A working `claude` binary on `PATH`.
+- An OpenAI account with Codex subscription access.
+- macOS arm64 for the current verified UI patch. Other platforms may run
+  unpatched, but are not the main tested path yet.
 
 ## Install From Source
 
 ```sh
-go build ./cmd/claudodex
+git clone https://github.com/bassner/claudodex.git
+cd claudodex
+go build -o claudodex ./cmd/claudodex
 install -m 0755 claudodex /usr/local/bin/claudodex
 ```
 
-`claude` must already be installed and callable on `PATH`.
-
-## First Run
+Verify both binaries are callable:
 
 ```sh
-claudodex clx:auth-login
-claudodex clx:doctor
-claudodex
+claude --version
+claudodex clx:version
 ```
 
-`clx:auth-login` opens OpenAI OAuth and stores tokens in Claudodex's own auth
-file. It does not copy from or write to `~/.codex`. The browser flow uses the
-registered Codex callback ports `1455`/`1457`, matching the working
-Claudish/opencode OAuth shape.
+## Getting Started
+
+1. Log in to OpenAI:
+
+   ```sh
+   claudodex clx:auth-login
+   ```
+
+2. Check the local setup:
+
+   ```sh
+   claudodex clx:doctor
+   ```
+
+3. Start Claude Code through Claudodex:
+
+   ```sh
+   claudodex
+   ```
+
+4. Or run a one-shot prompt:
+
+   ```sh
+   claudodex -p "Reply with exactly: ok"
+   ```
+
+All normal Claude Code arguments are passed through:
+
+```sh
+claudodex --model opus
+claudodex --model sonnet --dangerously-skip-permissions
+claudodex --continue
+```
 
 ## Commands
 
@@ -77,22 +118,16 @@ claudodex clx:auth-logout
 claudodex clx:doctor
 claudodex clx:usage
 claudodex clx:reset-installation-id
+claudodex clx:serve --host 127.0.0.1 --port 0
 claudodex [normal claude args...]
 ```
 
-All other arguments are passed to `claude`. `claudodex --help` and
-`claudodex --version` intentionally execute `claude` directly.
+`claudodex --help` and `claudodex --version` intentionally execute `claude`
+directly. Use `claudodex clx:version` for the Claudodex version.
 
 ## Model Overrides
 
-The default Codex targets are centralized in Claudodex's model catalog:
-
-- Opus -> `gpt-5.5`
-- Sonnet -> `gpt-5.4`
-- Haiku -> `gpt-5.4-mini`
-
-Override them at startup with Claudodex-only flags. These flags are consumed by
-Claudodex and are not passed to `claude`:
+Default model targets are centralized and can be changed at startup:
 
 ```sh
 claudodex --claudodex-opus-model gpt-opus-next
@@ -101,77 +136,74 @@ claudodex --claudodex-haiku-model gpt-haiku-next
 claudodex --claudodex-models opus=gpt-opus-next,sonnet=gpt-sonnet-next,haiku=gpt-haiku-next
 ```
 
-Overrides affect request routing, Claude model arg rewriting, `/v1/models`,
-model capability cache, statusline context, auto-compact limits, effort
-handling, and shared settings normalization. The selected target models must be
-present in live Codex `/codex/models` metadata with context-window information.
+Overrides affect routing, model argument rewriting, `/v1/models`, capability
+cache, statusline context, auto-compact limits, effort handling, and settings
+normalization. The selected Codex models must appear in live Codex model
+metadata with context-window information.
 
-## Claude Code Settings
+## Settings And Privacy
 
-Claudodex uses Claude Code's normal settings surface. Files under
-`~/.claude/`, such as `settings.json`, agents, plugins, MCP config, and project
-state, are symlinked into Claudodex's Claude config sidecar so changes are
-visible to normal `claude` and `claudodex`.
+Claudodex uses a Claude Code compatibility sidecar under `~/.claudodex`, but
+normal Claude Code settings remain the source of truth where possible:
 
-The global `~/.claude.json` file is mirrored instead of symlinked because it
-also contains account and API-key state. Claudodex reconciles non-auth settings
-both ways before launch, while Claude is running, and during shutdown, using
-Claude-compatible lock files and a three-way merge. This matches Claude Code's
-own multi-instance behavior: it writes global config under `<config>.lock` and
-polls the file every second for changes from other running instances. Multiple
-`claudodex` instances share the same sidecar and reconcile it instead of
-resetting it.
-When Claude Code's host-managed model picker reports that a new default model
-was saved, Claudodex mirrors that transcript event back into shared settings as
-the Claude-safe aliases `opus`, `sonnet`, or `haiku`.
-Anthropic account/API-key fields stay in normal Claude Code; Claudodex keeps
-its fake Claude OAuth state only in its sidecar. On macOS, Claudodex also sets
-Claude secure storage to that sidecar and places a private `security` shim in
-the Claude child `PATH` so Claude Code's own secure-storage layer uses the
-sidecar `.credentials.json` fallback instead of prompting for a Keychain write
-for the fake local OAuth credentials.
+- `~/.claude/` files such as settings, agents, plugins, MCP config, and project
+  state are symlinked into the sidecar.
+- `~/.claude.json` is mirrored instead of symlinked because it also contains
+  account and API-key state.
+- Non-auth settings are reconciled before launch, while Claude is running, and
+  during shutdown.
+- Fake Claude OAuth state for the local compatibility layer stays isolated in
+  Claudodex's sidecar.
 
-Claudodex also uses an internal HTTPS proxy so Claude Code's hardcoded
-`api.anthropic.com` bootstrap calls are handled locally. Shell/tool subprocesses
-restore the user's original proxy and shell environment before running, so Bash
-commands do not inherit Claudodex's internal proxy.
+Claudodex also restores the user's original proxy and shell environment for
+Claude Code tool subprocesses, so Bash commands do not inherit Claudodex's
+internal API proxy.
 
 ## Diagnostics
 
-`clx:doctor` checks:
+```sh
+claudodex clx:doctor
+claudodex clx:usage
+```
 
-- `claude` is installed
-- `codex` is installed when available, as a warning only
-- Claudodex auth is present
-- Codex `/wham/usage` can be fetched and mapped when logged in
+`clx:doctor` checks whether `claude` is installed, whether Claudodex auth is
+present, and whether Codex usage is reachable. `clx:usage` prints Codex-backed
+usage windows directly.
 
-`clx:usage` prints the same Codex-backed usage mapping directly from
-Claudodex. This remains available even when Claude Code suppresses
-nonessential first-party UI calls because `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
-is set.
+Claude Code's built-in `/usage` command is still subject to Claude Code's own
+essential-traffic privacy gate. Claudodex keeps that privacy flag enabled, so
+`clx:usage` is the reliable usage command for now.
 
-## Verification
+## Development
 
 ```sh
 gofmt -w $(find . -path ./other_repos -prune -o -name '*.go' -print)
 go test -count=1 ./...
 go vet ./...
-go build ./cmd/claudodex
-CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 go test -count=1 ./internal/launcher -run TestInstalledClaudePrintSmokeWithFakeCodexUpstream -v
-./claudodex -p "Reply with exactly: ok" --model claude-sonnet-4-6 --dangerously-skip-permissions --max-turns 2
+go build -o ./claudodex ./cmd/claudodex
+```
+
+Optional installed-Claude smoke test:
+
+```sh
+CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 \
+  go test -count=1 ./internal/launcher \
+  -run TestInstalledClaudePrintSmokeWithFakeCodexUpstream -v
+```
+
+Live checks require a completed `clx:auth-login`:
+
+```sh
+./claudodex -p "Reply with exactly: ok"
 ./claudodex clx:usage
 ```
 
-The installed-Claude smoke uses local fake Claudodex auth and a fake Codex
-`/codex/responses` upstream. It does not require live Codex credentials.
-The two `./claudodex` commands require `clx:auth-login` to have completed.
+## Contributing
 
-## Known Acceptance Gap
+Contributions are welcome, especially compatibility fixes for new Claude Code
+versions and Codex response shapes. Please read [CONTRIBUTING.md](CONTRIBUTING.md)
+before opening a pull request.
 
-The proxy `/api/oauth/usage` route is implemented and tested against Codex
-usage fixtures. Installed Claude Code 2.1.152 executes `/usage`, but its
-first-party API helper returns `essential-traffic-only` before network when
-`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` is present. Claudodex keeps that
-required privacy flag set, so the built-in interactive `/usage` panel remains
-blocked by Claude Code itself. Use `clx:usage` until there is a supported way to
-mark `/api/oauth/usage` as essential traffic or bypass that specific gate.
+## License
+
+MIT. See [LICENSE](LICENSE).
