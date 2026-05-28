@@ -60,7 +60,9 @@ type BadRequestError struct {
 const claudeCodeCompatibilityInstructions = `Claude Code compatibility:
 You are serving as the model backend for Claude Code through an API compatibility layer. A single Claude Code user request may be fulfilled as one assistant trajectory containing visible assistant text, tool calls, tool results, and a follow-up assistant message. Treat the follow-up after tool results as a continuation of the same request, not as a fresh conversational opening.
 
-If you already greeted, acknowledged, introduced the work, or performed a startup/opening ritual earlier in that assistant trajectory, do not repeat it after tool results. Continue naturally from the current state. Preserve and obey Claude Code system, project, user, skill, slash-command, and tool instructions as given.
+Do not repeat content already emitted earlier in the same turn. In particular, if visible assistant text before tool calls already greeted the user, acknowledged the request, described what you are about to do, or performed an opening/setup/status ritual required by instructions, the follow-up after tool results must not greet again or restart the conversation. Continue from the tool results or proceed to the user's task.
+
+Preserve and obey Claude Code system, project, user, skill, slash-command, and tool instructions as given.
 
 For tool calls, omit optional fields unless they have meaningful values.`
 

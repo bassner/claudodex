@@ -39,6 +39,9 @@ func TestAnthropicToCodexStripsBillingAndMapsMaxEffortToXHigh(t *testing.T) {
 	if !strings.Contains(got.Request.Instructions, "Treat the follow-up after tool results as a continuation of the same request") {
 		t.Fatalf("compatibility instructions missing: %q", got.Request.Instructions)
 	}
+	if !strings.Contains(got.Request.Instructions, "the follow-up after tool results must not greet again or restart the conversation") {
+		t.Fatalf("same-turn greeting guard missing: %q", got.Request.Instructions)
+	}
 	if got.Request.PromptCacheKey != "session-1" {
 		t.Fatalf("prompt_cache_key = %q", got.Request.PromptCacheKey)
 	}

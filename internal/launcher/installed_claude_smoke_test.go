@@ -100,4 +100,8 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 	if captured["model"] != "gpt-5.4" {
 		t.Fatalf("upstream model = %#v, want gpt-5.4; request=%#v", captured["model"], captured)
 	}
+	instructions, _ := captured["instructions"].(string)
+	if !strings.Contains(instructions, "the follow-up after tool results must not greet again or restart the conversation") {
+		t.Fatalf("installed Claude request is missing Claudodex same-turn greeting guard; instructions=%q request=%#v", instructions, captured)
+	}
 }
