@@ -88,7 +88,7 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 	if len(input) == 0 {
 		input = append(input, messageItem("user", []codex.ContentPart{{Type: "input_text", Text: ""}}))
 	}
-	stream := true
+	stream := false
 	if req.Stream != nil {
 		stream = *req.Stream
 	}

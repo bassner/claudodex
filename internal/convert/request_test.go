@@ -51,6 +51,12 @@ func TestAnthropicToCodexStripsBillingAndMapsMaxEffortToXHigh(t *testing.T) {
 	if got.Request.PromptCacheKey != "session-1" {
 		t.Fatalf("prompt_cache_key = %q", got.Request.PromptCacheKey)
 	}
+	if got.Stream {
+		t.Fatalf("omitted Anthropic stream flag mapped to streaming response")
+	}
+	if !got.Request.Stream {
+		t.Fatalf("Codex upstream request must stay streaming for conversion")
+	}
 }
 
 func TestAnthropicToCodexAddsCompatibilityInstructionsWithoutSystemPrompt(t *testing.T) {

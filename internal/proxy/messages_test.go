@@ -136,13 +136,16 @@ func TestMessagesNonStreamingAssemblesMessage(t *testing.T) {
 	}
 	defer server.Close()
 
-	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-opus-4-6","stream":false,"messages":[{"role":"user","content":"x"}]}`))
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-opus-4-6","messages":[{"role":"user","content":"x"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("content-type"); !strings.HasPrefix(got, "application/json") {
+		t.Fatalf("content-type = %q, want JSON for omitted stream flag", got)
 	}
 	var body struct {
 		Content []struct {
