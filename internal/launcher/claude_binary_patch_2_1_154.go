@@ -26,6 +26,8 @@ func applyClaudeUIPatches_2_1_154(data []byte, claudodexVersion, claudeVersion s
 	changed = defaultDescriptionPatched || changed
 	fastFooterPatched := patchFastModeModelPickerFooter_2_1_154(data)
 	changed = fastFooterPatched || changed
+	contextWarningHintPatched := patchContextWarningHint_2_1_154(data)
+	changed = contextWarningHintPatched || changed
 	changed = replaceAllFixed(data, "Check the Claude Code changelog for updates", claudodexInfoLine()) || changed
 	changed = replaceAllFixed(data, "What's new", "Info") || changed
 	changed = replaceAllFixed(data, "Welcome back!", "Welcome back") || changed
@@ -62,7 +64,7 @@ func applyClaudeUIPatches_2_1_154(data []byte, claudodexVersion, claudeVersion s
 	changed = replaceFirstFixed(data, "w_=h4()?", "w_=0?") || changed
 	modelPickerPatched := patchMaxModelPickerBase_2_1_154(data)
 	changed = modelPickerPatched || changed
-	if !versionPatched || !usagePatched || !whatsNewPatched || !defaultDescriptionPatched || !fastFooterPatched || !modelPickerPatched {
+	if !versionPatched || !usagePatched || !whatsNewPatched || !defaultDescriptionPatched || !fastFooterPatched || !contextWarningHintPatched || !modelPickerPatched {
 		return false
 	}
 	return changed
@@ -128,6 +130,21 @@ func patchFastModeModelPickerFooter_2_1_154(data []byte) bool {
 	const old = `X4.createElement(V,{dimColor:!0},"Use ",X4.createElement(V,{bold:!0},"/fast")," to turn on Fast mode (",Bp(),").")`
 	const replacement = `X4.createElement(V,{dimColor:!0},"Use ",X4.createElement(V,{bold:!0},"/fast")," to toggle Fast mode.")`
 	return replaceFirstFixed(data, old, replacement)
+}
+
+func patchContextWarningHint_2_1_154(data []byte) bool {
+	start := bytes.Index(data, []byte("function d44(H){"))
+	if start < 0 {
+		return false
+	}
+	end := bytes.Index(data[start:], []byte("function NZO(H){"))
+	if end < 0 {
+		return false
+	}
+	window := data[start : start+end]
+	const old = `let j=w,J=Y,M=!Gc()&&!VH_(K,O),D=!1;`
+	const replacement = `let j=0,J=Y,M=!Gc()&&!VH_(K,O),D=!1;`
+	return replaceFirstFixed(window, old, replacement)
 }
 
 func patchMaxModelPickerBase_2_1_154(data []byte) bool {

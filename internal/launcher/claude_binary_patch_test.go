@@ -125,6 +125,7 @@ func TestApplyClaudeUIPatches154BrandsHeaderAndModelPicker(t *testing.T) {
 		`function or_(H=!1){return"Default Codex route \xB7 default Codex work"}`,
 		`CLAUDE_LOCAL_OAUTH_API_BASE`,
 		`fetch(H+"/api/oauth/usage"`,
+		`let j=0,J=Y,M=!Gc()&&!VH_(K,O),D=!1;`,
 		`r=Y4.createElement(V,{bold:!0},"Claudodex")`,
 		`"Claudodex  "`,
 		`"0.1.0 using Claude Code v2.1.154"`,
@@ -155,6 +156,7 @@ func TestApplyClaudeUIPatches154BrandsHeaderAndModelPicker(t *testing.T) {
 		"_.push(Xi3())",
 		"_.push(Wi3(H))",
 		"_.push(Gi3())",
+		`let j=w,J=Y,M=!Gc()&&!VH_(K,O),D=!1;`,
 	} {
 		if strings.Contains(got, notWant) {
 			t.Fatalf("patched data still contains %q:\n%s", notWant, got)
@@ -167,6 +169,14 @@ func TestApplyClaudeUIPatches154FailsWhenCriticalUsagePatchMissing(t *testing.T)
 
 	if applyClaudeUIPatches_2_1_154(data, "0.1.0", "2.1.154", modelconfig.Default()) {
 		t.Fatal("applyClaudeUIPatches_2_1_154 succeeded without the critical usage patch target")
+	}
+}
+
+func TestApplyClaudeUIPatches154FailsWhenCriticalContextHintPatchMissing(t *testing.T) {
+	data := []byte(strings.ReplaceAll(string(claude154PatchFixture(t)), "function d44(H){", "function MISSING_d44(H){"))
+
+	if applyClaudeUIPatches_2_1_154(data, "0.1.0", "2.1.154", modelconfig.Default()) {
+		t.Fatal("applyClaudeUIPatches_2_1_154 succeeded without the critical context hint patch target")
 	}
 }
 
@@ -212,6 +222,7 @@ func claude154PatchFixture(t *testing.T) []byte {
 		`async function WXH(){return DK("api_usage_fetch",async()=>{if(!Lq()||!$k())return{};let H=0,_=await iZ(async()=>{H++,N(` + "`" + `fetchUtilization: GET /api/oauth/usage (attempt ${H})` + "`" + `);let q=await r7.get("/api/oauth/usage",{timeout:5000,headers:{"Content-Type":"application/json"},refreshOAuth:!0});if(!q.ok)throw Error(` + "`" + `Auth error: ${q.reason==="no-auth"?q.detail:q.reason}` + "`" + `);return q});return N(` + "`" + `fetchUtilization: 200 after ${H} attempt(s)${H>1?" (401\u2192refresh\u2192retry succeeded)":""}` + "`" + `),_.data})}`,
 		`var bR_=R(()=>{Jq();lH();t2();Y6();fX()});`,
 		`function qpK(H){let _=H.map((K)=>{return{text:K}}),q="Check the Claude Code changelog for updates";return{title:"What's new",lines:_,footer:_.length>0?"/release-notes for more":void 0,emptyMessage:"Check the Claude Code changelog for updates"}}`,
+		`function d44(H){let _=Q44.c(15),{tokenUsage:q,model:K}=H,O=M_(NZO),T;if(_[0]!==O||_[1]!==K||_[2]!==q)T=XSH(q,K,O),_[0]=O,_[1]=K,_[2]=q,_[3]=T;else T=_[3];let $=T,z=sE6();if($.level==="ok"||z)return null;let Y=$.pctLeft,A=fG(),w;if(_[4]===Symbol.for("react.memo_cache_sentinel"))w=CrH("warning"),_[4]=w;else w=_[4];let j=w,J=Y,M=!Gc()&&!VH_(K,O),D=!1;if(M||D){let Z=$qH(K,O),W;if(_[5]!==Z||_[6]!==q)W=Math.round((Z-q)/Z*100),_[5]=Z,_[6]=q,_[7]=W;else W=_[7];J=Math.max(0,W)}let f=M?` + "`" + `${100-J}% context used` + "`" + `:` + "`" + `${J}% until auto-compact` + "`" + `;if(A){let Z=j?` + "`" + `${f} \xB7 ${j}` + "`" + `:f,W;if(_[9]!==Z)W=ly_.createElement(V,{dimColor:!0,wrap:"truncate"},Z),_[9]=Z,_[10]=W;else W=_[10];return W}let X;if(_[11]!==Y)X=j?` + "`" + `Context low (${Y}% remaining) \xB7 ${j}` + "`" + `:xH(process.env.DISABLE_COMPACT)?` + "`" + `Context low (${Y}% remaining)` + "`" + `:` + "`" + `Context low (${Y}% remaining) \xB7 Run /compact to compact & continue` + "`" + `,_[11]=Y,_[12]=X;else X=_[12];let P;if(_[13]!==X)P=ly_.createElement(V,{color:"error",wrap:"truncate"},X),_[13]=X,_[14]=P;else P=_[14];return P}function NZO(H){return H.autoCompactWindow}`,
 		`function ki3(H=!1){if(Lq()){if(pe()||RAH()||UUH()){let $=[cL6(H)];if(!VP()&&to()&&!Lo8())$.push(zNK());if($.push(Ri3),s5H())$.push($NK());return $.push(YNK),$}let T=[cL6(H)];if(s5H())T.push($NK());if(VP())T.push(MNK(!1));else if(T.push(JNK(!1)),to()&&!Lo8())T.push(zNK());return T.push(YNK),T}if(UT()){let T=[cL6(H)],$=qNK();if($!==void 0)T.push($);else if(!VP()&&to()&&!Lo8())T.push(ONK(H));let z=HNK();if(z!==void 0)T.push(z);else if(T.push(_NK()),s5H())T.push(KNK());return T.push(TNK()??jNK()),T}let _=[cL6(H)],q=HNK();if(q!==void 0)_.push(q);else if(_.push(_NK()),s5H())_.push(KNK());let K=qNK();if(K!==void 0)_.push(K);else{if(_.push(fi3()),_.push(Pi3()),to()&&!Ie(zO().opus48))_.push(ONK());if(_.push(ANK()),to()&&!Ie(zO().opus47))_.push(wNK());if(_.push(Xi3()),to())_.push(Wi3(H))}let O=TNK();if(O!==void 0)_.push(O);else _.push(Gi3());return _}function Vi3(H){}`,
 	}, "\n"))
 }
