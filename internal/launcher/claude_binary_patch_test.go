@@ -136,9 +136,9 @@ func TestApplyClaudeUIPatches154BrandsHeaderAndModelPicker(t *testing.T) {
 		`r=Y4.createElement(V,{bold:!0},"Claudodex")`,
 		`"Claudodex  "`,
 		`"0.1.0 using Claude Code v2.1.154"`,
-		"let $=[cL6(H)];return $",
-		"let T=[cL6(H)];return T",
-		"return _",
+		`function ki3(H=!1){let _=[],q=qNK();if(q!==void 0)_.push(q);let K=HNK();if(K!==void 0)_.push(K);let O=TNK();if(O!==void 0)_.push(O);return _}function ZX(H){return H===process.env.ANTHROPIC_DEFAULT_OPUS_MODEL?"opus":H===process.env.ANTHROPIC_DEFAULT_SONNET_MODEL?"sonnet":H===process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL?"haiku":H}`,
+		`j=$q(),J=(q=ZX(q))??KN_,[M,D]`,
+		`function v__(H=!1){let _=process.env,q=(O,T,$)=>({value:O,label:T,description:$});return[q("opus",_.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME??_.ANTHROPIC_DEFAULT_OPUS_MODEL??"gpt-5.5",_.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION??"Default Codex route"),q("sonnet",_.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME??_.ANTHROPIC_DEFAULT_SONNET_MODEL??"gpt-5.4",_.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION??"Everyday Codex coding route"),q("haiku",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME??_.ANTHROPIC_DEFAULT_HAIKU_MODEL??"gpt-5.4-mini",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION??"Fast Codex coding route")]}`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("patched data missing %q:\n%s", want, got)
@@ -155,6 +155,13 @@ func TestApplyClaudeUIPatches154BrandsHeaderAndModelPicker(t *testing.T) {
 		"T.push(_NK())",
 		"T.push(KNK())",
 		"T.push(TNK()??jNK())",
+		"let $=[cL6(H)]",
+		"let T=[cL6(H)]",
+		"let _=[cL6(H)]",
+		"j=$q(),J=q===null?KN_:q,[M,D]",
+		"j=$q(),q=qX(q),J=q??KN_,[M,D]",
+		"j=$q(),J=(q=qX(q))??KN_,[M,D]",
+		"function v__(H=!1){let _=ki3(H)",
 		"_.push(fi3())",
 		"_.push(Pi3())",
 		"_.push(ONK())",
@@ -206,6 +213,7 @@ func claude154PatchFixture(t *testing.T) []byte {
 	t.Helper()
 	logo154 := `function L6_(){let H=process.env.DEMO_VERSION??` + "`" + `${{ISSUES_EXPLAINER:"report the issue at https://github.com/anthropics/claude-code/issues",PACKAGE_URL:"@anthropic-ai/claude-code",README_URL:"https://code.claude.com/docs/en/overview",VERSION:"2.1.154",FEEDBACK_CHANNEL:"https://github.com/anthropics/claude-code/issues",BUILD_TIME:"2026-05-28T12:27:24Z",GIT_SHA:"b84d2da9ada13121515426fc644786a303e9ac53"}.VERSION}${fS()}` + "`" + `,_=Yu6(),q=process.env.DEMO_VERSION?"/code/claude":s5(b_()),K=xH(process.env.CLAUDE_CODE_HIDE_CWD)?"":_?` + "`" + `${q} in ${_.replace(/^https?:\/\//,"")}` + "`" + `:q,O=Zq(),T=O!=="firstParty"?wAH[O]:Lq()?VH6():"API Usage Billing",$=i8().agent;return{version:H,cwd:K,billingType:T,agentName:$}}                                                                                                                                                                                                                                                                                                                                                                               function gmK(H,_,q){}`
 	defaultDescription154 := `function or_(H=!1){if(pe()||RAH()||UUH()){let q=LR(),K=HJ(NP(q))??"Opus",O=H&&Pj(q);if(VP())return` + "`" + `${K} with 1M context \xB7 Most capable for complex work${O?EKH(!0,q):""}` + "`" + `;return` + "`" + `${K} \xB7 Most capable for complex work${O?EKH(!0,q):""}` + "`" + `}return` + "`" + `${HJ(NP(EN()))??"Sonnet"} \xB7 Best for everyday tasks` + "`" + `}`
+	modelOptions154 := `function v__(H=!1){let _=ki3(H),q=process.env.ANTHROPIC_CUSTOM_MODEL_OPTION;if(q&&!_.some((z)=>z.value===q))_.push({value:q,label:process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME??q,description:process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION??` + "`" + `Custom model (${q})` + "`" + `});let O=null,T=be(),$=_7H();if(T!==void 0&&T!==null)O=T;else if($!==void 0&&$!==null)O=$;if(O===null||_.some((z)=>z.value===O))return MPH(_);else if(O==="opus")return MPH([..._,JNK(!1)]);return MPH(_)}` + strings.Repeat(" ", 900) + `function MPH(H){return H}`
 	return []byte(strings.Join([]string{
 		`Check the Claude Code changelog for updates`,
 		`What's new`,
@@ -256,6 +264,8 @@ claude ${O}--resume ${q}
 		`kO.default.createElement(V,{bold:!0},"claude agents")," to attach to it, or run:"`,
 		`kO.default.createElement(V,null," ",$,"claude --resume ",q," --fork-session")`,
 		`function ki3(H=!1){if(Lq()){if(pe()||RAH()||UUH()){let $=[cL6(H)];if(!VP()&&to()&&!Lo8())$.push(zNK());if($.push(Ri3),s5H())$.push($NK());return $.push(YNK),$}let T=[cL6(H)];if(s5H())T.push($NK());if(VP())T.push(MNK(!1));else if(T.push(JNK(!1)),to()&&!Lo8())T.push(zNK());return T.push(YNK),T}if(UT()){let T=[cL6(H)],$=qNK();if($!==void 0)T.push($);else if(!VP()&&to()&&!Lo8())T.push(ONK(H));let z=HNK();if(z!==void 0)T.push(z);else if(T.push(_NK()),s5H())T.push(KNK());return T.push(TNK()??jNK()),T}let _=[cL6(H)],q=HNK();if(q!==void 0)_.push(q);else if(_.push(_NK()),s5H())_.push(KNK());let K=qNK();if(K!==void 0)_.push(K);else{if(_.push(fi3()),_.push(Pi3()),to()&&!Ie(zO().opus48))_.push(ONK());if(_.push(ANK()),to()&&!Ie(zO().opus47))_.push(wNK());if(_.push(Xi3()),to())_.push(Wi3(H))}let O=TNK();if(O!==void 0)_.push(O);else _.push(Gi3());return _}function Vi3(H){}`,
+		`function TCH(H){let _=yo8.c(102),{initial:q,sessionModel:K,onSelect:O,onSetDefault:T,onCancel:$,isStandaloneCommand:z,showFastModeNotice:Y,headerText:A,skipSettingsWrite:w}=H,j=$q(),J=q===null?KN_:q,[M,D]=DPH.useState(J)}`,
+		modelOptions154,
 	}, "\n"))
 }
 

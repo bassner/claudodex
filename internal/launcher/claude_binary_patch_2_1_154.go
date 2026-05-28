@@ -66,7 +66,11 @@ func applyClaudeUIPatches_2_1_154(data []byte, claudodexVersion, claudeVersion s
 	changed = replaceFirstFixed(data, "w_=h4()?", "w_=0?") || changed
 	modelPickerPatched := patchMaxModelPickerBase_2_1_154(data)
 	changed = modelPickerPatched || changed
-	if !versionPatched || !usagePatched || !whatsNewPatched || !defaultDescriptionPatched || !fastFooterPatched || !contextWarningHintPatched || !resumeHintsPatched || !modelPickerPatched {
+	modelPickerSelectionPatched := patchModelPickerSelectionValue_2_1_154(data)
+	changed = modelPickerSelectionPatched || changed
+	modelPickerOptionsPatched := patchModelPickerOptions_2_1_154(data)
+	changed = modelPickerOptionsPatched || changed
+	if !versionPatched || !usagePatched || !whatsNewPatched || !defaultDescriptionPatched || !fastFooterPatched || !contextWarningHintPatched || !resumeHintsPatched || !modelPickerPatched || !modelPickerSelectionPatched || !modelPickerOptionsPatched {
 		return false
 	}
 	return changed
@@ -179,29 +183,45 @@ func patchMaxModelPickerBase_2_1_154(data []byte) bool {
 		return false
 	}
 	window := data[start : start+end]
-	changed := false
-	for _, patch := range []struct {
-		old string
-		new string
-	}{
-		{
-			`let $=[cL6(H)];if(!VP()&&to()&&!Lo8())$.push(zNK());if($.push(Ri3),s5H())$.push($NK());return $.push(YNK),$`,
-			`let $=[cL6(H)];return $`,
-		},
-		{
-			`let T=[cL6(H)];if(s5H())T.push($NK());if(VP())T.push(MNK(!1));else if(T.push(JNK(!1)),to()&&!Lo8())T.push(zNK());return T.push(YNK),T`,
-			`let T=[cL6(H)];return T`,
-		},
-		{
-			`let T=[cL6(H)],$=qNK();if($!==void 0)T.push($);else if(!VP()&&to()&&!Lo8())T.push(ONK(H));let z=HNK();if(z!==void 0)T.push(z);else if(T.push(_NK()),s5H())T.push(KNK());return T.push(TNK()??jNK()),T`,
-			`let T=[cL6(H)],$=qNK();if($!==void 0)T.push($);let z=HNK();if(z!==void 0)T.push(z);let O=TNK();if(O!==void 0)T.push(O);return T`,
-		},
-		{
-			`let _=[cL6(H)],q=HNK();if(q!==void 0)_.push(q);else if(_.push(_NK()),s5H())_.push(KNK());let K=qNK();if(K!==void 0)_.push(K);else{if(_.push(fi3()),_.push(Pi3()),to()&&!Ie(zO().opus48))_.push(ONK());if(_.push(ANK()),to()&&!Ie(zO().opus47))_.push(wNK());if(_.push(Xi3()),to())_.push(Wi3(H))}let O=TNK();if(O!==void 0)_.push(O);else _.push(Gi3());return _`,
-			`let _=[cL6(H)],q=HNK();if(q!==void 0)_.push(q);let K=qNK();if(K!==void 0)_.push(K);let O=TNK();if(O!==void 0)_.push(O);return _`,
-		},
-	} {
-		changed = replaceFirstFixed(window, patch.old, patch.new) || changed
+	replacement := `function ki3(H=!1){let _=[],q=qNK();if(q!==void 0)_.push(q);let K=HNK();if(K!==void 0)_.push(K);let O=TNK();if(O!==void 0)_.push(O);return _}function ZX(H){return H===process.env.ANTHROPIC_DEFAULT_OPUS_MODEL?"opus":H===process.env.ANTHROPIC_DEFAULT_SONNET_MODEL?"sonnet":H===process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL?"haiku":H}`
+	if len([]byte(replacement)) > len(window) {
+		return false
 	}
-	return changed
+	newBytes, ok := fitReplacement(window, replacement)
+	if !ok {
+		return false
+	}
+	copy(window, newBytes)
+	return true
+}
+
+func patchModelPickerSelectionValue_2_1_154(data []byte) bool {
+	const old = `j=$q(),J=q===null?KN_:q,[M,D]`
+	const replacement = `j=$q(),J=(q=ZX(q))??KN_,[M,D]`
+	if len(replacement) != len(old) {
+		return false
+	}
+	return replaceFirstFixed(data, old, replacement)
+}
+
+func patchModelPickerOptions_2_1_154(data []byte) bool {
+	start := bytes.Index(data, []byte("function v__(H=!1){"))
+	if start < 0 {
+		return false
+	}
+	end := bytes.Index(data[start:], []byte("function MPH("))
+	if end < 0 {
+		return false
+	}
+	window := data[start : start+end]
+	replacement := `function v__(H=!1){let _=process.env,q=(O,T,$)=>({value:O,label:T,description:$});return[q("opus",_.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME??_.ANTHROPIC_DEFAULT_OPUS_MODEL??"gpt-5.5",_.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION??"Default Codex route"),q("sonnet",_.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME??_.ANTHROPIC_DEFAULT_SONNET_MODEL??"gpt-5.4",_.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION??"Everyday Codex coding route"),q("haiku",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME??_.ANTHROPIC_DEFAULT_HAIKU_MODEL??"gpt-5.4-mini",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION??"Fast Codex coding route")]}`
+	if len([]byte(replacement)) > len(window) {
+		return false
+	}
+	newBytes, ok := fitReplacement(window, replacement)
+	if !ok {
+		return false
+	}
+	copy(window, newBytes)
+	return true
 }
