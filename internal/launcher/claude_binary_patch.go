@@ -19,7 +19,7 @@ import (
 
 const (
 	claudodexPatchedClaudeDirName = "patched-claude"
-	claudodexPatchSchemaVersion   = "claude-ui-patch-v4"
+	claudodexPatchSchemaVersion   = "claude-ui-patch-v5"
 )
 
 func prepareClaudeExecutable(ctx context.Context, home, claudePath, claudodexVersion string, modelCfg modelconfig.Config) string {
@@ -173,6 +173,8 @@ func applyClaudeUIPatches(data []byte, claudodexVersion, claudeVersion string, m
 	changed = replaceAllPatternString(data, `j4.createElement(V,{bold:!0},"Claude Code")`, "Claude Code", "Claudodex") || changed
 	changed = replaceAllPatternString(data, `Lq("claude",d)("Claude Code")`, "Claude Code", "Claudodex") || changed
 	changed = replaceAllPatternString(data, `Lq("claude",d)(" Claude Code ")`, "Claude Code", "Claudodex") || changed
+	changed = replaceFirstFixed(data, "Lq(\"inactive\",d)(`v${h}`)", quotedVersion(claudodexVersion)) || changed
+	changed = replaceFirstFixed(data, `j4.createElement(V,{dimColor:!0},"v",E)`, quotedVersion(claudodexVersion)) || changed
 	changed = replaceFirstFixed(data, "w_=h4()?", "w_=0?") || changed
 	changed = patchMaxModelPickerBase(data) || changed
 	return changed
@@ -188,6 +190,14 @@ func claudodexNewsLine(claudodexVersion, claudeVersion string) string {
 		claudeVersion = "unknown"
 	}
 	return "Claudodex v" + claudodexVersion + " using Claude Code v" + claudeVersion
+}
+
+func quotedVersion(version string) string {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		version = "dev"
+	}
+	return `"v` + version + `"`
 }
 
 func modelDescriptionPatch(model, suffix string) string {

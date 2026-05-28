@@ -20,18 +20,20 @@ func TestApplyClaudeUIPatchesBrandsHeaderAndModelPicker(t *testing.T) {
 		`Fastest for quick answers`,
 		` with 1M context \xB7 `,
 		`j4.createElement(V,{bold:!0},"Claude Code")`,
+		`j4.createElement(V,{dimColor:!0},"v",E)`,
 		`Lq("claude",d)("Claude Code")`,
+		`Lq("inactive",d)(` + "`v${h}`" + `)`,
 		`Lq("claude",d)(" Claude Code ")`,
 		`w_=h4()?Y?P4.createElement(B):null:null`,
 		`function jl3(H=!1){if(Zq()){if(Re()||wAH()||IUH()){let z=[ML6(H)];if(!LP()&&X6H()&&!Zr8())z.push(lkK());if(z.push(Al3),Q5H())z.push(ckK());return z.push(nkK),z}function Jl3(H){}`,
 	}, "\n"))
 
-	if !applyClaudeUIPatches(data, "0.1.2", "2.1.153", modelconfig.Default()) {
+	if !applyClaudeUIPatches(data, "0.1.0", "2.1.153", modelconfig.Default()) {
 		t.Fatal("applyClaudeUIPatches reported no changes")
 	}
 	got := string(data)
 	for _, want := range []string{
-		"Claudodex v0.1.2 using Claude Code v2.1.153",
+		"Claudodex v0.1.0 using Claude Code v2.1.153",
 		"Codex news",
 		"Codex Plan",
 		"Switch between Codex-backed models.",
@@ -42,6 +44,7 @@ func TestApplyClaudeUIPatchesBrandsHeaderAndModelPicker(t *testing.T) {
 		"gpt-5.4-mini quick code",
 		` via Codex model \xB7 `,
 		`"Claudodex  "`,
+		`"v0.1.0"`,
 		"w_=0?",
 		"let z=[]",
 		"return z",
