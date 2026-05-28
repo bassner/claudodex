@@ -15,6 +15,8 @@ func TestApplyClaudeUIPatchesBrandsHeaderAndModelPicker(t *testing.T) {
 		`Check the Claude Code changelog for updates`,
 		`What's new`,
 		`Welcome back!`,
+		`Opus 4.8 is here!`,
+		`Opus 4.8 is now available!`,
 		`Set the AI model for Claude Code`,
 		`Claude Code'll be able to read, edit, and execute files here.`,
 		`WARNING: Claude Code running in Bypass Permissions mode`,
@@ -24,6 +26,7 @@ func TestApplyClaudeUIPatchesBrandsHeaderAndModelPicker(t *testing.T) {
 		`Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model.`,
 		`Select model`,
 		`Default (recommended)`,
+		`Opus with 1M context`,
 		`Most capable for complex work`,
 		`Best for everyday tasks`,
 		`Fastest for quick answers`,
@@ -88,6 +91,131 @@ func TestApplyClaudeUIPatchesBrandsHeaderAndModelPicker(t *testing.T) {
 	}
 }
 
+func TestApplyClaudeUIPatches154BrandsHeaderAndModelPicker(t *testing.T) {
+	data := claude154PatchFixture(t)
+
+	if !applyClaudeUIPatches_2_1_154(data, "0.1.0", "2.1.154", modelconfig.Default()) {
+		t.Fatal("applyClaudeUIPatches_2_1_154 reported no changes")
+	}
+	got := string(data)
+	for _, want := range []string{
+		`Bugs:\ngithub.com/bassner/claudodex/issues`,
+		"Claudodex Info",
+		"Thank you for using Claudodex!",
+		"Experimental - treat it as such.",
+		"Codex backend on",
+		"Codex backend active",
+		"Set the AI model for Claudodex",
+		"Claudodex can read files here",
+		"WARNING: Claudodex running in Bypass Permissions mode",
+		"In Bypass Permissions mode, Claudodex will not ask",
+		"No, exit Claudodex",
+		"Codex Plan",
+		"Switch between Codex-backed models.",
+		"Codex model",
+		"Default (Claudodex)",
+		"Default Codex route",
+		"default Codex work",
+		"default Codex reasoning tasks",
+		"gpt-5.4 everyday coding",
+		"gpt-5.4-mini quick code",
+		` via Codex model \xB7 `,
+		"Fast mode for Claudodex",
+		"Use /fast to toggle Fast mode.",
+		`function or_(H=!1){return"Default Codex route \xB7 default Codex work"}`,
+		`CLAUDE_LOCAL_OAUTH_API_BASE`,
+		`fetch(H+"/api/oauth/usage"`,
+		`r=Y4.createElement(V,{bold:!0},"Claudodex")`,
+		`"Claudodex  "`,
+		`"0.1.0 using Claude Code v2.1.154"`,
+		"let $=[cL6(H)];return $",
+		"let T=[cL6(H)];return T",
+		"return _",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("patched data missing %q:\n%s", want, got)
+		}
+	}
+	for _, notWant := range []string{
+		"$.push(Ri3)",
+		"kN6.Title",
+		" to turn on Fast mode (",
+		"$.push(YNK)",
+		"T.push(MNK(!1))",
+		"T.push(JNK(!1))",
+		"T.push(ONK(H))",
+		"T.push(_NK())",
+		"T.push(KNK())",
+		"T.push(TNK()??jNK())",
+		"_.push(fi3())",
+		"_.push(Pi3())",
+		"_.push(ONK())",
+		"_.push(ANK())",
+		"_.push(wNK())",
+		"_.push(Xi3())",
+		"_.push(Wi3(H))",
+		"_.push(Gi3())",
+	} {
+		if strings.Contains(got, notWant) {
+			t.Fatalf("patched data still contains %q:\n%s", notWant, got)
+		}
+	}
+}
+
+func TestApplyClaudeUIPatches154FailsWhenCriticalUsagePatchMissing(t *testing.T) {
+	data := []byte(strings.ReplaceAll(string(claude154PatchFixture(t)), "async function WXH()", "async function MISSING_WXH()"))
+
+	if applyClaudeUIPatches_2_1_154(data, "0.1.0", "2.1.154", modelconfig.Default()) {
+		t.Fatal("applyClaudeUIPatches_2_1_154 succeeded without the critical usage patch target")
+	}
+}
+
+func claude154PatchFixture(t *testing.T) []byte {
+	t.Helper()
+	logo154 := `function L6_(){let H=process.env.DEMO_VERSION??` + "`" + `${{ISSUES_EXPLAINER:"report the issue at https://github.com/anthropics/claude-code/issues",PACKAGE_URL:"@anthropic-ai/claude-code",README_URL:"https://code.claude.com/docs/en/overview",VERSION:"2.1.154",FEEDBACK_CHANNEL:"https://github.com/anthropics/claude-code/issues",BUILD_TIME:"2026-05-28T12:27:24Z",GIT_SHA:"b84d2da9ada13121515426fc644786a303e9ac53"}.VERSION}${fS()}` + "`" + `,_=Yu6(),q=process.env.DEMO_VERSION?"/code/claude":s5(b_()),K=xH(process.env.CLAUDE_CODE_HIDE_CWD)?"":_?` + "`" + `${q} in ${_.replace(/^https?:\/\//,"")}` + "`" + `:q,O=Zq(),T=O!=="firstParty"?wAH[O]:Lq()?VH6():"API Usage Billing",$=i8().agent;return{version:H,cwd:K,billingType:T,agentName:$}}                                                                                                                                                                                                                                                                                                                                                                               function gmK(H,_,q){}`
+	defaultDescription154 := `function or_(H=!1){if(pe()||RAH()||UUH()){let q=LR(),K=HJ(NP(q))??"Opus",O=H&&Pj(q);if(VP())return` + "`" + `${K} with 1M context \xB7 Most capable for complex work${O?EKH(!0,q):""}` + "`" + `;return` + "`" + `${K} \xB7 Most capable for complex work${O?EKH(!0,q):""}` + "`" + `}return` + "`" + `${HJ(NP(EN()))??"Sonnet"} \xB7 Best for everyday tasks` + "`" + `}`
+	return []byte(strings.Join([]string{
+		`Check the Claude Code changelog for updates`,
+		`What's new`,
+		`Welcome back!`,
+		`Opus 4.8 is here!`,
+		`Opus 4.8 is now available!`,
+		`Set the AI model for Claude Code`,
+		`Set the AI model for Claude Code (currently `,
+		`Claude Code will be able to read files in this directory and make edits when auto-accept edits is on.`,
+		`WARNING: Claude Code running in Bypass Permissions mode`,
+		`In Bypass Permissions mode, Claude Code will not ask for your approval before running potentially dangerous commands.`,
+		`No, exit Claude Code`,
+		`Claude Max`,
+		`Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model.`,
+		`Select model`,
+		`Default (recommended)`,
+		`Opus with 1M context`,
+		`Most capable for complex work`,
+		`Most capable for complex reasoning tasks`,
+		`Best for everyday tasks`,
+		`Fastest for quick answers`,
+		` with 1M context \xB7 `,
+		`Fast mode for Claude Code uses Claude Opus with faster output (it does not downgrade to a smaller model). It can be toggled with /fast and is available on Opus 4.8/4.7/4.6.`,
+		`Use /fast to turn on Fast mode (Opus 4.8).`,
+		`X4.createElement(V,{dimColor:!0},"Use ",X4.createElement(V,{bold:!0},"/fast")," to turn on Fast mode (",Bp(),").")`,
+		`r=kN6?Y4.createElement(kN6.Title,null):Y4.createElement(V,{bold:!0},"Claude Code")`,
+		`Y4.createElement(V,{bold:!0},"Claude Code")`,
+		`Y4.createElement(V,{dimColor:!0},"v",E)`,
+		`Pq("claude",U)("Claude Code")`,
+		`Pq("claude",U)(" Claude Code ")`,
+		`Pq("claude",d)("Claude Code")`,
+		`Pq("inactive",d)(` + "`v${h}`" + `)`,
+		`Pq("claude",d)(" Claude Code ")`,
+		logo154,
+		defaultDescription154,
+		`async function WXH(){return DK("api_usage_fetch",async()=>{if(!Lq()||!$k())return{};let H=0,_=await iZ(async()=>{H++,N(` + "`" + `fetchUtilization: GET /api/oauth/usage (attempt ${H})` + "`" + `);let q=await r7.get("/api/oauth/usage",{timeout:5000,headers:{"Content-Type":"application/json"},refreshOAuth:!0});if(!q.ok)throw Error(` + "`" + `Auth error: ${q.reason==="no-auth"?q.detail:q.reason}` + "`" + `);return q});return N(` + "`" + `fetchUtilization: 200 after ${H} attempt(s)${H>1?" (401\u2192refresh\u2192retry succeeded)":""}` + "`" + `),_.data})}`,
+		`var bR_=R(()=>{Jq();lH();t2();Y6();fX()});`,
+		`function qpK(H){let _=H.map((K)=>{return{text:K}}),q="Check the Claude Code changelog for updates";return{title:"What's new",lines:_,footer:_.length>0?"/release-notes for more":void 0,emptyMessage:"Check the Claude Code changelog for updates"}}`,
+		`function ki3(H=!1){if(Lq()){if(pe()||RAH()||UUH()){let $=[cL6(H)];if(!VP()&&to()&&!Lo8())$.push(zNK());if($.push(Ri3),s5H())$.push($NK());return $.push(YNK),$}let T=[cL6(H)];if(s5H())T.push($NK());if(VP())T.push(MNK(!1));else if(T.push(JNK(!1)),to()&&!Lo8())T.push(zNK());return T.push(YNK),T}if(UT()){let T=[cL6(H)],$=qNK();if($!==void 0)T.push($);else if(!VP()&&to()&&!Lo8())T.push(ONK(H));let z=HNK();if(z!==void 0)T.push(z);else if(T.push(_NK()),s5H())T.push(KNK());return T.push(TNK()??jNK()),T}let _=[cL6(H)],q=HNK();if(q!==void 0)_.push(q);else if(_.push(_NK()),s5H())_.push(KNK());let K=qNK();if(K!==void 0)_.push(K);else{if(_.push(fi3()),_.push(Pi3()),to()&&!Ie(zO().opus48))_.push(ONK());if(_.push(ANK()),to()&&!Ie(zO().opus47))_.push(wNK());if(_.push(Xi3()),to())_.push(Wi3(H))}let O=TNK();if(O!==void 0)_.push(O);else _.push(Gi3());return _}function Vi3(H){}`,
+	}, "\n"))
+}
+
 func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 	patch := findClaudeUIPatch("2.1.153", "449d9c89d7a63b1d427d912a7bd6e6f23f9a7b363866697c9fa9a0012546b254")
 	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
@@ -97,8 +225,16 @@ func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 	} else if patch != nil {
 		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
+	patch = findClaudeUIPatch("2.1.154", "bc9881b107d7be1743c64c8b72dd66798f5d0947dbc48ed0d77964c473661fd4")
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		if patch == nil {
+			t.Fatal("expected local verified 2.1.154 darwin/arm64 patch to match")
+		}
+	} else if patch != nil {
+		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
 	if got := findClaudeUIPatch("2.1.154", "449d9c89d7a63b1d427d912a7bd6e6f23f9a7b363866697c9fa9a0012546b254"); got != nil {
-		t.Fatalf("patch matched unsupported version: %#v", got)
+		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
 	if got := findClaudeUIPatch("2.1.153", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); got != nil {
 		t.Fatalf("patch matched unsupported sha: %#v", got)

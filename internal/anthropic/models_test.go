@@ -4,6 +4,7 @@ import "testing"
 
 func TestMapModel(t *testing.T) {
 	tests := map[string]string{
+		"claude-opus-4-8":      ModelOpus,
 		"claude-opus-4-7":      ModelOpus,
 		"best":                 ModelOpus,
 		"claude-sonnet-4-6":    ModelSonnet,

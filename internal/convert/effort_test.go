@@ -11,9 +11,11 @@ func TestMapReasoningEffort(t *testing.T) {
 		want         ReasoningEffort
 	}{
 		{"output xhigh", "gpt-5.5", "xhigh", 0, EffortXHigh},
+		{"claude opus 4.8 xhigh", "claude-opus-4-8", "xhigh", 0, EffortXHigh},
 		{"claude opus xhigh", "claude-opus-4-7", "xhigh", 0, EffortXHigh},
 		{"claude sonnet legacy xhigh", "sonnet[1m]", "", 32000, EffortXHigh},
 		{"output max", "gpt-5.4", "max", 0, EffortXHigh},
+		{"output ultracode", "gpt-5.5", "ultracode", 0, EffortXHigh},
 		{"legacy xhigh", "gpt-5.4-mini", "", 32000, EffortXHigh},
 		{"legacy high", "gpt-5.5", "", 20000, EffortHigh},
 		{"legacy medium", "gpt-5.5", "", 8000, EffortMedium},

@@ -45,6 +45,9 @@ func PrepareStatusLineFlagSettings(sidecarDir string, args []string) ([]string, 
 	if err != nil {
 		return nil, err
 	}
+	var sawUltracodeEffort bool
+	argsWithoutSettings, sawUltracodeEffort = liftUltracodeEffortArg(argsWithoutSettings, flagSettings)
+	sawFlagSettings = sawFlagSettings || sawUltracodeEffort
 	userSettingsPath, err := userClaudeSettingsPath()
 	if err != nil {
 		return nil, err
@@ -147,6 +150,33 @@ func extractFlagSettings(args []string) (map[string]any, []string, bool, error) 
 		}
 	}
 	return settings, out, sawSettings, nil
+}
+
+func liftUltracodeEffortArg(args []string, settings map[string]any) ([]string, bool) {
+	out := make([]string, 0, len(args))
+	sawUltracode := false
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--effort" && i+1 < len(args) && strings.EqualFold(args[i+1], "ultracode") {
+			enableUltracodeFlagSettings(settings)
+			sawUltracode = true
+			i++
+			continue
+		}
+		if value, ok := strings.CutPrefix(arg, "--effort="); ok && strings.EqualFold(value, "ultracode") {
+			enableUltracodeFlagSettings(settings)
+			sawUltracode = true
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out, sawUltracode
+}
+
+func enableUltracodeFlagSettings(settings map[string]any) {
+	settings["effortLevel"] = "ultracode"
+	settings["ultracode"] = true
+	settings["enableWorkflows"] = true
 }
 
 func hasEffortArg(args []string) bool {
@@ -465,10 +495,22 @@ func stripLongContextSuffixes(value any) any {
 		}
 		return typed
 	case string:
-		return modelconfig.StripLongContext(typed)
+		if strings.TrimSpace(typed) == typed && !strings.ContainsAny(typed, " \t\r\n") && !containsControlCharacter(typed) {
+			return modelconfig.StripLongContext(typed)
+		}
+		return typed
 	default:
 		return typed
 	}
+}
+
+func containsControlCharacter(value string) bool {
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f {
+			return true
+		}
+	}
+	return false
 }
 
 func jsonNumber(value any) int64 {

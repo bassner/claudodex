@@ -12,7 +12,7 @@ const (
 	DefaultHaikuModel  = "gpt-5.4-mini"
 
 	LongContextSuffix         = "[1m]"
-	DefaultClaudeRequestModel = "claude-opus-4-6"
+	DefaultClaudeRequestModel = "claude-opus-4-8"
 )
 
 type Family string
@@ -155,6 +155,7 @@ func (c Config) IsLowEffortDefault(model string) bool {
 func ClaudeAliasSpecs(c Config) []ClaudeModelSpec {
 	c = c.Normalize()
 	return []ClaudeModelSpec{
+		{ID: "claude-opus-4-8", DisplayName: fmt.Sprintf("Opus 4.8 (%s)", c.Opus), Family: FamilyOpus},
 		{ID: "claude-opus-4-6", DisplayName: fmt.Sprintf("Opus (%s)", c.Opus), Family: FamilyOpus},
 		{ID: "claude-opus-4-7", DisplayName: fmt.Sprintf("Opus 4.7 (%s)", c.Opus), Family: FamilyOpus},
 		{ID: "claude-sonnet-4-6", DisplayName: fmt.Sprintf("Sonnet (%s)", c.Sonnet), Family: FamilySonnet},

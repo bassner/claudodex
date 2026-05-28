@@ -227,8 +227,8 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 	cachePath := filepath.Join(cacheDir, claudeModelCapabilitiesFileName)
 	cache := mustReadJSONMap(t, cachePath)
 	models := cache["models"].([]any)
-	if len(models) != 10 {
-		t.Fatalf("models length = %d, want 10: %#v", len(models), models)
+	if len(models) != 11 {
+		t.Fatalf("models length = %d, want 11: %#v", len(models), models)
 	}
 	foundSonnet := false
 	for _, item := range models {

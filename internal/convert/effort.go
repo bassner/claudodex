@@ -61,7 +61,7 @@ func normalizeEffort(value string) (ReasoningEffort, bool) {
 		return EffortMedium, true
 	case "high":
 		return EffortHigh, true
-	case "xhigh", "max":
+	case "xhigh", "max", "ultracode":
 		return EffortXHigh, true
 	case "auto":
 		return "", false

@@ -76,6 +76,35 @@ func TestAnthropicToCodexAddsCompatibilityInstructionsWithoutSystemPrompt(t *tes
 	}
 }
 
+func TestAnthropicToCodexFoldsSystemRoleMessagesIntoInstructions(t *testing.T) {
+	var req AnthropicRequest
+	if err := json.Unmarshal([]byte(`{
+		"system":"base system",
+		"messages":[
+			{"role":"system","content":[
+				{"type":"text","text":"message system"},
+				{"type":"text","text":"x-anthropic-billing-header: cch=secret"}
+			]},
+			{"role":"user","content":"hello"}
+		]
+	}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := AnthropicToCodex(req, ConvertOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got.Request.Instructions, "base system\n\nmessage system\n\nClaude Code compatibility:\n") {
+		t.Fatalf("instructions = %q", got.Request.Instructions)
+	}
+	if strings.Contains(got.Request.Instructions, "cch=secret") {
+		t.Fatalf("billing header leaked into system-role instructions: %q", got.Request.Instructions)
+	}
+	if len(got.Request.Input) != 1 || got.Request.Input[0].Role != "user" {
+		t.Fatalf("system role leaked into input: %#v", got.Request.Input)
+	}
+}
+
 func TestAnthropicToCodexUsesConfiguredModelTargets(t *testing.T) {
 	var req AnthropicRequest
 	if err := json.Unmarshal([]byte(`{

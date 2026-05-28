@@ -81,7 +81,7 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		model = modelconfig.DefaultClaudeRequestModel
 	}
 	codexModel := models.MapModel(model)
-	input, err := convertMessages(req.Messages)
+	input, messageInstructions, err := convertMessages(req.Messages)
 	if err != nil {
 		return Result{}, err
 	}
@@ -92,10 +92,17 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 	if req.Stream != nil {
 		stream = *req.Stream
 	}
+	instructions := strings.TrimSpace(systemInstructions(req.System))
+	if strings.TrimSpace(messageInstructions) != "" {
+		if instructions != "" {
+			instructions += "\n\n"
+		}
+		instructions += strings.TrimSpace(messageInstructions)
+	}
 	effort := MapReasoningEffortWithConfig(codexModel, req.OutputConfig.Effort, req.Thinking.BudgetTokens, models)
 	out := codex.Request{
 		Model:             codexModel,
-		Instructions:      withClaudeCodeCompatibilityInstructions(systemInstructions(req.System)),
+		Instructions:      withClaudeCodeCompatibilityInstructions(instructions),
 		Input:             input,
 		Tools:             convertTools(req.Tools),
 		ToolChoice:        convertToolChoice(req.ToolChoice, len(req.Tools) > 0),
@@ -145,23 +152,29 @@ func systemInstructions(raw json.RawMessage) string {
 	return strings.Join(parts, "\n\n")
 }
 
-func convertMessages(messages []AnthropicMessage) ([]codex.InputItem, error) {
+func convertMessages(messages []AnthropicMessage) ([]codex.InputItem, string, error) {
 	var input []codex.InputItem
+	var systemTexts []string
 	converter := messageConverter{callIDs: make(map[string]string)}
 	for _, msg := range messages {
 		role := strings.ToLower(strings.TrimSpace(msg.Role))
 		switch role {
+		case "system":
+			if text := strings.TrimSpace(systemInstructions(msg.Content)); text != "" {
+				systemTexts = append(systemTexts, text)
+			}
+			continue
 		case "user", "assistant":
 		default:
-			return nil, BadRequestError{Message: fmt.Sprintf("unsupported message role %q", msg.Role)}
+			return nil, "", BadRequestError{Message: fmt.Sprintf("unsupported message role %q", msg.Role)}
 		}
 		items, err := converter.convertContent(role, msg.Content)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		input = append(input, items...)
 	}
-	return input, nil
+	return input, strings.Join(systemTexts, "\n\n"), nil
 }
 
 type messageConverter struct {

@@ -77,6 +77,46 @@ func TestPrepareStatusLineFlagSettingsAddsDefaultMaxEffortWhenUnset(t *testing.T
 	}
 }
 
+func TestPrepareStatusLineFlagSettingsLiftsUltracodeEffortIntoSettings(t *testing.T) {
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Chdir(t.TempDir())
+	sidecarDir := t.TempDir()
+	args := []string{"--model", "gpt-5.5", "--effort", "ultracode", "--settings", `{"theme":"dark"}`}
+
+	got, err := PrepareStatusLineFlagSettings(sidecarDir, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(got, "--effort") || contains(got, "ultracode") {
+		t.Fatalf("ultracode effort CLI arg leaked to Claude: %#v", got)
+	}
+	settings := mustReadJSONMap(t, flagSettingsArg(t, got))
+	if settings["effortLevel"] != "ultracode" || settings["ultracode"] != true || settings["enableWorkflows"] != true {
+		t.Fatalf("ultracode flag settings missing: %#v", settings)
+	}
+	if settings["theme"] != "dark" {
+		t.Fatalf("existing settings not preserved: %#v", settings)
+	}
+}
+
+func TestPrepareStatusLineFlagSettingsUltracodeOverridesDisabledWorkflows(t *testing.T) {
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Chdir(t.TempDir())
+	sidecarDir := t.TempDir()
+	args := []string{"--effort=ultracode", "--settings", `{"enableWorkflows":false}`}
+
+	got, err := PrepareStatusLineFlagSettings(sidecarDir, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := mustReadJSONMap(t, flagSettingsArg(t, got))
+	if settings["enableWorkflows"] != true {
+		t.Fatalf("enableWorkflows = %#v, want true from ultracode", settings["enableWorkflows"])
+	}
+}
+
 func TestPrepareStatusLineFlagSettingsWrapsAndPreservesUserSettingsFlag(t *testing.T) {
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
@@ -281,7 +321,7 @@ func TestRunStatusLineWrapperPatchesInputForOriginalCommand(t *testing.T) {
 }
 
 func TestPatchStatusLineInputStripsLongContextModelSuffixes(t *testing.T) {
-	input := []byte(`{"model":{"id":"gpt-5.4[1m][1m]"},"workspace":["gpt-5.5[1m][1m]"],"context_window":{"context_window_size":1000000}}`)
+	input := []byte("{\"model\":{\"id\":\"gpt-5.4[1m][1m]\"},\"workspace\":[\"gpt-5.5[1m][1m]\",\"note gpt-5.5[1m]\",\"\\u001b[1m\"],\"context_window\":{\"context_window_size\":1000000}}")
 	var patched map[string]any
 	if err := json.Unmarshal(patchStatusLineInput(input, 272000), &patched); err != nil {
 		t.Fatal(err)
@@ -293,6 +333,12 @@ func TestPatchStatusLineInputStripsLongContextModelSuffixes(t *testing.T) {
 	workspace := patched["workspace"].([]any)
 	if workspace[0] != "gpt-5.5" {
 		t.Fatalf("workspace model = %#v", workspace[0])
+	}
+	if workspace[1] != "note gpt-5.5[1m]" {
+		t.Fatalf("prose string was mutated: %#v", workspace[1])
+	}
+	if workspace[2] != "\x1b[1m" {
+		t.Fatalf("ANSI control string was mutated: %#v", workspace[2])
 	}
 }
 
