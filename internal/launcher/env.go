@@ -52,9 +52,15 @@ func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, httpsP
 	if caPath != "" {
 		env["NODE_EXTRA_CA_CERTS"] = caPath
 	}
-	env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = modelCfg.RuntimeModel(string(modelconfig.FamilyOpus))
+	env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = modelconfig.WithLongContext(modelCfg.RuntimeModel(string(modelconfig.FamilyOpus)))
+	env["ANTHROPIC_DEFAULT_OPUS_MODEL_NAME"] = modelconfig.StripLongContext(modelCfg.Opus)
+	env["ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION"] = "Default Codex route"
 	env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = modelconfig.WithLongContext(modelCfg.RuntimeModel(string(modelconfig.FamilySonnet)))
+	env["ANTHROPIC_DEFAULT_SONNET_MODEL_NAME"] = modelconfig.StripLongContext(modelCfg.Sonnet)
+	env["ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION"] = "Everyday Codex coding route"
 	env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = modelconfig.WithLongContext(modelCfg.RuntimeModel(string(modelconfig.FamilyHaiku)))
+	env["ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME"] = modelconfig.StripLongContext(modelCfg.Haiku)
+	env["ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION"] = "Fast Codex coding route"
 	env["ANTHROPIC_SMALL_FAST_MODEL"] = modelconfig.WithLongContext(modelCfg.RuntimeModel(string(modelconfig.FamilyHaiku)))
 	delete(env, "CLAUDE_CODE_DISABLE_1M_CONTEXT")
 	requiredContextWindow := requiredModelContextWindow(codexModels, modelCfg)
@@ -114,14 +120,15 @@ type antModelOverride struct {
 func applyModelOverrideEnv(env map[string]string, codexModels []codex.ModelInfo, modelCfg modelconfig.Config) {
 	modelCfg = modelCfg.Normalize()
 	override := antModelOverrideConfig{
-		DefaultModel:            modelCfg.RuntimeModel(string(modelconfig.FamilyOpus)),
+		DefaultModel:            modelconfig.WithLongContext(modelCfg.RuntimeModel(string(modelconfig.FamilyOpus))),
 		DefaultModelEffortLevel: "max",
 	}
 	specs := append(modelconfig.FamilyAliasSpecs(), modelconfig.ClaudeAliasSpecs(modelCfg)...)
 	specs = append(specs, modelconfig.DirectRuntimeModelSpecs(modelCfg)...)
 	for _, spec := range specs {
 		target := modelCfg.Target(spec.Family)
-		override.AntModels = append(override.AntModels, codexAntModel(spec.ID, spec.DisplayName, modelCfg.RuntimeModel(string(spec.Family)), modelContextWindow(codexModels, target)))
+		runtimeModel := modelconfig.WithLongContext(modelCfg.RuntimeModel(string(spec.Family)))
+		override.AntModels = append(override.AntModels, codexAntModel(spec.ID, spec.DisplayName, runtimeModel, modelContextWindow(codexModels, target)))
 	}
 	mergeGrowthBookOverride(env, "tengu_ant_model_override", override)
 }

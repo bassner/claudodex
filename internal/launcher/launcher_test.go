@@ -70,8 +70,11 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
   echo "https_proxy:$HTTPS_PROXY"
   echo "ca:$NODE_EXTRA_CA_CERTS"
   echo "opus:$ANTHROPIC_DEFAULT_OPUS_MODEL"
+  echo "opus_name:$ANTHROPIC_DEFAULT_OPUS_MODEL_NAME"
   echo "sonnet:$ANTHROPIC_DEFAULT_SONNET_MODEL"
+  echo "sonnet_name:$ANTHROPIC_DEFAULT_SONNET_MODEL_NAME"
 	  echo "haiku:$ANTHROPIC_DEFAULT_HAIKU_MODEL"
+	  echo "haiku_name:$ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME"
 		  echo "small_fast:$ANTHROPIC_SMALL_FAST_MODEL"
 			  echo "max_context:$CLAUDE_CODE_DISABLE_1M_CONTEXT"
 			  echo "claudodex_context_window:$CLAUDODEX_CONTEXT_WINDOW"
@@ -138,9 +141,12 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		"oauth_token:",
 		"oauth_scopes:",
 		"subscription:",
-		"opus:gpt-5.5",
+		"opus:gpt-5.5[1m]",
+		"opus_name:gpt-5.5",
 		"sonnet:gpt-5.4[1m]",
+		"sonnet_name:gpt-5.4",
 		"haiku:gpt-5.4-mini[1m]",
+		"haiku_name:gpt-5.4-mini",
 		"small_fast:gpt-5.4-mini[1m]",
 		"max_context:",
 		"claudodex_context_window:272000",
@@ -149,9 +155,9 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		"context_tokens:272000",
 		"model_capabilities:yes",
 		`"alias":"opus"`,
-		`"defaultModel":"gpt-5.5"`,
+		`"defaultModel":"gpt-5.5[1m]"`,
 		`"defaultModelEffortLevel":"max"`,
-		`"model":"gpt-5.5"`,
+		`"model":"gpt-5.5[1m]"`,
 		`"defaultEffortLevel":"max"`,
 		`"contextWindow":272000`,
 		`"alias":"claude-sonnet-4-6"`,
