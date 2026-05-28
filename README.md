@@ -21,6 +21,23 @@ UI. You still use Claude Code. Claudodex swaps the model backend.
 you -> claudodex -> installed claude -> local Anthropic-compatible proxy -> Codex
 ```
 
+## Why Claudodex?
+
+There are already useful projects in this space, including Claudish,
+ccproxy-api, claude-code-proxy variants, and Codex proxy experiments. Many of
+them try to support a long list of providers, models, transports, and runtime
+styles. That flexibility is valuable, but it can also make the Claude Code plus
+Codex subscription path harder to install, harder to reason about, or easier to
+miss in small compatibility details.
+
+Claudodex deliberately takes the opposite shape: one launcher, one target use
+case, and as little setup as possible. The goal is that a person with a Codex
+subscription and an installed `claude` binary can log in once, run `claudodex`,
+and get a Claude Code experience whose backend is Codex.
+
+Why not call it `claudex`? Because that name is already used in multiple places.
+`Claudodex` is clunkier, but it is specific and searchable.
+
 ## What It Does
 
 - Runs your installed `claude` binary with normal Claude Code flags.
