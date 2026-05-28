@@ -97,11 +97,27 @@ func writeClaudeContextCompatibilityCache(sidecarDir string, models []codex.Mode
 		clientData["kelp_forest_sonnet"] = strconv.FormatInt(modelContextWindow(models, modelCfg.Sonnet), 10)
 		next["clientDataCache"] = clientData
 		next["additionalModelOptionsCache"] = claudeAdditionalModelOptions(modelCfg)
+		next = clearSidecarOAuthBranding(next)
 		if reflect.DeepEqual(config, next) {
 			return nil
 		}
 		return writeJSONFile(path, next, 0o600)
 	})
+}
+
+func clearSidecarOAuthBranding(config map[string]any) map[string]any {
+	account := mapValue(config["oauthAccount"])
+	if account == nil {
+		return config
+	}
+	next := cloneJSONMap(config)
+	account = cloneJSONMap(account)
+	account["displayName"] = ""
+	account["display_name"] = ""
+	account["organizationName"] = ""
+	account["organization_name"] = ""
+	next["oauthAccount"] = account
+	return next
 }
 
 func claudeAdditionalModelOptions(modelCfg modelconfig.Config) []map[string]string {

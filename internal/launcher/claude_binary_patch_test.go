@@ -31,6 +31,7 @@ func TestApplyClaudeUIPatchesBrandsHeaderAndModelPicker(t *testing.T) {
 		`Lq("inactive",d)(` + "`v${h}`" + `)`,
 		`Lq("claude",d)(" Claude Code ")`,
 		`w_=h4()?Y?P4.createElement(B):null:null`,
+		`function P6_(){let H="2.1.153",_=Px6(),q="/code/claude",K=q,O=vq(),T=O!=="firstParty"?eYH[O]:Zq()?zH6():"API Usage Billing",z=o8().agent;return{version:H,cwd:K,billingType:T,agentName:z}}                                                                                                                                                                                                                                                                                                                                                                               function RuK(H,_,q){}`,
 		`function muK(H){let _=H.map((K)=>{return{text:K}}),q="Check the Claude Code changelog for updates";return{title:"What's new",lines:_,footer:_.length>0?"/release-notes for more":void 0,emptyMessage:"Check the Claude Code changelog for updates"}}`,
 		`function jl3(H=!1){if(Zq()){if(Re()||wAH()||IUH()){let z=[ML6(H)];if(!LP()&&X6H()&&!Zr8())z.push(lkK());if(z.push(Al3),Q5H())z.push(ckK());return z.push(nkK),z}function Jl3(H){}`,
 	}, "\n"))
@@ -62,7 +63,7 @@ func TestApplyClaudeUIPatchesBrandsHeaderAndModelPicker(t *testing.T) {
 		"gpt-5.4-mini quick code",
 		` via Codex model \xB7 `,
 		`"Claudodex  "`,
-		`"v0.1.0"`,
+		`"0.1.0 using Claude Code v2.1.153"`,
 		"w_=0?",
 		"let z=[]",
 		"return z",

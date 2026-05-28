@@ -19,7 +19,7 @@ import (
 
 const (
 	claudodexPatchedClaudeDirName = "patched-claude"
-	claudodexPatchSchemaVersion   = "claude-ui-patch-v9"
+	claudodexPatchSchemaVersion   = "claude-ui-patch-v10"
 )
 
 func prepareClaudeExecutable(ctx context.Context, home, claudePath, claudodexVersion string, modelCfg modelconfig.Config) string {
@@ -159,6 +159,8 @@ func looksLikeVersion(value string) bool {
 
 func applyClaudeUIPatches(data []byte, claudodexVersion, claudeVersion string, modelCfg modelconfig.Config) bool {
 	changed := false
+	versionPatched := patchLogoDisplayDataFunction(data, claudodexVersion, claudeVersion)
+	changed = versionPatched || changed
 	changed = patchWhatsNewFeedFunction(data) || changed
 	changed = replaceAllFixed(data, "Check the Claude Code changelog for updates", claudodexInfoLine()) || changed
 	changed = replaceAllFixed(data, "What's new", "Info") || changed
@@ -180,11 +182,35 @@ func applyClaudeUIPatches(data []byte, claudodexVersion, claudeVersion string, m
 	changed = replaceAllPatternString(data, `j4.createElement(V,{bold:!0},"Claude Code")`, "Claude Code", "Claudodex") || changed
 	changed = replaceAllPatternString(data, `Lq("claude",d)("Claude Code")`, "Claude Code", "Claudodex") || changed
 	changed = replaceAllPatternString(data, `Lq("claude",d)(" Claude Code ")`, "Claude Code", "Claudodex") || changed
-	changed = replaceFirstFixed(data, "Lq(\"inactive\",d)(`v${h}`)", quotedVersion(claudodexVersion)) || changed
-	changed = replaceFirstFixed(data, `j4.createElement(V,{dimColor:!0},"v",E)`, quotedVersion(claudodexVersion)) || changed
+	if !versionPatched {
+		changed = replaceFirstFixed(data, "Lq(\"inactive\",d)(`v${h}`)", quotedVersion(claudodexVersion)) || changed
+		changed = replaceFirstFixed(data, `j4.createElement(V,{dimColor:!0},"v",E)`, quotedVersion(claudodexVersion)) || changed
+	}
 	changed = replaceFirstFixed(data, "w_=h4()?", "w_=0?") || changed
 	changed = patchMaxModelPickerBase(data) || changed
 	return changed
+}
+
+func patchLogoDisplayDataFunction(data []byte, claudodexVersion, claudeVersion string) bool {
+	start := bytes.Index(data, []byte("function P6_(){"))
+	if start < 0 {
+		return false
+	}
+	endRel := bytes.Index(data[start:], []byte("function RuK("))
+	if endRel < 0 {
+		return false
+	}
+	old := data[start : start+endRel]
+	replacement := `function P6_(){let H=process.env.DEMO_VERSION??` + quoteJSString(claudodexLogoVersion(claudodexVersion, claudeVersion)) + `,_=Px6(),q=process.env.DEMO_VERSION?"/code/claude":Q5(S_()),K=xH(process.env.CLAUDE_CODE_HIDE_CWD)?"":_?` + "`${q} in ${_.replace(/^https?:\\/\\//,\"\")}`" + `:q,O=vq(),T=O!=="firstParty"?eYH[O]:Zq()?zH6():"API Usage Billing",z=o8().agent;return{version:H,cwd:K,billingType:T,agentName:z}}`
+	if len([]byte(replacement)) > len(old) {
+		return false
+	}
+	newBytes, ok := fitReplacement(old, replacement)
+	if !ok {
+		return false
+	}
+	copy(old, newBytes)
+	return true
 }
 
 func patchWhatsNewFeedFunction(data []byte) bool {
@@ -203,6 +229,27 @@ func quotedVersion(version string) string {
 		version = "dev"
 	}
 	return `"v` + version + `"`
+}
+
+func claudodexLogoVersion(claudodexVersion, claudeVersion string) string {
+	claudodexVersion = strings.TrimSpace(claudodexVersion)
+	if claudodexVersion == "" {
+		claudodexVersion = "dev"
+	}
+	claudeVersion = strings.TrimSpace(claudeVersion)
+	if claudeVersion == "" {
+		claudeVersion = "unknown"
+	}
+	if looksLikeVersion(claudeVersion) {
+		claudeVersion = "v" + claudeVersion
+	}
+	return claudodexVersion + " using Claude Code " + claudeVersion
+}
+
+func quoteJSString(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `"`, `\"`)
+	return `"` + value + `"`
 }
 
 func modelDescriptionPatch(model, suffix string) string {

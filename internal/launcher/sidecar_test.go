@@ -192,6 +192,17 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 	if err := os.Symlink(realCacheDir, filepath.Join(sidecarDir, "cache")); err != nil {
 		t.Fatal(err)
 	}
+	if err := writeJSONFile(filepath.Join(sidecarDir, claudeGlobalConfigName), map[string]any{
+		"oauthAccount": map[string]any{
+			"displayName":       "Claudodex",
+			"display_name":      "Claudodex",
+			"emailAddress":      "fake@example.com",
+			"organizationName":  "Claudodex",
+			"organization_name": "Claudodex",
+		},
+	}, 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	err := WriteClaudeModelCapabilitiesCache(sidecarDir, []codex.ModelInfo{
 		{Slug: "gpt-5.5", ContextWindow: 272000},
@@ -251,6 +262,16 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 	first := options[0].(map[string]any)
 	if first["value"] != "gpt-5.5[1m]" || first["label"] != "gpt-5.5" {
 		t.Fatalf("first additional model option = %#v", first)
+	}
+	oauthAccount := globalConfig["oauthAccount"].(map[string]any)
+	if oauthAccount["displayName"] != "" || oauthAccount["display_name"] != "" {
+		t.Fatalf("sidecar oauth display names were not suppressed: %#v", oauthAccount)
+	}
+	if oauthAccount["organizationName"] != "" || oauthAccount["organization_name"] != "" {
+		t.Fatalf("sidecar oauth organization names were not suppressed: %#v", oauthAccount)
+	}
+	if oauthAccount["emailAddress"] != "fake@example.com" {
+		t.Fatalf("sidecar oauth account metadata was not preserved: %#v", oauthAccount)
 	}
 }
 
