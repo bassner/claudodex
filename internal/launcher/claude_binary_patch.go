@@ -19,7 +19,7 @@ import (
 
 const (
 	claudodexPatchedClaudeDirName = "patched-claude"
-	claudodexPatchSchemaVersion   = "claude-ui-patch-v6"
+	claudodexPatchSchemaVersion   = "claude-ui-patch-v9"
 )
 
 func prepareClaudeExecutable(ctx context.Context, home, claudePath, claudodexVersion string, modelCfg modelconfig.Config) string {
@@ -159,9 +159,15 @@ func looksLikeVersion(value string) bool {
 
 func applyClaudeUIPatches(data []byte, claudodexVersion, claudeVersion string, modelCfg modelconfig.Config) bool {
 	changed := false
+	changed = patchWhatsNewFeedFunction(data) || changed
 	changed = replaceAllFixed(data, "Check the Claude Code changelog for updates", claudodexInfoLine()) || changed
 	changed = replaceAllFixed(data, "What's new", "Info") || changed
 	changed = replaceAllFixed(data, "Welcome back!", "Welcome back") || changed
+	changed = replaceAllFixed(data, "Set the AI model for Claude Code", "Set the AI model for Claudodex") || changed
+	changed = replaceAllFixed(data, "Claude Code'll be able to read, edit, and execute files here.", "Claudodex can read, edit, and execute files here.") || changed
+	changed = replaceAllFixed(data, "WARNING: Claude Code running in Bypass Permissions mode", "WARNING: Claudodex running in Bypass Permissions mode") || changed
+	changed = replaceAllFixed(data, "In Bypass Permissions mode, Claude Code will not ask for your approval before running potentially dangerous commands.", "In Bypass Permissions mode, Claudodex will not ask for your approval before running potentially dangerous commands.") || changed
+	changed = replaceAllFixed(data, "No, exit Claude Code", "No, exit Claudodex") || changed
 	changed = replaceAllFixed(data, "Claude Max", "Codex Plan") || changed
 	changed = replaceAllFixed(data, "Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model.", "Switch between Codex-backed models. Your pick becomes the default for new sessions. For direct model names, use --model.") || changed
 	changed = replaceAllFixed(data, "Select model", "Codex model") || changed
@@ -181,8 +187,14 @@ func applyClaudeUIPatches(data []byte, claudodexVersion, claudeVersion string, m
 	return changed
 }
 
+func patchWhatsNewFeedFunction(data []byte) bool {
+	const old = `function muK(H){let _=H.map((K)=>{return{text:K}}),q="Check the Claude Code changelog for updates";return{title:"What's new",lines:_,footer:_.length>0?"/release-notes for more":void 0,emptyMessage:"Check the Claude Code changelog for updates"}}`
+	const replacement = `function muK(H){return{title:"Claudodex Info",lines:"Thank you for using Claudodex!|Experimental - treat it as such.|If you run into issues, please file a report at|https://github.com/bassner/claudodex/issues".split("|").map(text=>({text}))}}`
+	return replaceFirstFixed(data, old, replacement)
+}
+
 func claudodexInfoLine() string {
-	return "Issues: github.com/bassner/claudodex/issues"
+	return "Bugs:\\ngithub.com/bassner/claudodex/issues"
 }
 
 func quotedVersion(version string) string {

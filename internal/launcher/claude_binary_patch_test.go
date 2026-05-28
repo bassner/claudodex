@@ -12,6 +12,11 @@ func TestApplyClaudeUIPatchesBrandsHeaderAndModelPicker(t *testing.T) {
 		`Check the Claude Code changelog for updates`,
 		`What's new`,
 		`Welcome back!`,
+		`Set the AI model for Claude Code`,
+		`Claude Code'll be able to read, edit, and execute files here.`,
+		`WARNING: Claude Code running in Bypass Permissions mode`,
+		`In Bypass Permissions mode, Claude Code will not ask for your approval before running potentially dangerous commands.`,
+		`No, exit Claude Code`,
 		`Claude Max`,
 		`Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model.`,
 		`Select model`,
@@ -26,6 +31,7 @@ func TestApplyClaudeUIPatchesBrandsHeaderAndModelPicker(t *testing.T) {
 		`Lq("inactive",d)(` + "`v${h}`" + `)`,
 		`Lq("claude",d)(" Claude Code ")`,
 		`w_=h4()?Y?P4.createElement(B):null:null`,
+		`function muK(H){let _=H.map((K)=>{return{text:K}}),q="Check the Claude Code changelog for updates";return{title:"What's new",lines:_,footer:_.length>0?"/release-notes for more":void 0,emptyMessage:"Check the Claude Code changelog for updates"}}`,
 		`function jl3(H=!1){if(Zq()){if(Re()||wAH()||IUH()){let z=[ML6(H)];if(!LP()&&X6H()&&!Zr8())z.push(lkK());if(z.push(Al3),Q5H())z.push(ckK());return z.push(nkK),z}function Jl3(H){}`,
 	}, "\n"))
 
@@ -34,9 +40,19 @@ func TestApplyClaudeUIPatchesBrandsHeaderAndModelPicker(t *testing.T) {
 	}
 	got := string(data)
 	for _, want := range []string{
-		"Issues: github.com/bassner/claudodex/issues",
+		`Bugs:\ngithub.com/bassner/claudodex/issues`,
 		"Info",
 		"Welcome back",
+		"Set the AI model for Claudodex",
+		"Claudodex can read, edit, and execute files here.",
+		"WARNING: Claudodex running in Bypass Permissions mode",
+		"In Bypass Permissions mode, Claudodex will not ask",
+		"No, exit Claudodex",
+		"Claudodex Info",
+		"Thank you for using Claudodex!",
+		"Experimental - treat it as such.",
+		"If you run into issues, please file a report at",
+		"https://github.com/bassner/claudodex/issues",
 		"Codex Plan",
 		"Switch between Codex-backed models.",
 		"Codex model",
