@@ -1,0 +1,103 @@
+package launcher
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
+	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
+		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
+	}
+	if _, err := exec.LookPath("claude"); err != nil {
+		t.Skipf("claude binary not available: %v", err)
+	}
+
+	home := t.TempDir()
+	saveLauncherAuth(t, home)
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+
+	var upstreamRequests atomic.Int32
+	var captured map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/codex/models" {
+			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-5.5","context_window":272000},{"slug":"gpt-5.4","context_window":300000},{"slug":"gpt-5.4-mini","context_window":400000}]}`)
+			return
+		}
+		if r.URL.Path != "/codex/responses" {
+			t.Fatalf("unexpected upstream path %s", r.URL.Path)
+		}
+		upstreamRequests.Add(1)
+		if got := r.Header.Get("authorization"); got != "Bearer access-1" {
+			t.Fatalf("authorization = %q", got)
+		}
+		if got := r.Header.Get("chatgpt-account-id"); got != "acc_123" {
+			t.Fatalf("chatgpt-account-id = %q", got)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("content-type", "text/event-stream")
+		_, _ = w.Write([]byte(strings.Join([]string{
+			`event: response.created`,
+			`data: {"type":"response.created","response":{"id":"resp_smoke"}}`,
+			``,
+			`event: response.output_item.added`,
+			`data: {"type":"response.output_item.added","item":{"type":"message","id":"item_smoke"}}`,
+			``,
+			`event: response.output_text.delta`,
+			`data: {"type":"response.output_text.delta","delta":"ok"}`,
+			``,
+			`event: response.output_item.done`,
+			`data: {"type":"response.output_item.done","item":{"type":"message","id":"item_smoke","content":[{"type":"output_text","text":"ok"}]}}`,
+			``,
+			`event: response.completed`,
+			`data: {"type":"response.completed","response":{"stop_reason":"stop","usage":{"input_tokens":2,"output_tokens":1}}}`,
+			``,
+			``,
+		}, "\n")))
+	}))
+	defer upstream.Close()
+	t.Setenv("CLAUDODEX_CODEX_BASE_URL", upstream.URL)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := (ProcessLauncher{}).Launch(ctx, []string{
+		"-p", "say ok",
+		"--model", "claude-sonnet-4-6",
+		"--dangerously-skip-permissions",
+		"--max-turns", "1",
+	}, Config{
+		Version:      "smoke",
+		Stdin:        strings.NewReader(""),
+		Stdout:       &stdout,
+		Stderr:       &stderr,
+		Home:         home,
+		CodexBaseURL: upstream.URL,
+	})
+	if err != nil {
+		t.Fatalf("launch failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	if upstreamRequests.Load() == 0 {
+		t.Fatalf("fake Codex upstream was not called\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "ok") {
+		t.Fatalf("stdout did not include model output\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if captured["model"] != "gpt-5.4" {
+		t.Fatalf("upstream model = %#v, want gpt-5.4; request=%#v", captured["model"], captured)
+	}
+}

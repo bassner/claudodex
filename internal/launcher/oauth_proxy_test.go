@@ -1,0 +1,147 @@
+package launcher
+
+import (
+	"crypto/tls"
+	"crypto/x509"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"strings"
+	"testing"
+)
+
+func TestOAuthProxyInterceptsAnthropicUsage(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/oauth/usage" {
+			t.Fatalf("path = %q, want /api/oauth/usage", r.URL.Path)
+		}
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"five_hour":{"utilization":12}}`))
+	}))
+	defer target.Close()
+
+	proxy, err := StartOAuthProxy(target.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+
+	ca, err := os.ReadFile(proxy.CAPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(ca) {
+		t.Fatal("failed to append proxy CA")
+	}
+	proxyURL, err := url.Parse(proxy.ProxyURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: &http.Transport{
+		Proxy:           http.ProxyURL(proxyURL),
+		TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
+	}}
+	resp, err := client.Get("https://api.anthropic.com/api/oauth/usage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || string(body) != `{"five_hour":{"utilization":12}}` {
+		t.Fatalf("status/body = %d %s", resp.StatusCode, body)
+	}
+}
+
+func TestOAuthProxyForwardsAnthropicPostBodyAndSSE(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %q, want POST", r.Method)
+		}
+		if r.URL.Path != "/v1/messages" {
+			t.Fatalf("path = %q, want /v1/messages", r.URL.Path)
+		}
+		if got := r.Header.Get("anthropic-version"); got != "2023-06-01" {
+			t.Fatalf("anthropic-version = %q", got)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != `{"stream":true}` {
+			t.Fatalf("body = %q", body)
+		}
+		w.Header().Set("content-type", "text/event-stream")
+		_, _ = w.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\"}\n\n"))
+	}))
+	defer target.Close()
+
+	client := oauthProxyTestClient(t, target.URL)
+	req, err := http.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", strings.NewReader(`{"stream":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("content-type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, body %s", resp.StatusCode, body)
+	}
+	if got := resp.Header.Get("content-type"); got != "text/event-stream" {
+		t.Fatalf("content-type = %q", got)
+	}
+	if !strings.Contains(string(body), "message_start") {
+		t.Fatalf("body missing SSE event: %s", body)
+	}
+}
+
+func TestOAuthProxyRejectsUnknownAnthropicRoute(t *testing.T) {
+	client := oauthProxyTestClient(t, "http://127.0.0.1:1")
+	resp, err := client.Get("https://api.anthropic.com/api/oauth/claude_cli/create_api_key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func oauthProxyTestClient(t *testing.T, targetURL string) *http.Client {
+	t.Helper()
+	proxy, err := StartOAuthProxy(targetURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = proxy.Close() })
+
+	ca, err := os.ReadFile(proxy.CAPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(ca) {
+		t.Fatal("failed to append proxy CA")
+	}
+	proxyURL, err := url.Parse(proxy.ProxyURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &http.Client{Transport: &http.Transport{
+		Proxy:           http.ProxyURL(proxyURL),
+		TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
+	}}
+}
