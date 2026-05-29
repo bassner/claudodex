@@ -70,7 +70,7 @@ layer is designed to keep working when Claude Code updates.
 
 ## Requirements
 
-- Go 1.25 or newer.
+- Go 1.25 or newer (matching `go.mod`).
 - A working `claude` binary on `PATH`.
 - An OpenAI account with Codex subscription access.
 - macOS arm64 for the current verified UI patch. Other platforms may run
@@ -78,11 +78,28 @@ layer is designed to keep working when Claude Code updates.
 
 ## Install From Source
 
+Build Claudodex first, then copy the resulting binary somewhere on your `PATH`.
+The `go build` step is the build; the install step only copies the binary.
+
 ```sh
 git clone https://github.com/bassner/claudodex.git
 cd claudodex
 go build -o claudodex ./cmd/claudodex
-install -m 0755 claudodex /usr/local/bin/claudodex
+install -m 0755 claudodex ~/.local/bin/claudodex
+```
+
+If `~/.local/bin` is not on your `PATH`, either add it or choose another
+user-writable directory that is. To install system-wide on macOS, use `sudo`:
+
+```sh
+sudo install -m 0755 claudodex /usr/local/bin/claudodex
+```
+
+Alternatively, let Go build and install the command into your Go binary
+directory:
+
+```sh
+go install ./cmd/claudodex
 ```
 
 Verify both binaries are callable:
