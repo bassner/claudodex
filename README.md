@@ -85,6 +85,7 @@ The `go build` step is the build; the install step only copies the binary.
 git clone https://github.com/bassner/claudodex.git
 cd claudodex
 go build -o claudodex ./cmd/claudodex
+mkdir -p ~/.local/bin
 install -m 0755 claudodex ~/.local/bin/claudodex
 ```
 
