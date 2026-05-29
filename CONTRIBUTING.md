@@ -18,13 +18,15 @@ focused on that path.
 
 ## Development Setup
 
+Use Go 1.25 or newer (matching `go.mod`).
+
 ```sh
 git clone https://github.com/bassner/claudodex.git
 cd claudodex
 go build -o ./claudodex ./cmd/claudodex
 ```
 
-You also need a callable `claude` binary for launcher smoke tests.
+You also need a callable `claude` binary on `PATH` for launcher smoke tests.
 
 ## Checks
 
