@@ -1,8 +1,11 @@
 package convert
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/bassner/claudodex/internal/codex"
@@ -48,10 +51,13 @@ type ConvertOptions struct {
 }
 
 type Result struct {
-	Request       codex.Request
-	OriginalModel string
-	Stream        bool
-	ToolSchemas   map[string]map[string]any
+	Request        codex.Request
+	OriginalModel  string
+	Stream         bool
+	ToolSchemas    map[string]map[string]any
+	RouteSessionID string
+	ParentThreadID string
+	Subagent       string
 }
 
 type BadRequestError struct {
@@ -69,7 +75,15 @@ Preserve and obey Claude Code system, project, user, skill, slash-command, and t
 
 Claudodex may run Claude Code with a compatibility config directory under .claudodex/claude-config. Treat that directory as an implementation sidecar, not as the user's canonical Claude config location. If you need to edit, inspect, or report Claude config or instruction files and the path is inside .claudodex/claude-config, resolve symlinks first and operate on the real target path, usually under .claude. Prefer showing the real target path to the user.
 
-For tool calls, omit optional fields unless they have meaningful values.`
+For tool calls, omit optional fields unless they have meaningful values.
+
+When multiple Claude Code tool calls are independent, issue them together in the same assistant message instead of serializing them across separate response turns. This is especially important for batches of file reads, searches, status checks, and other read-only context-gathering calls. Serialize tool calls only when a later call genuinely depends on an earlier tool result or when the tools have side effects that must happen in order.
+
+For Claude Code file tools, pass one valid JSON input object per tool call. Use the exact path form requested by the user or tool result; if the task names repo-relative paths, keep them repo-relative unless an absolute path is explicitly required. Do not include list separators, JSON fragments from another tool call, or multiple paths inside a single file_path string.
+
+When the Claude Code system or agent prompt says you are a delegated agent, subagent, sidechain, or agent for Claude Code, execute the delegated task directly. Do not perform generic conversation-start rituals, startup greetings, or startup-only skill/tool invocations unless they are explicitly relevant to the delegated task or explicitly required for subagents. A skill whose description only says it applies when starting a conversation is not by itself relevant to a delegated subagent task.
+
+For the Claude Code Agent tool, omit the optional model field unless the user explicitly asks for a different subagent model or the requested agent configuration requires a specific model. Omitting the field lets Claude Code inherit the current session model for general-purpose agents.`
 
 func (e BadRequestError) Error() string {
 	return e.Message
@@ -100,6 +114,14 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		}
 		instructions += strings.TrimSpace(messageInstructions)
 	}
+	routeSessionID := strings.TrimSpace(opts.SessionID)
+	parentThreadID := ""
+	subagent := ""
+	if routeSessionID != "" && isClaudeCodeSubagentInstructions(instructions) {
+		parentThreadID = routeSessionID
+		routeSessionID = deriveSubagentSessionID(routeSessionID, instructions, input)
+		subagent = "collab_spawn"
+	}
 	effort := MapReasoningEffortWithConfig(codexModel, req.OutputConfig.Effort, req.Thinking.BudgetTokens, models)
 	out := codex.Request{
 		Model:             codexModel,
@@ -107,15 +129,23 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		Input:             input,
 		Tools:             convertTools(req.Tools),
 		ToolChoice:        convertToolChoice(req.ToolChoice, len(req.Tools) > 0),
-		ParallelToolCalls: false,
+		ParallelToolCalls: true,
 		Store:             false,
 		Stream:            true,
 		ServiceTier:       mapServiceTier(req.Speed),
 		Reasoning:         &codex.Reasoning{Effort: string(effort)},
 		Text:              convertOutputFormat(req.OutputConfig.Format),
-		PromptCacheKey:    opts.SessionID,
+		PromptCacheKey:    routeSessionID,
 	}
-	return Result{Request: out, OriginalModel: model, Stream: stream, ToolSchemas: toolSchemas(req.Tools)}, nil
+	return Result{
+		Request:        out,
+		OriginalModel:  model,
+		Stream:         stream,
+		ToolSchemas:    toolSchemas(req.Tools),
+		RouteSessionID: routeSessionID,
+		ParentThreadID: parentThreadID,
+		Subagent:       subagent,
+	}, nil
 }
 
 func mapServiceTier(speed string) string {
@@ -131,6 +161,71 @@ func withClaudeCodeCompatibilityInstructions(instructions string) string {
 		return claudeCodeCompatibilityInstructions
 	}
 	return instructions + "\n\n" + claudeCodeCompatibilityInstructions
+}
+
+func isClaudeCodeSubagentInstructions(instructions string) bool {
+	normalized := strings.ToLower(instructions)
+	return strings.Contains(normalized, "you are an agent for claude code")
+}
+
+func deriveSubagentSessionID(parentSessionID string, instructions string, input []codex.InputItem) string {
+	if agentID := firstClaudeAgentID(instructions, input); agentID != "" {
+		return parentSessionID + ":agent:" + agentID
+	}
+	hash := sha256.New()
+	_, _ = hash.Write([]byte(instructions))
+	_, _ = hash.Write([]byte{0})
+	_, _ = hash.Write([]byte(firstUserText(input)))
+	sum := hash.Sum(nil)
+	return parentSessionID + ":agent:" + hex.EncodeToString(sum[:8])
+}
+
+var claudeAgentIDPattern = regexp.MustCompile(`\bagent-([A-Za-z0-9][A-Za-z0-9_-]{6,80})\b`)
+
+func firstClaudeAgentID(instructions string, input []codex.InputItem) string {
+	for _, text := range append([]string{instructions}, inputTextForRouting(input)...) {
+		matches := claudeAgentIDPattern.FindStringSubmatch(text)
+		if len(matches) == 2 {
+			return matches[1]
+		}
+	}
+	return ""
+}
+
+func firstUserText(input []codex.InputItem) string {
+	for _, item := range input {
+		if item.Type != "message" || item.Role != "user" {
+			continue
+		}
+		for _, part := range item.Content {
+			if part.Type == "input_text" && strings.TrimSpace(part.Text) != "" {
+				return part.Text
+			}
+		}
+	}
+	data, err := json.Marshal(input)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func inputTextForRouting(input []codex.InputItem) []string {
+	var texts []string
+	for _, item := range input {
+		for _, part := range item.Content {
+			if part.Text != "" {
+				texts = append(texts, part.Text)
+			}
+		}
+		if output, ok := item.Output.(string); ok && output != "" {
+			texts = append(texts, output)
+		}
+		if item.Arguments != "" {
+			texts = append(texts, item.Arguments)
+		}
+	}
+	return texts
 }
 
 func systemInstructions(raw json.RawMessage) string {

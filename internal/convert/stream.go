@@ -23,21 +23,26 @@ type Usage struct {
 }
 
 type StreamReducer struct {
-	messageID     string
-	model         string
-	toolSchemas   map[string]map[string]any
-	started       bool
-	done          bool
-	nextIndex     int
-	textActive    bool
-	textIndex     int
-	textSawDelta  bool
-	visibleBlocks int
-	toolByOutput  map[int]*toolStreamState
-	toolByItemID  map[string]*toolStreamState
-	toolByCallID  map[string]*toolStreamState
-	toolBlocks    int
-	usage         Usage
+	messageID           string
+	model               string
+	toolSchemas         map[string]map[string]any
+	fallbackInputTokens int
+	started             bool
+	done                bool
+	nextIndex           int
+	textActive          bool
+	textIndex           int
+	textSawDelta        bool
+	visibleBlocks       int
+	outputChars         int
+	toolByOutput        map[int]*toolStreamState
+	toolByItemID        map[string]*toolStreamState
+	toolByCallID        map[string]*toolStreamState
+	toolBlocks          int
+	usage               Usage
+	failed              bool
+	failureType         string
+	failureMessage      string
 }
 
 type toolStreamState struct {
@@ -50,6 +55,7 @@ type toolStreamState struct {
 	active      bool
 	sawDelta    bool
 	sentArgs    bool
+	sentStart   bool
 }
 
 func NewStreamReducer(messageID, model string) *StreamReducer {
@@ -57,7 +63,8 @@ func NewStreamReducer(messageID, model string) *StreamReducer {
 }
 
 type StreamReducerOptions struct {
-	ToolSchemas map[string]map[string]any
+	ToolSchemas         map[string]map[string]any
+	FallbackInputTokens int
 }
 
 func NewStreamReducerWithOptions(messageID, model string, opts StreamReducerOptions) *StreamReducer {
@@ -68,18 +75,37 @@ func NewStreamReducerWithOptions(messageID, model string, opts StreamReducerOpti
 		model = modelconfig.DefaultClaudeRequestModel
 	}
 	return &StreamReducer{
-		messageID:    messageID,
-		model:        model,
-		toolSchemas:  cloneToolSchemas(opts.ToolSchemas),
-		textIndex:    -1,
-		toolByOutput: map[int]*toolStreamState{},
-		toolByItemID: map[string]*toolStreamState{},
-		toolByCallID: map[string]*toolStreamState{},
+		messageID:           messageID,
+		model:               model,
+		toolSchemas:         cloneToolSchemas(opts.ToolSchemas),
+		fallbackInputTokens: opts.FallbackInputTokens,
+		textIndex:           -1,
+		toolByOutput:        map[int]*toolStreamState{},
+		toolByItemID:        map[string]*toolStreamState{},
+		toolByCallID:        map[string]*toolStreamState{},
 	}
 }
 
 func (r *StreamReducer) Done() bool {
 	return r.done
+}
+
+func (r *StreamReducer) Failed() bool {
+	return r.failed
+}
+
+func (r *StreamReducer) FailureType() string {
+	if r.failureType == "" {
+		return "api_error"
+	}
+	return r.failureType
+}
+
+func (r *StreamReducer) FailureMessage() string {
+	if r.failureMessage == "" {
+		return "Codex upstream returned an error"
+	}
+	return r.failureMessage
 }
 
 func (r *StreamReducer) Reduce(raw json.RawMessage) ([]AnthropicSSE, error) {
@@ -129,6 +155,7 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 				"text": text,
 			}))
 			r.textSawDelta = true
+			r.outputChars += len(text)
 		}
 	case "response.output_text.done":
 		events = append(events, r.stopTextBlock()...)
@@ -139,6 +166,7 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 		if delta != "" {
 			state.args.WriteString(delta)
 			state.sawDelta = true
+			r.outputChars += len(delta)
 			if !r.shouldBufferToolArgs(state) {
 				state.sentArgs = true
 				events = append(events, contentBlockDelta(state.blockIndex, map[string]any{
@@ -153,6 +181,7 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 		if args := stringField(event["arguments"]); args != "" && !state.sawDelta {
 			state.args.WriteString(args)
 			state.sawDelta = true
+			r.outputChars += len(args)
 			if !r.shouldBufferToolArgs(state) {
 				state.sentArgs = true
 				events = append(events, contentBlockDelta(state.blockIndex, map[string]any{
@@ -172,6 +201,7 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 			if args := stringField(item["arguments"]); args != "" && !state.sawDelta {
 				state.args.WriteString(args)
 				state.sawDelta = true
+				r.outputChars += len(args)
 				if !r.shouldBufferToolArgs(state) {
 					state.sentArgs = true
 					events = append(events, contentBlockDelta(state.blockIndex, map[string]any{
@@ -208,6 +238,7 @@ func (r *StreamReducer) ensureStarted(event map[string]any) []AnthropicSSE {
 			r.messageID = id
 		}
 	}
+	usage := r.usageForStart(event)
 	r.started = true
 	return []AnthropicSSE{{
 		Event: "message_start",
@@ -221,7 +252,7 @@ func (r *StreamReducer) ensureStarted(event map[string]any) []AnthropicSSE {
 				"content":       []any{},
 				"stop_reason":   nil,
 				"stop_sequence": nil,
-				"usage":         zeroUsage(),
+				"usage":         usage,
 			},
 		},
 	}}
@@ -268,6 +299,7 @@ func (r *StreamReducer) finishMessageItem(item map[string]any) []AnthropicSSE {
 			"type": "text_delta",
 			"text": text,
 		}))
+		r.outputChars += len(text)
 	}
 	events = append(events, r.stopTextBlock()...)
 	return events
@@ -345,12 +377,22 @@ func (r *StreamReducer) startToolState(state *toolStreamState) []AnthropicSSE {
 	if state.active {
 		return nil
 	}
-	var events []AnthropicSSE
 	if state.blockIndex < 0 {
 		state.blockIndex = r.nextIndex
 		r.nextIndex++
 	}
 	state.active = true
+	if r.shouldBufferToolArgs(state) {
+		return nil
+	}
+	return r.startToolBlock(state)
+}
+
+func (r *StreamReducer) startToolBlock(state *toolStreamState) []AnthropicSSE {
+	if state.sentStart {
+		return nil
+	}
+	state.sentStart = true
 	id := state.callID
 	if id == "" {
 		id = state.itemID
@@ -362,7 +404,7 @@ func (r *StreamReducer) startToolState(state *toolStreamState) []AnthropicSSE {
 	if name == "" {
 		name = "tool"
 	}
-	events = append(events, AnthropicSSE{
+	return []AnthropicSSE{{
 		Event: "content_block_start",
 		Data: map[string]any{
 			"type":  "content_block_start",
@@ -374,8 +416,7 @@ func (r *StreamReducer) startToolState(state *toolStreamState) []AnthropicSSE {
 				"input": map[string]any{},
 			},
 		},
-	})
-	return events
+	}}
 }
 
 func (r *StreamReducer) stopToolState(state *toolStreamState) []AnthropicSSE {
@@ -385,7 +426,8 @@ func (r *StreamReducer) stopToolState(state *toolStreamState) []AnthropicSSE {
 	state.active = false
 	r.visibleBlocks++
 	r.toolBlocks++
-	events := make([]AnthropicSSE, 0, 2)
+	events := make([]AnthropicSSE, 0, 3)
+	events = append(events, r.startToolBlock(state)...)
 	if r.shouldBufferToolArgs(state) && !state.sentArgs {
 		if args := r.finalToolArgs(state); args != "" {
 			state.sentArgs = true
@@ -437,7 +479,7 @@ func (r *StreamReducer) finish(event map[string]any, forcedStop string) []Anthro
 	for _, state := range states {
 		events = append(events, r.stopToolState(state)...)
 	}
-	r.usage = usageFromEvent(event)
+	r.usage = r.usageForFinish(event)
 	stopReason := forcedStop
 	if stopReason == "" {
 		stopReason = stopReasonFromEvent(event, r.toolBlocks > 0)
@@ -474,6 +516,15 @@ func (r *StreamReducer) errorFromPayload(event map[string]any) []AnthropicSSE {
 }
 
 func (r *StreamReducer) errorEvents(typ, message string) []AnthropicSSE {
+	if typ == "" {
+		typ = "api_error"
+	}
+	if message == "" {
+		message = "Codex upstream returned an error"
+	}
+	r.failed = true
+	r.failureType = typ
+	r.failureMessage = message
 	r.done = true
 	return []AnthropicSSE{{
 		Event: "error",
@@ -508,19 +559,100 @@ func usageFromEvent(event map[string]any) Usage {
 	if usage == nil {
 		usage, _ = event["usage"].(map[string]any)
 	}
+	return usageFromMap(usage)
+}
+
+func usageFromMap(usage map[string]any) Usage {
+	if usage == nil {
+		return Usage{}
+	}
 	input := intField(usage["input_tokens"], 0)
-	output := intField(usage["output_tokens"], 0)
+	if input == 0 {
+		input = firstIntField(usage, "prompt_tokens")
+	}
+	output := firstIntField(usage, "output_tokens", "completion_tokens")
+	if input == 0 {
+		if total := firstIntField(usage, "total_tokens"); total > 0 {
+			input = total
+			if output > 0 && total > output {
+				input = total - output
+			}
+		}
+	}
 	details, _ := usage["input_tokens_details"].(map[string]any)
-	cached := intField(details["cached_tokens"], 0)
+	if details == nil {
+		details, _ = usage["prompt_tokens_details"].(map[string]any)
+	}
+	cached := firstIntField(details, "cached_tokens")
+	cachedIncludedInInput := cached > 0
+	if cached == 0 {
+		cached = firstIntField(usage, "cached_tokens", "cached_input_tokens", "input_cached_tokens")
+		cachedIncludedInInput = cached > 0
+	}
 	if cached > input {
 		cached = input
 	}
+	cacheCreation := firstIntField(usage, "cache_creation_input_tokens", "cache_creation_tokens")
+	cacheRead := firstIntField(usage, "cache_read_input_tokens", "cache_read_tokens")
+	if cachedIncludedInInput {
+		cacheRead = cached
+		input -= cached
+	}
 	return Usage{
-		InputTokens:              input - cached,
-		CacheCreationInputTokens: 0,
-		CacheReadInputTokens:     cached,
+		InputTokens:              input,
+		CacheCreationInputTokens: cacheCreation,
+		CacheReadInputTokens:     cacheRead,
 		OutputTokens:             output,
 	}
+}
+
+func (r *StreamReducer) usageForFinish(event map[string]any) Usage {
+	usage := usageFromEvent(event)
+	if usageInputTokens(usage) == 0 && r.fallbackInputTokens > 0 {
+		usage.InputTokens = r.fallbackInputTokens
+	}
+	if r.visibleBlocks > 0 && usage.OutputTokens == 0 {
+		usage.OutputTokens = estimateVisibleOutputTokens(r.outputChars, r.visibleBlocks)
+	}
+	return usage
+}
+
+func (r *StreamReducer) usageForStart(event map[string]any) Usage {
+	usage := usageFromEvent(event)
+	if usageInputTokens(usage) == 0 && r.fallbackInputTokens > 0 {
+		usage.InputTokens = r.fallbackInputTokens
+	}
+	// Claude Code observes message_start usage before message_delta arrives.
+	// Keep output at zero here so per-content-block progress tracking does not
+	// count the same completion tokens once per streamed block.
+	usage.OutputTokens = 0
+	return usage
+}
+
+func usageInputTokens(usage Usage) int {
+	return usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens
+}
+
+func estimateVisibleOutputTokens(chars, visibleBlocks int) int {
+	if chars > 0 {
+		return (chars + 2) / 3
+	}
+	if visibleBlocks > 0 {
+		return 1
+	}
+	return 0
+}
+
+func firstIntField(values map[string]any, keys ...string) int {
+	if values == nil {
+		return 0
+	}
+	for _, key := range keys {
+		if value := intField(values[key], 0); value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func stopReasonFromEvent(event map[string]any, hasTools bool) string {

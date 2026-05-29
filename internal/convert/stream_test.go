@@ -83,6 +83,118 @@ func TestStreamReducerStreamsToolArgumentsAsDeltas(t *testing.T) {
 	}
 }
 
+func TestStreamReducerBackfillsMissingUsageForVisibleToolCall(t *testing.T) {
+	reducer := NewStreamReducerWithOptions("msg_1", "claude-opus-4-6", StreamReducerOptions{
+		FallbackInputTokens: 123,
+	})
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_1","name":"Read"}}`,
+		`{"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"file_path\":\"a.go\"}"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","call_id":"call_1","name":"Read"}}`,
+		`{"type":"response.completed","response":{"stop_reason":"tool_calls"}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	message, errEvent := AssembleMessage(events, "", "claude-opus-4-6")
+	if errEvent != nil {
+		t.Fatalf("unexpected error event: %#v", errEvent)
+	}
+	usage := message["usage"].(Usage)
+	if usage.InputTokens != 123 || usage.OutputTokens <= 0 {
+		t.Fatalf("usage = %#v", usage)
+	}
+}
+
+func TestStreamReducerAddsFallbackInputUsageToMessageStart(t *testing.T) {
+	reducer := NewStreamReducerWithOptions("msg_1", "claude-opus-4-6", StreamReducerOptions{
+		FallbackInputTokens: 123,
+	})
+	events, err := reducer.Reduce(json.RawMessage(`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_1","name":"Read"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) == 0 || events[0].Event != "message_start" {
+		t.Fatalf("events = %#v", events)
+	}
+	message := events[0].Data["message"].(map[string]any)
+	usage := message["usage"].(Usage)
+	if usage.InputTokens != 123 || usage.OutputTokens != 0 {
+		t.Fatalf("usage = %#v", usage)
+	}
+}
+
+func TestStreamReducerSupplementsOutputOnlyUsage(t *testing.T) {
+	reducer := NewStreamReducerWithOptions("msg_1", "claude-opus-4-6", StreamReducerOptions{
+		FallbackInputTokens: 456,
+	})
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.output_item.added","item":{"type":"message","id":"msg"}}`,
+		`{"type":"response.output_text.delta","delta":"done"}`,
+		`{"type":"response.output_item.done","item":{"type":"message","id":"msg","content":[{"type":"output_text","text":"done"}]}}`,
+		`{"type":"response.completed","response":{"usage":{"output_tokens":7}}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	message, errEvent := AssembleMessage(events, "", "claude-opus-4-6")
+	if errEvent != nil {
+		t.Fatalf("unexpected error event: %#v", errEvent)
+	}
+	usage := message["usage"].(Usage)
+	if usage.InputTokens != 456 || usage.OutputTokens != 7 {
+		t.Fatalf("usage = %#v", usage)
+	}
+}
+
+func TestStreamReducerBackfillsInputUsageForEmptyCompletion(t *testing.T) {
+	reducer := NewStreamReducerWithOptions("msg_1", "claude-opus-4-6", StreamReducerOptions{
+		FallbackInputTokens: 789,
+	})
+	events, err := reducer.Reduce(json.RawMessage(`{"type":"response.completed","response":{"usage":{"input_tokens":0,"output_tokens":0}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, errEvent := AssembleMessage(events, "", "claude-opus-4-6")
+	if errEvent != nil {
+		t.Fatalf("unexpected error event: %#v", errEvent)
+	}
+	usage := message["usage"].(Usage)
+	if usage.InputTokens != 789 || usage.OutputTokens != 0 {
+		t.Fatalf("usage = %#v", usage)
+	}
+}
+
+func TestUsageFromEventAcceptsPromptTokenAliases(t *testing.T) {
+	var event map[string]any
+	if err := json.Unmarshal([]byte(`{"response":{"usage":{"prompt_tokens":10,"prompt_tokens_details":{"cached_tokens":2},"completion_tokens":3}}}`), &event); err != nil {
+		t.Fatal(err)
+	}
+	usage := usageFromEvent(event)
+	if usage.InputTokens != 8 || usage.CacheReadInputTokens != 2 || usage.OutputTokens != 3 {
+		t.Fatalf("usage = %#v", usage)
+	}
+}
+
+func TestUsageFromEventDerivesInputFromTotalTokens(t *testing.T) {
+	var event map[string]any
+	if err := json.Unmarshal([]byte(`{"usage":{"total_tokens":25,"output_tokens":5}}`), &event); err != nil {
+		t.Fatal(err)
+	}
+	usage := usageFromEvent(event)
+	if usage.InputTokens != 20 || usage.OutputTokens != 5 {
+		t.Fatalf("usage = %#v", usage)
+	}
+}
+
 func TestStreamReducerUsesFunctionArgumentsDoneWhenNoDeltasArrive(t *testing.T) {
 	reducer := NewStreamReducer("msg_1", "claude-opus-4-6")
 	var events []AnthropicSSE
@@ -151,6 +263,158 @@ func TestStreamReducerPrunesEmptyOptionalToolArguments(t *testing.T) {
 	}
 }
 
+func TestStreamReducerBuffersReadArgumentsForSanitization(t *testing.T) {
+	reducer := NewStreamReducerWithOptions("msg_1", "claude-opus-4-6", StreamReducerOptions{
+		ToolSchemas: map[string]map[string]any{
+			"Read": {
+				"type":     "object",
+				"required": []any{"file_path"},
+				"properties": map[string]any{
+					"file_path": map[string]any{"type": "string"},
+					"pages":     map[string]any{"type": "string"},
+				},
+			},
+		},
+	})
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_1","name":"Read"}}`,
+		`{"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"file_path\":\"/tmp/meeting_today.txt\",\"pages\":\"\"}"}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	for _, event := range events {
+		if event.Event == "content_block_start" || event.Event == "content_block_delta" {
+			t.Fatalf("Read tool block was emitted before sanitization: %#v", event)
+		}
+	}
+	next, err := reducer.Reduce(json.RawMessage(`{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","call_id":"call_1","name":"Read"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsInputJSONDelta(next) {
+		t.Fatalf("sanitized Read arguments were not emitted on tool stop: %#v", next)
+	}
+}
+
+func TestStreamReducerBuffersWriteArgumentsWithToolSchemas(t *testing.T) {
+	reducer := NewStreamReducerWithOptions("msg_1", "claude-opus-4-6", StreamReducerOptions{
+		ToolSchemas: map[string]map[string]any{
+			"Write": {
+				"type":     "object",
+				"required": []any{"file_path", "content"},
+				"properties": map[string]any{
+					"file_path": map[string]any{"type": "string"},
+					"content":   map[string]any{"type": "string"},
+				},
+			},
+		},
+	})
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_1","name":"Write"}}`,
+		`{"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"file_path\":\"a.go\","}`,
+		`{"type":"response.function_call_arguments.delta","output_index":0,"delta":"\"content\":\"package main\"}"}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	for _, event := range events {
+		if event.Event == "content_block_start" || event.Event == "content_block_delta" {
+			t.Fatalf("Write tool block was emitted before completed arguments: %#v", event)
+		}
+	}
+	next, err := reducer.Reduce(json.RawMessage(`{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","call_id":"call_1","name":"Write"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsInputJSONDelta(next) {
+		t.Fatalf("Write arguments were not emitted on tool stop: %#v", next)
+	}
+}
+
+func TestStreamReducerLeavesAgentModelAliasForClaudeCodeValidation(t *testing.T) {
+	reducer := NewStreamReducerWithOptions("msg_1", "gpt-5.5", StreamReducerOptions{
+		ToolSchemas: map[string]map[string]any{
+			"Agent": {
+				"type":     "object",
+				"required": []any{"description", "prompt"},
+				"properties": map[string]any{
+					"description": map[string]any{"type": "string"},
+					"prompt":      map[string]any{"type": "string"},
+					"model":       map[string]any{"type": "string"},
+				},
+			},
+		},
+	})
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_agent","name":"Agent"}}`,
+		`{"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"description\":\"Retry cluster\",\"prompt\":\"do it\",\"model\":\"sonnet\"}"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","call_id":"call_agent","name":"Agent"}}`,
+		`{"type":"response.completed","response":{"stop_reason":"tool_calls"}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	message, errEvent := AssembleMessage(events, "", "gpt-5.5")
+	if errEvent != nil {
+		t.Fatalf("unexpected error event: %#v", errEvent)
+	}
+	content := message["content"].([]map[string]any)
+	input := content[0]["input"].(map[string]any)
+	if input["model"] != "sonnet" {
+		t.Fatalf("agent model = %#v, input = %#v", input["model"], input)
+	}
+}
+
+func TestStreamReducerPrunesEmptyAgentModel(t *testing.T) {
+	reducer := NewStreamReducerWithOptions("msg_1", "gpt-5.5", StreamReducerOptions{
+		ToolSchemas: map[string]map[string]any{
+			"Agent": {
+				"type": "object",
+				"properties": map[string]any{
+					"description": map[string]any{"type": "string"},
+					"prompt":      map[string]any{"type": "string"},
+					"model":       map[string]any{"type": "string"},
+				},
+			},
+		},
+	})
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_agent","name":"Agent"}}`,
+		`{"type":"response.function_call_arguments.done","output_index":0,"arguments":"{\"description\":\"Retry cluster\",\"prompt\":\"do it\",\"model\":\"\"}"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","call_id":"call_agent","name":"Agent"}}`,
+		`{"type":"response.completed","response":{"stop_reason":"tool_calls"}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	message, errEvent := AssembleMessage(events, "", "gpt-5.5")
+	if errEvent != nil {
+		t.Fatalf("unexpected error event: %#v", errEvent)
+	}
+	content := message["content"].([]map[string]any)
+	input := content[0]["input"].(map[string]any)
+	if _, ok := input["model"]; ok {
+		t.Fatalf("empty agent model was not pruned: %#v", input)
+	}
+}
+
 func TestStreamReducerUsesSSEEventNameForError(t *testing.T) {
 	reducer := NewStreamReducer("msg_1", "claude-opus-4-6")
 	events, err := reducer.ReduceNamed("error", json.RawMessage(`{"error":{"type":"api_error","message":"boom"}}`))
@@ -208,4 +472,17 @@ func renderGoldenSSE(t *testing.T, events []AnthropicSSE) string {
 		fmt.Fprintf(&out, "event: %s\ndata: %s\n\n", event.Event, data)
 	}
 	return out.String()
+}
+
+func containsInputJSONDelta(events []AnthropicSSE) bool {
+	for _, event := range events {
+		if event.Event != "content_block_delta" {
+			continue
+		}
+		delta, _ := event.Data["delta"].(map[string]any)
+		if delta["type"] == "input_json_delta" {
+			return true
+		}
+	}
+	return false
 }

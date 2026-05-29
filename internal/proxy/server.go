@@ -35,6 +35,11 @@ type Server struct {
 	server   *http.Server
 	listener net.Listener
 	once     sync.Once
+	traceMu  sync.Mutex
+	chainsMu sync.Mutex
+	chains   map[string]responseChain
+	wsMu     sync.Mutex
+	ws       map[string]*codex.WebSocketConversation
 }
 
 func New(cfg Config) *Server {
@@ -48,7 +53,7 @@ func New(cfg Config) *Server {
 		cfg.CodexBaseURL = codex.DefaultBaseURL
 	}
 	cfg.ModelConfig = cfg.ModelConfig.Normalize()
-	return &Server{cfg: cfg}
+	return &Server{cfg: cfg, chains: make(map[string]responseChain), ws: make(map[string]*codex.WebSocketConversation)}
 }
 
 func (s *Server) Start(host string, port int) (string, error) {
@@ -91,8 +96,63 @@ func (s *Server) Close() error {
 			defer cancel()
 			err = s.server.Shutdown(ctx)
 		}
+		s.closeWebSockets()
 	})
 	return err
+}
+
+func (s *Server) websocketConversation(chainKey string) *codex.WebSocketConversation {
+	chainKey = strings.TrimSpace(chainKey)
+	if chainKey == "" {
+		return nil
+	}
+	s.wsMu.Lock()
+	defer s.wsMu.Unlock()
+	conversation := s.ws[chainKey]
+	if conversation == nil {
+		conversation = &codex.WebSocketConversation{}
+		s.ws[chainKey] = conversation
+	}
+	return conversation
+}
+
+func (s *Server) hasWebSocket(chainKey string) bool {
+	chainKey = strings.TrimSpace(chainKey)
+	if chainKey == "" {
+		return false
+	}
+	s.wsMu.Lock()
+	defer s.wsMu.Unlock()
+	return s.ws[chainKey] != nil
+}
+
+func (s *Server) closeWebSocket(chainKey string) {
+	chainKey = strings.TrimSpace(chainKey)
+	if chainKey == "" {
+		return
+	}
+	s.wsMu.Lock()
+	conversation := s.ws[chainKey]
+	delete(s.ws, chainKey)
+	s.wsMu.Unlock()
+	if conversation != nil {
+		_ = conversation.Close()
+	}
+}
+
+func (s *Server) closeWebSockets() {
+	s.wsMu.Lock()
+	conversations := make([]*codex.WebSocketConversation, 0, len(s.ws))
+	for key, conversation := range s.ws {
+		conversations = append(conversations, conversation)
+		delete(s.ws, key)
+	}
+	s.wsMu.Unlock()
+	for _, conversation := range conversations {
+		if conversation != nil {
+			_ = conversation.Close()
+		}
+	}
 }
 
 func (s *Server) routes(mux *http.ServeMux) {
@@ -149,6 +209,14 @@ func (s *Server) routes(mux *http.ServeMux) {
 }
 
 func (s *Server) logRequest(method string, path string, rawQuery string) {
+	target := path
+	if rawQuery != "" {
+		target += "?" + rawQuery
+	}
+	s.appendProxyLog("%s %s %s\n", time.Now().UTC().Format(time.RFC3339Nano), method, target)
+}
+
+func (s *Server) appendProxyLog(format string, args ...any) {
 	logPath := os.Getenv("CLAUDODEX_PROXY_LOG")
 	if logPath == "" {
 		return
@@ -159,11 +227,7 @@ func (s *Server) logRequest(method string, path string, rawQuery string) {
 		return
 	}
 	defer f.Close()
-	target := path
-	if rawQuery != "" {
-		target += "?" + rawQuery
-	}
-	_, _ = fmt.Fprintf(f, "%s %s %s\n", time.Now().UTC().Format(time.RFC3339Nano), method, target)
+	_, _ = fmt.Fprintf(f, format, args...)
 }
 
 func authStatus(present bool) string {
@@ -204,7 +268,10 @@ func estimateTokenCount(r *http.Request) int {
 	if truncated {
 		data = data[:maxCountBody]
 	}
+	return estimateTokenCountFromBytes(data, truncated)
+}
 
+func estimateTokenCountFromBytes(data []byte, truncated bool) int {
 	tokens := (len(data) + 2) / 3 // deliberately conservative JSON chars/token estimate.
 	tokens += estimateImagePadding(data)
 	if truncated {

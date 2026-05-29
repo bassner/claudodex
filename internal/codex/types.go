@@ -5,19 +5,20 @@ import "encoding/json"
 const DefaultBaseURL = "https://chatgpt.com/backend-api"
 
 type Request struct {
-	Model             string            `json:"model"`
-	Instructions      string            `json:"instructions,omitempty"`
-	Input             []InputItem       `json:"input"`
-	Tools             []Tool            `json:"tools,omitempty"`
-	ToolChoice        any               `json:"tool_choice,omitempty"`
-	ParallelToolCalls bool              `json:"parallel_tool_calls"`
-	Store             bool              `json:"store"`
-	Stream            bool              `json:"stream"`
-	ServiceTier       string            `json:"service_tier,omitempty"`
-	Reasoning         *Reasoning        `json:"reasoning,omitempty"`
-	Text              *TextConfig       `json:"text,omitempty"`
-	PromptCacheKey    string            `json:"prompt_cache_key,omitempty"`
-	ClientMetadata    map[string]string `json:"client_metadata,omitempty"`
+	Model              string            `json:"model"`
+	Instructions       string            `json:"instructions,omitempty"`
+	PreviousResponseID string            `json:"previous_response_id,omitempty"`
+	Input              []InputItem       `json:"input"`
+	Tools              []Tool            `json:"tools,omitempty"`
+	ToolChoice         any               `json:"tool_choice,omitempty"`
+	ParallelToolCalls  bool              `json:"parallel_tool_calls"`
+	Store              bool              `json:"store"`
+	Stream             bool              `json:"stream"`
+	ServiceTier        string            `json:"service_tier,omitempty"`
+	Reasoning          *Reasoning        `json:"reasoning,omitempty"`
+	Text               *TextConfig       `json:"text,omitempty"`
+	PromptCacheKey     string            `json:"prompt_cache_key,omitempty"`
+	ClientMetadata     map[string]string `json:"client_metadata,omitempty"`
 }
 
 type Reasoning struct {
@@ -94,8 +95,10 @@ type Credentials struct {
 }
 
 type Route struct {
-	SessionID string
-	ThreadID  string
+	SessionID      string
+	ThreadID       string
+	ParentThreadID string
+	Subagent       string
 }
 
 type SSEEvent struct {

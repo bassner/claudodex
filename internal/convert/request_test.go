@@ -74,6 +74,80 @@ func TestAnthropicToCodexAddsCompatibilityInstructionsWithoutSystemPrompt(t *tes
 	if !strings.Contains(got.Request.Instructions, "For tool calls, omit optional fields unless they have meaningful values.") {
 		t.Fatalf("tool argument guidance missing: %q", got.Request.Instructions)
 	}
+	if !strings.Contains(got.Request.Instructions, "issue them together in the same assistant message") {
+		t.Fatalf("parallel tool-call guidance missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "Do not include list separators, JSON fragments from another tool call, or multiple paths inside a single file_path string.") {
+		t.Fatalf("file tool argument guidance missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "A skill whose description only says it applies when starting a conversation") {
+		t.Fatalf("subagent startup guidance missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "omit the optional model field") {
+		t.Fatalf("agent model inheritance guidance missing: %q", got.Request.Instructions)
+	}
+}
+
+func TestAnthropicToCodexDerivesCodexSubagentRoute(t *testing.T) {
+	var req AnthropicRequest
+	if err := json.Unmarshal([]byte(`{
+		"model":"claude-opus-4-6",
+		"system":"You are an agent for Claude Code, Anthropic's official CLI for Claude. Complete the delegated task.",
+		"messages":[{"role":"user","content":"Read README.md and report back."}]
+	}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := AnthropicToCodex(req, ConvertOptions{SessionID: "parent-session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ParentThreadID != "parent-session" || got.Subagent != "collab_spawn" {
+		t.Fatalf("subagent route metadata = parent %q subagent %q", got.ParentThreadID, got.Subagent)
+	}
+	if !strings.HasPrefix(got.RouteSessionID, "parent-session:agent:") {
+		t.Fatalf("route session id = %q", got.RouteSessionID)
+	}
+	if got.Request.PromptCacheKey != got.RouteSessionID {
+		t.Fatalf("prompt_cache_key = %q, route = %q", got.Request.PromptCacheKey, got.RouteSessionID)
+	}
+}
+
+func TestAnthropicToCodexUsesClaudeAgentIDForStableSubagentRoute(t *testing.T) {
+	var first AnthropicRequest
+	if err := json.Unmarshal([]byte(`{
+		"model":"claude-opus-4-6",
+		"system":"You are an agent for Claude Code, Anthropic's official CLI for Claude. cwd: /repo/.claude/worktrees/agent-a402ca36aa7e3f928",
+		"messages":[{"role":"user","content":"Read README.md and report back."}]
+	}`), &first); err != nil {
+		t.Fatal(err)
+	}
+	firstResult, err := AnthropicToCodex(first, ConvertOptions{SessionID: "parent-session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstResult.RouteSessionID != "parent-session:agent:a402ca36aa7e3f928" {
+		t.Fatalf("first route session id = %q", firstResult.RouteSessionID)
+	}
+
+	var followup AnthropicRequest
+	if err := json.Unmarshal([]byte(`{
+		"model":"claude-opus-4-6",
+		"system":"You are an agent for Claude Code, Anthropic's official CLI for Claude. Complete the delegated task.",
+		"messages":[
+			{"role":"user","content":"Read README.md and report back."},
+			{"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"Bash","input":{"command":"pwd"}}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"worktree /repo/.claude/worktrees/agent-a402ca36aa7e3f928\nlocked claude agent agent-a402ca36aa7e3f928"}]}
+		]
+	}`), &followup); err != nil {
+		t.Fatal(err)
+	}
+	followupResult, err := AnthropicToCodex(followup, ConvertOptions{SessionID: "parent-session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if followupResult.RouteSessionID != firstResult.RouteSessionID {
+		t.Fatalf("follow-up route session id = %q, first = %q", followupResult.RouteSessionID, firstResult.RouteSessionID)
+	}
 }
 
 func TestAnthropicToCodexFoldsSystemRoleMessagesIntoInstructions(t *testing.T) {

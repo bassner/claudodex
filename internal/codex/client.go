@@ -111,6 +111,12 @@ func (c Client) headers(credentials Credentials, route Route, includeHTTPBeta bo
 		"thread-id":               threadID,
 		"chatgpt-account-id":      credentials.AccountID,
 	}
+	if parentThreadID := strings.TrimSpace(route.ParentThreadID); parentThreadID != "" {
+		headers["x-codex-parent-thread-id"] = parentThreadID
+	}
+	if subagent := strings.TrimSpace(route.Subagent); subagent != "" {
+		headers["x-openai-subagent"] = subagent
+	}
 	if includeHTTPBeta {
 		headers["openai-beta"] = "responses_websockets=2026-02-06"
 	}

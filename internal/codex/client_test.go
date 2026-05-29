@@ -18,7 +18,7 @@ func TestClientCreateResponseBuildsCodexHeaders(t *testing.T) {
 		AccountID:      "acc_123",
 		InstallationID: "install-1",
 		FedRAMP:        true,
-	}, Route{SessionID: "session-1", ThreadID: "thread-1"}, true)
+	}, Route{SessionID: "session-1", ThreadID: "thread-1", ParentThreadID: "parent-1", Subagent: "collab_spawn"}, true)
 
 	want := map[string]string{
 		"authorization":                     "Bearer access-1",
@@ -31,6 +31,8 @@ func TestClientCreateResponseBuildsCodexHeaders(t *testing.T) {
 		"x-client-request-id":               "session-1",
 		"session-id":                        "session-1",
 		"thread-id":                         "thread-1",
+		"x-codex-parent-thread-id":          "parent-1",
+		"x-openai-subagent":                 "collab_spawn",
 		"x-openai-internal-codex-residency": "us",
 		"x-openai-fedramp":                  "true",
 		"openai-beta":                       "responses_websockets=2026-02-06",
