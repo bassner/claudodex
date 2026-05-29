@@ -26,6 +26,12 @@ func applyClaudeUIPatches_2_1_154(data []byte, claudodexVersion, claudeVersion s
 	changed = defaultDescriptionPatched || changed
 	fastFooterPatched := patchFastModeModelPickerFooter_2_1_154(data)
 	changed = fastFooterPatched || changed
+	fastNoticePatched := patchFastModeModelPickerNotice_2_1_154(data)
+	changed = fastNoticePatched || changed
+	fastModeRuntimePatched := patchFastModeRuntimeFunctions_2_1_154(data)
+	changed = fastModeRuntimePatched || changed
+	fastModePricingPatched := patchFastModePricing_2_1_154(data)
+	changed = fastModePricingPatched || changed
 	contextWarningHintPatched := patchContextWarningHint_2_1_154(data)
 	changed = contextWarningHintPatched || changed
 	resumeHintsPatched := patchResumeCommandHints_2_1_154(data)
@@ -50,8 +56,15 @@ func applyClaudeUIPatches_2_1_154(data []byte, claudodexVersion, claudeVersion s
 	changed = replaceAllFixed(data, "Best for everyday tasks", modelDescriptionPatch(modelCfg.Sonnet, "everyday coding")) || changed
 	changed = replaceAllFixed(data, "Fastest for quick answers", modelDescriptionPatch(modelCfg.Haiku, "quick code")) || changed
 	changed = replaceAllFixed(data, ` with 1M context \xB7 `, ` via Codex model \xB7 `) || changed
-	changed = replaceAllFixed(data, "Fast mode for Claude Code uses Claude Opus with faster output (it does not downgrade to a smaller model). It can be toggled with /fast and is available on Opus 4.8/4.7/4.6.", "Fast mode for Claudodex uses the selected Codex-backed Opus route with faster output. It can be toggled with /fast.") || changed
+	changed = replaceAllFixed(data, "Fast mode for Claude Code uses Claude Opus with faster output (it does not downgrade to a smaller model). It can be toggled with /fast and is available on Opus 4.8/4.7/4.6.", "Fast mode for Claudodex requests the Codex priority service tier for lower latency. It can be toggled with /fast.") || changed
+	changed = replaceAllFixed(data, "Fast mode (research preview)", "Fast mode (Codex priority)") || changed
+	changed = replaceAllFixed(data, "Draws from usage credits at a higher rate. Separate rate limits apply.", "Uses Codex priority service tier when available.") || changed
+	changed = replaceAllFixed(data, "Billed as extra usage at a premium rate. Separate rate limits apply.", "Uses Codex priority service tier when available.") || changed
+	changed = replaceAllFixed(data, "$10/$50 per Mtok", "Codex priority") || changed
+	changed = replaceAllFixed(data, "Learn more:", "Claudodex:") || changed
+	changed = replaceAllFixed(data, "https://code.claude.com/docs/en/fast-mode", "https://github.com/bassner/claudodex") || changed
 	changed = replaceAllFixed(data, "Use /fast to turn on Fast mode (Opus 4.8).", "Use /fast to toggle Fast mode.") || changed
+	changed = replaceAllFixed(data, "Opus 4.8", "Codex AI") || changed
 
 	changed = replaceFirstFixed(data, `r=kN6?Y4.createElement(kN6.Title,null):Y4.createElement(V,{bold:!0},"Claude Code")`, `r=Y4.createElement(V,{bold:!0},"Claudodex")`) || changed
 	changed = replaceAllPatternString(data, `Y4.createElement(V,{bold:!0},"Claude Code")`, "Claude Code", "Claudodex") || changed
@@ -70,7 +83,7 @@ func applyClaudeUIPatches_2_1_154(data []byte, claudodexVersion, claudeVersion s
 	changed = modelPickerSelectionPatched || changed
 	modelPickerOptionsPatched := patchModelPickerOptions_2_1_154(data)
 	changed = modelPickerOptionsPatched || changed
-	if !versionPatched || !usagePatched || !whatsNewPatched || !defaultDescriptionPatched || !fastFooterPatched || !contextWarningHintPatched || !resumeHintsPatched || !modelPickerPatched || !modelPickerSelectionPatched || !modelPickerOptionsPatched {
+	if !versionPatched || !usagePatched || !whatsNewPatched || !defaultDescriptionPatched || !fastFooterPatched || !fastNoticePatched || !fastModeRuntimePatched || !fastModePricingPatched || !contextWarningHintPatched || !resumeHintsPatched || !modelPickerPatched || !modelPickerSelectionPatched || !modelPickerOptionsPatched {
 		return false
 	}
 	return changed
@@ -136,6 +149,55 @@ func patchFastModeModelPickerFooter_2_1_154(data []byte) bool {
 	const old = `X4.createElement(V,{dimColor:!0},"Use ",X4.createElement(V,{bold:!0},"/fast")," to turn on Fast mode (",Bp(),").")`
 	const replacement = `X4.createElement(V,{dimColor:!0},"Use ",X4.createElement(V,{bold:!0},"/fast")," to toggle Fast mode.")`
 	return replaceFirstFixed(data, old, replacement)
+}
+
+func patchFastModeModelPickerNotice_2_1_154(data []byte) bool {
+	const old = `X4.createElement(B,{marginBottom:1},X4.createElement(V,{dimColor:!0},"Fast mode is ",X4.createElement(V,{bold:!0},"ON")," and available with"," ",Bp()," (/fast). Switching to other models turns off fast mode."))`
+	const replacement = `X4.createElement(B,{marginBottom:1},X4.createElement(V,{dimColor:!0},"Fast mode is ",X4.createElement(V,{bold:!0},"ON"),". Codex priority remains active while available."))`
+	return replaceFirstFixed(data, old, replacement)
+}
+
+func patchFastModeRuntimeFunctions_2_1_154(data []byte) bool {
+	const supportedOld = `function Pj(H){if(!C4())return!1;let _=H??M0(),K=e7(_).toLowerCase();if(hi())return K.includes("opus-4-6");return K.includes("opus-4-6")||K.includes("opus-4-7")||K.includes("opus-4-8")}`
+	const supportedReplacement = `function Pj(H){return C4()}`
+	if len(supportedReplacement) > len(supportedOld) {
+		return false
+	}
+	supportedPatched := replaceFirstFixed(data, supportedOld, supportedReplacement)
+
+	const modelOld = `function xUH(){return(hi()?"claude-opus-4-6":"opus")+(VP()?"[1m]":"")}`
+	const modelReplacement = `function xUH(){return"opus"}`
+	if len(modelReplacement) > len(modelOld) {
+		return false
+	}
+	modelPatched := replaceFirstFixed(data, modelOld, modelReplacement)
+	return supportedPatched && modelPatched
+}
+
+func patchFastModePricing_2_1_154(data []byte) bool {
+	const pickerOld = `let S=f7(),x=A7(S).includes("opus")?S:"claude-opus-4-8";M=Yk(vGH(!0,x)),_[1]=M`
+	const pickerReplacement = `M="Codex priority",_[1]=M`
+	pickerPatched := replaceFirstFixed(data, pickerOld, pickerReplacement)
+
+	start := bytes.Index(data, []byte("async function Lv6(H,_,q,K){"))
+	if start < 0 {
+		return false
+	}
+	endRel := bytes.Index(data[start:], []byte("var oHq=R("))
+	if endRel < 0 {
+		return false
+	}
+	old := data[start : start+endRel]
+	replacement := `async function Lv6(H,_,q,K){let O=Ee();if(O)return` + "`" + `Fast mode unavailable: ${O}` + "`" + `;let{mainLoopModel:T}=_();Rv6(H,q);d("tengu_fast_mode_toggled",{enabled:H,source:K});if(H){let $=T2H(!0),z=!Pj(T)?" \xB7 using Codex":"";return` + "`" + `${$} Fast mode ON${z} \xB7 Codex priority` + "`" + `}return"Fast mode OFF"}`
+	if len([]byte(replacement)) > len(old) {
+		return false
+	}
+	newBytes, ok := fitReplacement(old, replacement)
+	if !ok {
+		return false
+	}
+	copy(old, newBytes)
+	return pickerPatched
 }
 
 func patchContextWarningHint_2_1_154(data []byte) bool {

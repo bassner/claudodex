@@ -223,6 +223,22 @@ func TestClaudeLocalOAuthCompatibilityRoutes(t *testing.T) {
 	if _, ok := policy["restrictions"].(map[string]any); !ok {
 		t.Fatalf("policy body = %#v", policy)
 	}
+
+	resp, err = http.Get(base + "/api/claude_code_penguin_mode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("fast mode status = %d, want 200", resp.StatusCode)
+	}
+	var fastMode map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&fastMode); err != nil {
+		t.Fatal(err)
+	}
+	if fastMode["enabled"] != true {
+		t.Fatalf("fast mode body = %#v", fastMode)
+	}
 }
 
 func TestBatchesReturnsAnthropic501(t *testing.T) {

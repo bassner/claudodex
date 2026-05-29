@@ -359,6 +359,40 @@ func TestNormalizeClaudeSettingsModelMapsCodexRuntimeModels(t *testing.T) {
 	}
 }
 
+func TestNormalizeClaudeSettingsModelMapsNativeLongContextAliases(t *testing.T) {
+	for name, tc := range map[string]struct {
+		model string
+		want  string
+	}{
+		"plain opus":        {model: "opus", want: "opus"},
+		"family opus":       {model: "opus[1m]", want: "opus"},
+		"plain sonnet":      {model: "sonnet", want: "sonnet"},
+		"versioned opus":    {model: "claude-opus-4-8[1m]", want: "opus"},
+		"family sonnet":     {model: "sonnet[1m]", want: "sonnet"},
+		"plain haiku":       {model: "haiku", want: "haiku"},
+		"versioned sonnet":  {model: "claude-sonnet-4-6[1m]", want: "sonnet"},
+		"family haiku":      {model: "haiku[1m]", want: "haiku"},
+		"versioned haiku":   {model: "claude-haiku-4-5[1m]", want: "haiku"},
+		"legacy small fast": {model: "small-fast[1m]", want: "haiku"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			settingsPath := filepath.Join(t.TempDir(), "settings.json")
+			if err := writeJSONFile(settingsPath, map[string]any{"model": tc.model}, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := normalizeClaudeSettingsModel(settingsPath, time.Second, modelconfig.Default()); err != nil {
+				t.Fatal(err)
+			}
+
+			settings := mustReadJSONMap(t, settingsPath)
+			if settings["model"] != tc.want {
+				t.Fatalf("model = %#v, want %q", settings["model"], tc.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeClaudeSettingsModelUsesConfiguredTargets(t *testing.T) {
 	settingsPath := filepath.Join(t.TempDir(), "settings.json")
 	if err := writeJSONFile(settingsPath, map[string]any{

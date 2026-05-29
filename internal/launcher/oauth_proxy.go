@@ -250,6 +250,7 @@ func oauthProxyRouteAllowed(method string, path string) bool {
 		"/api/claude_cli/bootstrap",
 		"/api/claude_code/settings",
 		"/api/claude_code/policy_limits",
+		"/api/claude_code_penguin_mode",
 		"/v1",
 		"/v1/models",
 		"/v1/mcp_servers":

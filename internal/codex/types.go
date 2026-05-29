@@ -13,6 +13,7 @@ type Request struct {
 	ParallelToolCalls bool              `json:"parallel_tool_calls"`
 	Store             bool              `json:"store"`
 	Stream            bool              `json:"stream"`
+	ServiceTier       string            `json:"service_tier,omitempty"`
 	Reasoning         *Reasoning        `json:"reasoning,omitempty"`
 	Text              *TextConfig       `json:"text,omitempty"`
 	PromptCacheKey    string            `json:"prompt_cache_key,omitempty"`

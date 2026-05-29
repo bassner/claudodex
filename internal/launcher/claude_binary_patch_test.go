@@ -2,7 +2,10 @@ package launcher
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -121,7 +124,18 @@ func TestApplyClaudeUIPatches154BrandsHeaderAndModelPicker(t *testing.T) {
 		"gpt-5.4-mini quick code",
 		` via Codex model \xB7 `,
 		"Fast mode for Claudodex",
+		"Fast mode (Codex priority)",
+		"Uses Codex priority service tier when available.",
+		"Codex priority",
+		"Claudodex:",
+		"https://github.com/bassner/claudodex",
 		"Use /fast to toggle Fast mode.",
+		"Codex priority remains active while available.",
+		"Codex AI",
+		`function Pj(H){return C4()}`,
+		`function xUH(){return"opus"}`,
+		`M="Codex priority",_[1]=M`,
+		`return` + "`" + `${$} Fast mode ON${z} \xB7 Codex priority` + "`",
 		`function or_(H=!1){return"Default Codex route \xB7 default Codex work"}`,
 		`CLAUDE_LOCAL_OAUTH_API_BASE`,
 		`fetch(H+"/api/oauth/usage"`,
@@ -148,6 +162,12 @@ func TestApplyClaudeUIPatches154BrandsHeaderAndModelPicker(t *testing.T) {
 		"$.push(Ri3)",
 		"kN6.Title",
 		" to turn on Fast mode (",
+		"model set to Opus 4.8",
+		"model set to ${Bp()}",
+		"Switching to other models turns off fast mode",
+		"Yk(vGH(!0",
+		"$10/$50 per Mtok",
+		"https://code.claude.com/docs/en/fast-mode",
 		"$.push(YNK)",
 		"T.push(MNK(!1))",
 		"T.push(JNK(!1))",
@@ -182,6 +202,31 @@ func TestApplyClaudeUIPatches154BrandsHeaderAndModelPicker(t *testing.T) {
 		if strings.Contains(got, notWant) {
 			t.Fatalf("patched data still contains %q:\n%s", notWant, got)
 		}
+	}
+}
+
+func TestApplyClaudeUIPatches156SlowsCompactProgressBar(t *testing.T) {
+	data := append(claude154PatchFixture(t), []byte(`
+function Io7(H){let _=Math.max(0,H)/1000,q=1-Math.exp(-_/90);return Math.min(95,Math.round(q*100))}
+`)...)
+
+	if !applyClaudeUIPatches_2_1_156(data, "0.1.0", "2.1.156", modelconfig.Default()) {
+		t.Fatal("applyClaudeUIPatches_2_1_156 reported no changes")
+	}
+	got := string(data)
+	if !strings.Contains(got, `function Io7(H){let _=Math.max(0,H)/2000,q=1-Math.exp(-_/90);return Math.min(95,Math.round(q*100))}`) {
+		t.Fatalf("patched data missing slowed compact progress curve:\n%s", got)
+	}
+	if strings.Contains(got, `Math.max(0,H)/1000,q=1-Math.exp(-_/90)`) {
+		t.Fatalf("patched data still contains original compact progress curve:\n%s", got)
+	}
+}
+
+func TestApplyClaudeUIPatches156FailsWhenCriticalCompactProgressPatchMissing(t *testing.T) {
+	data := claude154PatchFixture(t)
+
+	if applyClaudeUIPatches_2_1_156(data, "0.1.0", "2.1.156", modelconfig.Default()) {
+		t.Fatal("applyClaudeUIPatches_2_1_156 succeeded without the critical compact progress patch target")
 	}
 }
 
@@ -237,8 +282,20 @@ func claude154PatchFixture(t *testing.T) []byte {
 		`Fastest for quick answers`,
 		` with 1M context \xB7 `,
 		`Fast mode for Claude Code uses Claude Opus with faster output (it does not downgrade to a smaller model). It can be toggled with /fast and is available on Opus 4.8/4.7/4.6.`,
+		`Fast mode (research preview)`,
+		`Draws from usage credits at a higher rate. Separate rate limits apply.`,
+		`Billed as extra usage at a premium rate. Separate rate limits apply.`,
+		`$10/$50 per Mtok`,
+		`Learn more:`,
+		`https://code.claude.com/docs/en/fast-mode`,
 		`Use /fast to turn on Fast mode (Opus 4.8).`,
+		`Opus 4.8`,
 		`X4.createElement(V,{dimColor:!0},"Use ",X4.createElement(V,{bold:!0},"/fast")," to turn on Fast mode (",Bp(),").")`,
+		`X4.createElement(B,{marginBottom:1},X4.createElement(V,{dimColor:!0},"Fast mode is ",X4.createElement(V,{bold:!0},"ON")," and available with"," ",Bp()," (/fast). Switching to other models turns off fast mode."))`,
+		`function Pj(H){if(!C4())return!1;let _=H??M0(),K=e7(_).toLowerCase();if(hi())return K.includes("opus-4-6");return K.includes("opus-4-6")||K.includes("opus-4-7")||K.includes("opus-4-8")}`,
+		`function xUH(){return(hi()?"claude-opus-4-6":"opus")+(VP()?"[1m]":"")}`,
+		`let S=f7(),x=A7(S).includes("opus")?S:"claude-opus-4-8";M=Yk(vGH(!0,x)),_[1]=M`,
+		`async function Lv6(H,_,q,K){let O=Ee();if(O)return` + "`" + `Fast mode unavailable: ${O}` + "`" + `;let{mainLoopModel:T}=_();if(Rv6(H,q),d("tengu_fast_mode_toggled",{enabled:H,source:K}),H){let $=T2H(!0),z=!Pj(T)?` + "`" + ` \xB7 model set to ${Bp()}` + "`" + `:"",Y=f7(),A=A7(Y).includes("opus")?Y:"claude-opus-4-8",w=Yk(vGH(!0,A));return` + "`" + `${$} Fast mode ON${z} \xB7 ${w}` + "`" + `}else return"Fast mode OFF"}var oHq=R(`,
 		`r=kN6?Y4.createElement(kN6.Title,null):Y4.createElement(V,{bold:!0},"Claude Code")`,
 		`Y4.createElement(V,{bold:!0},"Claude Code")`,
 		`Y4.createElement(V,{dimColor:!0},"v",E)`,
@@ -329,6 +386,31 @@ func TestWarnClaudePatchSkippedHandlesPatchFailures(t *testing.T) {
 	got := stderr.String()
 	if !strings.Contains(got, "could not prepare the UI patch") || !strings.Contains(got, "boom") {
 		t.Fatalf("warning = %q", got)
+	}
+}
+
+func TestPrepareClaudeExecutableFallsBackWhenUIPatchUnsupported(t *testing.T) {
+	dir := t.TempDir()
+	claudePath := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo '9.9.9'; exit 0; fi\necho fake claude\n"
+	if err := os.WriteFile(claudePath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var stderr bytes.Buffer
+	got := prepareClaudeExecutable(context.Background(), dir, claudePath, "test", modelconfig.Default(), &stderr)
+	if got != claudePath {
+		t.Fatalf("prepareClaudeExecutable() = %q, want original executable %q", got, claudePath)
+	}
+	for _, want := range []string{
+		"warning: Claudodex has no verified UI patch",
+		"Claude Code 9.9.9",
+		"launching with the unpatched Claude Code UI",
+		"https://github.com/bassner/claudodex/issues",
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("warning missing %q:\n%s", want, stderr.String())
+		}
 	}
 }
 

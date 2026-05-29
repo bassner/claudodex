@@ -136,6 +136,8 @@ func (s *Server) routes(mux *http.ServeMux) {
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodGet && path == "/api/claude_code/policy_limits":
 			writeJSON(w, http.StatusOK, map[string]any{"restrictions": map[string]any{}})
+		case r.Method == http.MethodGet && path == "/api/claude_code_penguin_mode":
+			writeJSON(w, http.StatusOK, map[string]any{"enabled": true})
 		default:
 			if routeExists(path) {
 				writeAnthropicError(w, http.StatusMethodNotAllowed, "invalid_request_error", "method not allowed")
@@ -259,7 +261,7 @@ func isImageType(value string) bool {
 
 func routeExists(path string) bool {
 	switch path {
-	case "/healthz", "/v1", "/v1/models", "/v1/mcp_servers", "/v1/messages/count_tokens", "/v1/messages/batches", "/v1/messages", "/api/claude_cli/bootstrap", "/api/oauth/usage", "/api/oauth/profile", "/api/claude_cli_profile", "/api/claude_code/settings", "/api/claude_code/policy_limits":
+	case "/healthz", "/v1", "/v1/models", "/v1/mcp_servers", "/v1/messages/count_tokens", "/v1/messages/batches", "/v1/messages", "/api/claude_cli/bootstrap", "/api/oauth/usage", "/api/oauth/profile", "/api/claude_cli_profile", "/api/claude_code/settings", "/api/claude_code/policy_limits", "/api/claude_code_penguin_mode":
 		return true
 	default:
 		return false

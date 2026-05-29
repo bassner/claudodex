@@ -128,6 +128,27 @@ func TestAnthropicToCodexUsesConfiguredModelTargets(t *testing.T) {
 	}
 }
 
+func TestAnthropicToCodexMapsFastSpeedToPriorityServiceTier(t *testing.T) {
+	var req AnthropicRequest
+	if err := json.Unmarshal([]byte(`{
+		"model":"claude-opus-4-6",
+		"speed":"fast",
+		"messages":[{"role":"user","content":"hello"}]
+	}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := AnthropicToCodex(req, ConvertOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Request.Model != "gpt-5.5" {
+		t.Fatalf("model = %q, want gpt-5.5", got.Request.Model)
+	}
+	if got.Request.ServiceTier != "priority" {
+		t.Fatalf("service_tier = %q, want priority", got.Request.ServiceTier)
+	}
+}
+
 func TestAnthropicToCodexMapsStructuredOutputFormat(t *testing.T) {
 	body := []byte(`{
 		"model":"claude-opus-4-6",

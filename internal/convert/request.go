@@ -17,6 +17,7 @@ type AnthropicRequest struct {
 	ToolChoice   json.RawMessage    `json:"tool_choice"`
 	Thinking     AnthropicThinking  `json:"thinking"`
 	OutputConfig OutputConfig       `json:"output_config"`
+	Speed        string             `json:"speed"`
 	Stream       *bool              `json:"stream"`
 }
 
@@ -109,11 +110,19 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		ParallelToolCalls: false,
 		Store:             false,
 		Stream:            true,
+		ServiceTier:       mapServiceTier(req.Speed),
 		Reasoning:         &codex.Reasoning{Effort: string(effort)},
 		Text:              convertOutputFormat(req.OutputConfig.Format),
 		PromptCacheKey:    opts.SessionID,
 	}
 	return Result{Request: out, OriginalModel: model, Stream: stream, ToolSchemas: toolSchemas(req.Tools)}, nil
+}
+
+func mapServiceTier(speed string) string {
+	if strings.EqualFold(strings.TrimSpace(speed), "fast") {
+		return "priority"
+	}
+	return ""
 }
 
 func withClaudeCodeCompatibilityInstructions(instructions string) string {

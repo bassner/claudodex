@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/bassner/claudodex/internal/modelconfig"
@@ -60,5 +59,11 @@ func normalizeClaudeSettingsModel(path string, wait time.Duration, modelCfg mode
 }
 
 func codexRuntimeSettingsAlias(model string, modelCfg modelconfig.Config) (string, bool) {
-	return modelCfg.SettingsAliasForTarget(strings.ToLower(strings.TrimSpace(model)))
+	if alias, ok := modelCfg.SettingsAliasForTarget(model); ok {
+		return alias, true
+	}
+	if family, ok := modelconfig.FamilyForModel(model); ok {
+		return string(family), true
+	}
+	return "", false
 }
