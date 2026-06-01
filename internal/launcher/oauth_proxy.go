@@ -34,6 +34,8 @@ type OAuthProxy struct {
 	once      sync.Once
 }
 
+const oauthProxyCertificateLifetime = 397 * 24 * time.Hour
+
 func StartOAuthProxy(target string) (*OAuthProxy, error) {
 	cert, caPEM, err := generateOAuthProxyCertificate()
 	if err != nil {
@@ -360,7 +362,7 @@ func generateOAuthProxyCertificate() (tls.Certificate, []byte, error) {
 		SerialNumber:          big.NewInt(now.UnixNano()),
 		Subject:               pkix.Name{CommonName: "Claudodex Local CA"},
 		NotBefore:             now.Add(-time.Minute),
-		NotAfter:              now.Add(24 * time.Hour),
+		NotAfter:              now.Add(oauthProxyCertificateLifetime),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
@@ -379,7 +381,7 @@ func generateOAuthProxyCertificate() (tls.Certificate, []byte, error) {
 		Subject:      pkix.Name{CommonName: "api.anthropic.com"},
 		DNSNames:     []string{"api.anthropic.com"},
 		NotBefore:    now.Add(-time.Minute),
-		NotAfter:     now.Add(24 * time.Hour),
+		NotAfter:     now.Add(oauthProxyCertificateLifetime),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}

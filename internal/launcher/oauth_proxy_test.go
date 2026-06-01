@@ -3,6 +3,7 @@ package launcher
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOAuthProxyInterceptsAnthropicUsage(t *testing.T) {
@@ -117,6 +119,35 @@ func TestOAuthProxyRejectsUnknownAnthropicRoute(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestOAuthProxyCertificateValidityCoversLongSessions(t *testing.T) {
+	cert, caPEM, err := generateOAuthProxyCertificate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cert.Certificate) == 0 {
+		t.Fatal("missing server certificate")
+	}
+	serverCert, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	caBlock, _ := pem.Decode(caPEM)
+	if caBlock == nil {
+		t.Fatal("missing CA PEM block")
+	}
+	caCert, err := x509.ParseCertificate(caBlock.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantMin := 300 * 24 * time.Hour
+	if remaining := time.Until(serverCert.NotAfter); remaining < wantMin {
+		t.Fatalf("server certificate lifetime remaining = %s, want at least %s", remaining, wantMin)
+	}
+	if remaining := time.Until(caCert.NotAfter); remaining < wantMin {
+		t.Fatalf("CA certificate lifetime remaining = %s, want at least %s", remaining, wantMin)
 	}
 }
 
