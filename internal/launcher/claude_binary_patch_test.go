@@ -230,6 +230,93 @@ func TestApplyClaudeUIPatches156FailsWhenCriticalCompactProgressPatchMissing(t *
 	}
 }
 
+func TestApplyClaudeUIPatches159BrandsHeaderAndModelPicker(t *testing.T) {
+	data := claude159PatchFixture(t)
+
+	if !applyClaudeUIPatches_2_1_159(data, "0.1.0", "2.1.159", modelconfig.Default()) {
+		t.Fatal("applyClaudeUIPatches_2_1_159 reported no changes")
+	}
+	got := string(data)
+	for _, want := range []string{
+		`Bugs:\ngithub.com/bassner/claudodex/issues`,
+		"Claudodex Info",
+		"Thank you for using Claudodex!",
+		"Experimental - treat it as such.",
+		"Set the AI model for Claudodex",
+		"Claudodex can read files here",
+		"WARNING: Claudodex running in Bypass Permissions mode",
+		"In Bypass Permissions mode, Claudodex will not ask",
+		"No, exit Claudodex",
+		"Codex Plan",
+		"Switch between Codex-backed models.",
+		"Codex model",
+		"Default (Claudodex)",
+		"Default Codex route",
+		"default Codex work",
+		"gpt-5.4 everyday coding",
+		"gpt-5.4-mini quick code",
+		` via Codex model \xB7 `,
+		"Fast mode for Claudodex",
+		"Fast mode (Codex priority)",
+		"Uses Codex priority service tier when available.",
+		"Codex priority",
+		"Use /fast to toggle Fast mode.",
+		"Codex AI",
+		`function kj(H){return x4()}`,
+		`function ip(){return"opus"}`,
+		`M="Codex priority",_[1]=M`,
+		`return H?` + "`" + `${Z2H(!0)} Fast mode ON \xB7 Codex priority` + "`" + `:"Fast mode OFF"`,
+		`function xo_(H=!1){return"Default Codex route \xB7 default Codex work"}`,
+		`CLAUDE_LOCAL_OAUTH_API_BASE`,
+		`fetch(H+"/api/oauth/usage"`,
+		`let j=0,J=Y,M=!uc()&&!K__(K,O),D=!1;`,
+		`function Ht7(H){let _=Math.max(0,H)/2000,q=1-Math.exp(-_/90);return Math.min(95,Math.round(q*100))}`,
+		"Resume with:\nclaudodex ${O}--resume ${q}\n",
+		" resume: claudodex --resume ",
+		"Run claudodex --resume to resume a conversation",
+		`y_.createElement(V,{bold:!0},"Claudodex`,
+		`jq("claude",b)("Claudodex`,
+		`"0.1.0 using Claude Code v2.1.159"`,
+		`function yr3(H=!1){let _=[],q=yvK();if(q!==void 0)_.push(q);let K=vvK();if(K!==void 0)_.push(K);let O=CvK();if(O!==void 0)_.push(O);return _}function ZX(H){return H===process.env.ANTHROPIC_DEFAULT_OPUS_MODEL?"opus":H===process.env.ANTHROPIC_DEFAULT_SONNET_MODEL?"sonnet":H===process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL?"haiku":H}`,
+		`j=Aq(),J=(q=ZX(q))??bN_,[M,D]`,
+		`function $6_(H=!1){let _=process.env,q=(O,T,$)=>({value:O,label:T,description:$});return[q("opus",_.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME??_.ANTHROPIC_DEFAULT_OPUS_MODEL??"gpt-5.5",_.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION??"Default Codex route"),q("sonnet",_.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME??_.ANTHROPIC_DEFAULT_SONNET_MODEL??"gpt-5.4",_.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION??"Everyday Codex coding route"),q("haiku",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME??_.ANTHROPIC_DEFAULT_HAIKU_MODEL??"gpt-5.4-mini",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION??"Fast Codex coding route")]}`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("patched data missing %q:\n%s", want, got)
+		}
+	}
+	for _, notWant := range []string{
+		"function kj(H){if(!x4())return!1;",
+		` \xB7 model set to ${ip()}`,
+		`let j=w,J=Y,M=!uc()&&!K__(K,O),D=!1;`,
+		`Math.max(0,H)/1000,q=1-Math.exp(-_/90)`,
+		"Resume this session with:\nclaude ${O}--resume ${q}\n",
+		"function yr3(H=!1){if(Gq())",
+		"function $6_(H=!1){let _=yr3(H)",
+		`j=Aq(),J=q===null?bN_:q,[M,D]`,
+	} {
+		if strings.Contains(got, notWant) {
+			t.Fatalf("patched data still contains %q:\n%s", notWant, got)
+		}
+	}
+}
+
+func TestApplyClaudeUIPatches159FailsWhenCriticalUsagePatchMissing(t *testing.T) {
+	data := []byte(strings.ReplaceAll(string(claude159PatchFixture(t)), "async function UXH()", "async function MISSING_UXH()"))
+
+	if applyClaudeUIPatches_2_1_159(data, "0.1.0", "2.1.159", modelconfig.Default()) {
+		t.Fatal("applyClaudeUIPatches_2_1_159 succeeded without the critical usage patch target")
+	}
+}
+
+func TestApplyClaudeUIPatches159FailsWhenCriticalCompactProgressPatchMissing(t *testing.T) {
+	data := []byte(strings.ReplaceAll(string(claude159PatchFixture(t)), "function Ht7(H){", "function MISSING_Ht7(H){"))
+
+	if applyClaudeUIPatches_2_1_159(data, "0.1.0", "2.1.159", modelconfig.Default()) {
+		t.Fatal("applyClaudeUIPatches_2_1_159 succeeded without the critical compact progress patch target")
+	}
+}
+
 func TestApplyClaudeUIPatches154FailsWhenCriticalUsagePatchMissing(t *testing.T) {
 	data := []byte(strings.ReplaceAll(string(claude154PatchFixture(t)), "async function WXH()", "async function MISSING_WXH()"))
 
@@ -326,6 +413,76 @@ claude ${O}--resume ${q}
 	}, "\n"))
 }
 
+func claude159PatchFixture(t *testing.T) []byte {
+	t.Helper()
+	logo159 := `function K8_(){let H=process.env.DEMO_VERSION??` + "`" + `${{ISSUES_EXPLAINER:"report the issue at https://github.com/anthropics/claude-code/issues",PACKAGE_URL:"@anthropic-ai/claude-code",README_URL:"https://code.claude.com/docs/en/overview",VERSION:"2.1.159",FEEDBACK_CHANNEL:"https://github.com/anthropics/claude-code/issues",BUILD_TIME:"2026-05-31T16:22:50Z",GIT_SHA:"dd8c11fc8d05cea0b2b9fc8f5a99a5c5c5dffc9b"}.VERSION}${uS()}` + "`" + `,_=nu6(),q=process.env.DEMO_VERSION?"/code/claude":G5(C_()),K=bH(process.env.CLAUDE_CODE_HIDE_CWD)?"":_?` + "`" + `${q} in ${_.replace(/^https?:\/\//,"")}` + "`" + `:q,O=Zq(),T=O!=="firstParty"?yAH[O]:Gq()?H_6():"API Usage Billing",$=U8().agent;return{version:H,cwd:K,billingType:T,agentName:$}}                                                                                                                                                                                                                                                                                                                                                                               function PBK(H,_,q){}`
+	defaultDescription159 := `function xo_(H=!1){if(te()||FAH()||AFH()){let q=QZ(),K=oM(aM(q))??"Opus",O=H&&kj(q);if(yP())return` + "`" + `${K} with 1M context \xB7 Most capable for complex work${O?cKH(!0,q):""}` + "`" + `;return` + "`" + `${K} \xB7 Most capable for complex work${O?cKH(!0,q):""}` + "`" + `}return` + "`" + `${oM(aM(mN()))??"Sonnet"} \xB7 Best for everyday tasks` + "`" + `}`
+	modelOptions159 := `function $6_(H=!1){let _=yr3(H),q=process.env.ANTHROPIC_CUSTOM_MODEL_OPTION;if(q&&!_.some((z)=>z.value===q))_.push({value:q,label:process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME??q,description:process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION??` + "`" + `Custom model (${q})` + "`" + `});for(let z of E_().additionalModelOptionsCache??[])if(!_.some((Y)=>Y.value===z.value))_.push(z);let O=null,T=ie(),$=f7H();if(T!==void 0&&T!==null)O=T;else if($!==void 0&&$!==null)O=$;if(O===null||_.some((z)=>z.value===O))return T6_(_);else if(O==="opus")return T6_([..._,mvK(!1)]);else{let z=Er3(O);if(z)_.push(z);else _.push({value:O,label:O,description:"Custom model"});return T6_(_)}}` + strings.Repeat(" ", 900) + `function T6_(H){return H}`
+	return []byte(strings.Join([]string{
+		`Check the Claude Code changelog for updates`,
+		`What's new`,
+		`Welcome back!`,
+		`Opus 4.8 is here!`,
+		`Opus 4.8 is now available!`,
+		`Set the AI model for Claude Code`,
+		`Set the AI model for Claude Code (currently `,
+		`Claude Code will be able to read files in this directory and make edits when auto-accept edits is on.`,
+		`WARNING: Claude Code running in Bypass Permissions mode`,
+		`In Bypass Permissions mode, Claude Code will not ask for your approval before running potentially dangerous commands.`,
+		`No, exit Claude Code`,
+		`Claude Max`,
+		`Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model.`,
+		`Select model`,
+		`Default (recommended)`,
+		`Opus with 1M context`,
+		`Most capable for complex work`,
+		`Most capable for complex reasoning tasks`,
+		`Best for everyday tasks`,
+		`Fastest for quick answers`,
+		` with 1M context \xB7 `,
+		`Fast mode for Claude Code uses Claude Opus with faster output (it does not downgrade to a smaller model). It can be toggled with /fast and is available on Opus 4.8/4.7/4.6.`,
+		`Fast mode (research preview)`,
+		`Draws from usage credits at a higher rate. Separate rate limits apply.`,
+		`Billed as extra usage at a premium rate. Separate rate limits apply.`,
+		`$10/$50 per Mtok`,
+		`Learn more:`,
+		`https://code.claude.com/docs/en/fast-mode`,
+		`Use /fast to turn on Fast mode (Opus 4.8).`,
+		`Opus 4.8`,
+		`y_.createElement(V,{bold:!0},"Claude Code")`,
+		`y_.createElement(V,{dimColor:!0},"v",zg)`,
+		`jq("claude",b)("Claude Code")`,
+		`jq("inactive",b)(` + "`v${X}`" + `)`,
+		`jq("claude",b)(" Claude Code ")`,
+		logo159,
+		defaultDescription159,
+		`async function UXH(){return ZK("api_usage_fetch",async()=>{if(!Gq()||!wk())return{};let H=0,_=await _G(async()=>{H++,N(` + "`" + `fetchUtilization: GET /api/oauth/usage (attempt ${H})` + "`" + `);let q=await B7.get("/api/oauth/usage",{timeout:5000,headers:{"Content-Type":"application/json"},refreshOAuth:!0});if(!q.ok)throw Error(` + "`" + `Auth error: ${q.reason==="no-auth"?q.detail:q.reason}` + "`" + `);return q});return N(` + "`" + `fetchUtilization: 200 after ${H} attempt(s)${H>1?" (401\u2192refresh\u2192retry succeeded)":""}` + "`" + `),_.data})}`,
+		`var zL_=R(()=>{Yq();cH();e2();$6();Mf()});`,
+		`function hBK(H){let _=H.map((K)=>{return{text:K}}),q="Check the Claude Code changelog for updates";return{title:"What's new",lines:_,footer:_.length>0?"/release-notes for more":void 0,emptyMessage:"Check the Claude Code changelog for updates"}}`,
+		`W4.createElement(B,{marginBottom:1},W4.createElement(V,{dimColor:!0},"Use ",W4.createElement(V,{bold:!0},"/fast")," to turn on Fast mode (",ip(),")."))`,
+		`W4.createElement(B,{marginBottom:1},W4.createElement(V,{dimColor:!0},"Fast mode is ",W4.createElement(V,{bold:!0},"ON")," and available with"," ",ip()," (/fast). Switching to other models turns off fast mode."))`,
+		`function kj(H){if(!x4())return!1;let _=H??Z0(),K=qK(_).toLowerCase();if(ri())return K.includes("opus-4-6");return K.includes("opus-4-6")||K.includes("opus-4-7")||K.includes("opus-4-8")}`,
+		`function ip(){return ri()?"Opus 4.6":"Opus 4.8"}`,
+		`let C=A7(),x=n9(C).includes("opus")?C:"claude-opus-4-8";M=Jk(gGH(!0,x)),_[1]=M`,
+		`async function Ah6(H,_,q,K){let O=ce();if(O)return` + "`" + `Fast mode unavailable: ${O}` + "`" + `;let{mainLoopModel:T}=_();if(Yh6(H,q),d("tengu_fast_mode_toggled",{enabled:H,source:K}),H){let $=Z2H(!0),z=!kj(T)?` + "`" + ` \xB7 model set to ${ip()}` + "`" + `:"",Y=A7(),A=n9(Y).includes("opus")?Y:"claude-opus-4-8",w=Jk(gGH(!0,A));return` + "`" + `${$} Fast mode ON${z} \xB7 ${w}` + "`" + `}else return"Fast mode OFF"}var i_q=R(`,
+		`function h54(H){let _=v54.c(15),{tokenUsage:q,model:K}=H,O=f_(mGO),T;if(_[0]!==O||_[1]!==K||_[2]!==q)T=uSH(q,K,O),_[0]=O,_[1]=K,_[2]=q,_[3]=T;else T=_[3];let $=T,z=BS6();if($.level==="ok"||z)return null;let Y=$.pctLeft,A=RG(),w;if(_[4]===Symbol.for("react.memo_cache_sentinel"))w=$oH("warning"),_[4]=w;else w=_[4];let j=w,J=Y,M=!uc()&&!K__(K,O),D=!1;if(M||D){let G=NqH(K,O),W;if(_[5]!==G||_[6]!==q)W=Math.round((G-q)/G*100),_[5]=G,_[6]=q,_[7]=W;else W=_[7];J=Math.max(0,W)}let f=M?` + "`" + `${100-J}% context used` + "`" + `:` + "`" + `${J}% until auto-compact` + "`" + `;if(A)return null;return null}function mGO(H){return H.autoCompactWindow}`,
+		`Resume this session with:
+claude ${O}--resume ${q}
+`,
+		`Previous session saved \xB7 resume with: claude --resume ${I}`,
+		`Run claude --continue or claude --resume to resume a conversation`,
+		`Open ` + "`" + `claude agents` + "`" + ` to attach to it, or stop it there first to resume here.`,
+		`). Use ` + "`" + `claude agents` + "`" + ` to find and attach to it, or add --fork-session to branch off a copy.`,
+		`command:` + "`" + `cd ${AK([H.projectPath])} ${ce8()} claude --resume ${T}` + "`",
+		`kO.default.createElement(V,{bold:!0},"claude agents")," to attach to it, or run:"`,
+		`kO.default.createElement(V,null," ",$,"claude --resume ",q," --fork-session")`,
+		`function Ht7(H){let _=Math.max(0,H)/1000,q=1-Math.exp(-_/90);return Math.min(95,Math.round(q*100))}`,
+		`function yr3(H=!1){if(Gq()){if(te()||FAH()||AFH()){let $=[mk6(H)];if(!yP()&&Xa()&&!Ma8())$.push(IvK());if($.push(vr3),J3H())$.push(bvK());return $.push(xvK),$}let T=[mk6(H)];if(J3H())T.push(bvK());if(yP())T.push(pvK(!1));else if(T.push(mvK(!1)),Xa()&&!Ma8())T.push(IvK());return T.push(xvK),T}if(l$()){let T=[mk6(H)],$=yvK();if($!==void 0)T.push($);else if(!yP()&&Xa()&&!Ma8())T.push(SvK(H));let z=vvK();if(z!==void 0)T.push(z);else if(T.push(hvK()),J3H())T.push(EvK());return T.push(CvK()??uvK()),T}let _=[mk6(H)],q=vvK();if(q!==void 0)_.push(q);else if(_.push(hvK()),J3H())_.push(EvK());let K=yvK();if(K!==void 0)_.push(K);else{if(_.push(Wr3()),_.push(Rr3()),Xa()&&!re(wO().opus48))_.push(SvK());if(_.push(Gr3()),Xa()&&!re(wO().opus47))_.push(kr3());if(_.push(Zr3()),Xa())_.push(Lr3(H))}let O=CvK();if(O!==void 0)_.push(O);else _.push(Nr3());return _}function Er3(H){return null}`,
+		`function VCH(H){let _=Ra8.c(102),{initial:q,sessionModel:K,onSelect:O,onSetDefault:T,onCancel:$,isStandaloneCommand:z,showFastModeNotice:Y,headerText:A,skipSettingsWrite:w}=H,j=Aq(),J=q===null?bN_:q,[M,D]=bPH.useState(J)}`,
+		modelOptions159,
+	}, "\n"))
+}
+
 func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 	patch := findClaudeUIPatch("2.1.153", "449d9c89d7a63b1d427d912a7bd6e6f23f9a7b363866697c9fa9a0012546b254")
 	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
@@ -351,10 +508,21 @@ func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 	} else if patch != nil {
 		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
+	patch = findClaudeUIPatch("2.1.159", "5adf7b4d349f743d669cd5adf2ce76dbb5e146d8ab99b3a63c5aef2ef15595f9")
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		if patch == nil {
+			t.Fatal("expected local verified 2.1.159 darwin/arm64 patch to match")
+		}
+	} else if patch != nil {
+		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
 	if got := findClaudeUIPatch("2.1.154", "449d9c89d7a63b1d427d912a7bd6e6f23f9a7b363866697c9fa9a0012546b254"); got != nil {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
 	if got := findClaudeUIPatch("2.1.156", "bc9881b107d7be1743c64c8b72dd66798f5d0947dbc48ed0d77964c473661fd4"); got != nil {
+		t.Fatalf("patch matched unsupported sha: %#v", got)
+	}
+	if got := findClaudeUIPatch("2.1.159", "9c1e8601031f5cbb3101e49dda22bf8ba31183692c705e267a6923585fa2ba09"); got != nil {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
 	if got := findClaudeUIPatch("2.1.153", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); got != nil {
