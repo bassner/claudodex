@@ -136,9 +136,9 @@ func applyModelOverrideEnv(env map[string]string, codexModels []codex.ModelInfo,
 func codexAntModel(alias, label, model string, contextWindow int64) antModelOverride {
 	return antModelOverride{
 		Alias:               alias,
-		Model:               model,
+		Model:               modelconfig.StripLongContext(model),
 		Label:               label,
-		Description:         "Routes to " + model,
+		Description:         "Routes to " + modelconfig.StripLongContext(model),
 		ContextWindow:       contextWindow,
 		DefaultEffortLevel:  "max",
 		DefaultMaxTokens:    64_000,

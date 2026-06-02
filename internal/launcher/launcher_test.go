@@ -157,7 +157,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		`"alias":"opus"`,
 		`"defaultModel":"gpt-5.5[1m]"`,
 		`"defaultModelEffortLevel":"max"`,
-		`"model":"gpt-5.5[1m]"`,
+		`"model":"gpt-5.5"`,
 		`"defaultEffortLevel":"max"`,
 		`"contextWindow":272000`,
 		`"alias":"claude-sonnet-4-6"`,
@@ -175,6 +175,9 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		if !strings.Contains(capture, want) {
 			t.Fatalf("capture missing %q:\n%s", want, capture)
 		}
+	}
+	if strings.Contains(capture, `"model":"gpt-5.5[1m]"`) {
+		t.Fatalf("capture should strip [1m] from ant model backend ids:\n%s", capture)
 	}
 	if !strings.Contains(capture, "base:"+firstPartyAnthropicBaseURL) {
 		t.Fatalf("capture missing first-party Anthropic base URL:\n%s", capture)

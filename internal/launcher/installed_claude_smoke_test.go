@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/bassner/claudodex/internal/modelconfig"
 )
 
 func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
@@ -101,6 +103,7 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 	if captured["model"] != "gpt-5.4" {
 		t.Fatalf("upstream model = %#v, want gpt-5.4; request=%#v", captured["model"], captured)
 	}
+	assertCapturedReasoningEffort(t, captured, "xhigh")
 	instructions, _ := captured["instructions"].(string)
 	if !strings.Contains(instructions, "the follow-up after tool results must not greet again or restart the conversation") {
 		t.Fatalf("installed Claude request is missing Claudodex same-turn greeting guard; instructions=%q request=%#v", instructions, captured)
@@ -113,13 +116,50 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 	}
 }
 
+func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
+	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
+		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
+	}
+	claudePath, err := exec.LookPath("claude")
+	if err != nil {
+		t.Skipf("claude binary not available: %v", err)
+	}
+
+	home := t.TempDir()
+	claudeVersion, sourceSHA := requireInstalledClaudeUIPatch(t, claudePath)
+	patched, claudeVersion, sourceSHA, err := preparePatchedClaude(context.Background(), home, claudePath, "smoke", modelconfig.Default())
+	if err != nil {
+		t.Fatalf("prepare patched installed Claude failed for version=%s sha=%s: %v", claudeVersion, sourceSHA, err)
+	}
+	if patched == claudePath {
+		t.Fatalf("patched path = source path %q", patched)
+	}
+	data, err := os.ReadFile(patched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Claudodex Info",
+		"Thank you for using Claudodex!",
+		"smoke using Claude Code v" + claudeVersion,
+		"Set the AI model for Claudodex",
+		"Codex Plan",
+	} {
+		if !bytes.Contains(data, []byte(want)) {
+			t.Fatalf("patched installed Claude missing %q for version=%s sha=%s", want, claudeVersion, sourceSHA)
+		}
+	}
+}
+
 func TestInstalledClaudeFastModeSmokeWithFakeCodexUpstream(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
-	if _, err := exec.LookPath("claude"); err != nil {
+	claudePath, err := exec.LookPath("claude")
+	if err != nil {
 		t.Skipf("claude binary not available: %v", err)
 	}
+	requireInstalledClaudeUIPatch(t, claudePath)
 
 	home := t.TempDir()
 	saveLauncherAuth(t, home)
@@ -174,7 +214,7 @@ func TestInstalledClaudeFastModeSmokeWithFakeCodexUpstream(t *testing.T) {
 	defer cancel()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	err := (ProcessLauncher{}).Launch(ctx, []string{
+	err = (ProcessLauncher{}).Launch(ctx, []string{
 		"-p", "say ok",
 		"--model", "opus",
 		"--settings", `{"fastMode":true}`,
@@ -200,6 +240,23 @@ func TestInstalledClaudeFastModeSmokeWithFakeCodexUpstream(t *testing.T) {
 	if captured["service_tier"] != "priority" {
 		t.Fatalf("service_tier = %#v, want priority; request=%#v\nstdout:\n%s\nstderr:\n%s", captured["service_tier"], captured, stdout.String(), stderr.String())
 	}
+}
+
+func requireInstalledClaudeUIPatch(t *testing.T, claudePath string) (string, string) {
+	t.Helper()
+	if strings.TrimSpace(os.Getenv("CLAUDODEX_DISABLE_CLAUDE_PATCH")) == "1" {
+		t.Skip("installed Claude UI patch smoke requires CLAUDODEX_DISABLE_CLAUDE_PATCH unset")
+	}
+	claudeVersion := detectClaudeVersion(context.Background(), claudePath)
+	sourceData, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceSHA := sha256Hex(sourceData)
+	if findClaudeUIPatch(claudeVersion, sourceSHA) == nil {
+		t.Skipf("no verified installed Claude UI patch for version=%s sha=%s", claudeVersion, sourceSHA)
+	}
+	return claudeVersion, sourceSHA
 }
 
 func TestInstalledClaudeSmokeWithUIPatchDisabled(t *testing.T) {
@@ -282,5 +339,14 @@ func TestInstalledClaudeSmokeWithUIPatchDisabled(t *testing.T) {
 	}
 	if captured["model"] != "gpt-5.4" {
 		t.Fatalf("upstream model = %#v, want gpt-5.4; request=%#v", captured["model"], captured)
+	}
+	assertCapturedReasoningEffort(t, captured, "xhigh")
+}
+
+func assertCapturedReasoningEffort(t *testing.T, captured map[string]any, want string) {
+	t.Helper()
+	reasoning, _ := captured["reasoning"].(map[string]any)
+	if reasoning["effort"] != want {
+		t.Fatalf("reasoning.effort = %#v, want %q; request=%#v", reasoning["effort"], want, captured)
 	}
 }

@@ -98,7 +98,7 @@ func TestBuildClaudeEnv(t *testing.T) {
 		`"defaultModel":"gpt-5.5[1m]"`,
 		`"defaultModelEffortLevel":"max"`,
 		`"alias":"opus"`,
-		`"model":"gpt-5.5[1m]"`,
+		`"model":"gpt-5.5"`,
 		`"defaultEffortLevel":"max"`,
 		`"contextWindow":272000`,
 		`"alias":"claude-sonnet-4-6"`,
@@ -109,6 +109,9 @@ func TestBuildClaudeEnv(t *testing.T) {
 		if !strings.Contains(got["CLAUDE_INTERNAL_FC_OVERRIDES"], want) {
 			t.Fatalf("CLAUDE_INTERNAL_FC_OVERRIDES missing %s:\n%s", want, got["CLAUDE_INTERNAL_FC_OVERRIDES"])
 		}
+	}
+	if strings.Contains(got["CLAUDE_INTERNAL_FC_OVERRIDES"], `"model":"gpt-5.5[1m]"`) {
+		t.Fatalf("CLAUDE_INTERNAL_FC_OVERRIDES should strip [1m] from ant model backend ids:\n%s", got["CLAUDE_INTERNAL_FC_OVERRIDES"])
 	}
 }
 
