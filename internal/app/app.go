@@ -285,8 +285,7 @@ func usage(ctx context.Context, cfg Config) int {
 	fmt.Fprintln(cfg.Stdout, "Codex usage")
 	printUsageWindow(cfg.Stdout, "five_hour", mapped["five_hour"])
 	printUsageWindow(cfg.Stdout, "seven_day", mapped["seven_day"])
-	printUsageWindow(cfg.Stdout, "seven_day_opus", mapped["seven_day_opus"])
-	printUsageWindow(cfg.Stdout, "seven_day_sonnet", mapped["seven_day_sonnet"])
+	printCodexModelUsageWindows(cfg.Stdout, cfg.Models, mapped)
 	if tier, _ := mapped["service_tier"].(string); tier != "" {
 		fmt.Fprintf(cfg.Stdout, "service_tier: %s\n", tier)
 	}
@@ -348,6 +347,36 @@ func fetchCodexUsage(ctx context.Context, cfg Config, timeout time.Duration) (ma
 		return nil, err
 	}
 	return convert.CodexUsageToClaude(raw), nil
+}
+
+func printCodexModelUsageWindows(w io.Writer, models modelconfig.Config, mapped map[string]any) {
+	models = models.Normalize()
+	windows := []struct {
+		key   string
+		model string
+	}{
+		{key: "seven_day_fable", model: models.Target(modelconfig.FamilyFable)},
+		{key: "seven_day_opus", model: models.Target(modelconfig.FamilyOpus)},
+		{key: "seven_day_sonnet", model: models.Target(modelconfig.FamilySonnet)},
+		{key: "seven_day_haiku", model: models.Target(modelconfig.FamilyHaiku)},
+	}
+	seen := map[string]int{}
+	for _, window := range windows {
+		if !usageWindowAvailable(mapped[window.key]) {
+			continue
+		}
+		seen[window.model]++
+		name := window.model
+		if seen[window.model] > 1 {
+			name = fmt.Sprintf("%s quota %d", window.model, seen[window.model])
+		}
+		printUsageWindow(w, name, mapped[window.key])
+	}
+}
+
+func usageWindowAvailable(value any) bool {
+	window, _ := value.(map[string]any)
+	return window != nil
 }
 
 func printUsageWindow(w io.Writer, name string, value any) {

@@ -69,6 +69,8 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
   echo "subscription:$CLAUDE_CODE_SUBSCRIPTION_TYPE"
   echo "https_proxy:$HTTPS_PROXY"
   echo "ca:$NODE_EXTRA_CA_CERTS"
+  echo "fable:$ANTHROPIC_DEFAULT_FABLE_MODEL"
+  echo "fable_name:$ANTHROPIC_DEFAULT_FABLE_MODEL_NAME"
   echo "opus:$ANTHROPIC_DEFAULT_OPUS_MODEL"
   echo "opus_name:$ANTHROPIC_DEFAULT_OPUS_MODEL_NAME"
   echo "sonnet:$ANTHROPIC_DEFAULT_SONNET_MODEL"
@@ -141,6 +143,8 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		"oauth_token:",
 		"oauth_scopes:",
 		"subscription:",
+		"fable:gpt-5.5[1m]",
+		"fable_name:gpt-5.5",
 		"opus:gpt-5.5[1m]",
 		"opus_name:gpt-5.5",
 		"sonnet:gpt-5.4[1m]",
@@ -154,6 +158,8 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		"auto_compact_window:272000",
 		"context_tokens:272000",
 		"model_capabilities:yes",
+		`"alias":"fable"`,
+		`"alias":"claude-fable-5"`,
 		`"alias":"opus"`,
 		`"defaultModel":"gpt-5.5[1m]"`,
 		`"defaultModelEffortLevel":"max"`,

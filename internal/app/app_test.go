@@ -159,6 +159,18 @@ func TestUsageCommandFetchesCodexUsage(t *testing.T) {
 					"reset_at":             1770100000,
 				},
 			},
+			"additional_rate_limits": []any{
+				map[string]any{
+					"limit_name":      "codex_fable_weekly",
+					"metered_feature": "codex_fable",
+					"rate_limit": map[string]any{
+						"primary_window": map[string]any{
+							"limit_window_seconds": 604800,
+							"used_percent":         44,
+						},
+					},
+				},
+			},
 		})
 	}))
 	defer upstream.Close()
@@ -172,10 +184,16 @@ func TestUsageCommandFetchesCodexUsage(t *testing.T) {
 		"Codex usage",
 		"five_hour: 13%",
 		"seven_day: 22%",
+		"gpt-5.5: 44%",
 		"service_tier: standard",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
+	}
+	for _, unwanted := range []string{"opus", "sonnet", "fable", "haiku"} {
+		if strings.Contains(stdout.String(), unwanted) {
+			t.Fatalf("stdout should not expose Claude family %q:\n%s", unwanted, stdout.String())
 		}
 	}
 }

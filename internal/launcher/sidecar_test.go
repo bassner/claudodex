@@ -227,8 +227,8 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 	cachePath := filepath.Join(cacheDir, claudeModelCapabilitiesFileName)
 	cache := mustReadJSONMap(t, cachePath)
 	models := cache["models"].([]any)
-	if len(models) != 11 {
-		t.Fatalf("models length = %d, want 11: %#v", len(models), models)
+	if len(models) != 13 {
+		t.Fatalf("models length = %d, want 13: %#v", len(models), models)
 	}
 	foundSonnet := false
 	for _, item := range models {
@@ -365,6 +365,8 @@ func TestNormalizeClaudeSettingsModelMapsNativeLongContextAliases(t *testing.T) 
 		want  string
 	}{
 		"plain opus":        {model: "opus", want: "opus"},
+		"plain fable":       {model: "fable", want: "fable"},
+		"versioned fable":   {model: "claude-fable-5[1m]", want: "fable"},
 		"family opus":       {model: "opus[1m]", want: "opus"},
 		"plain sonnet":      {model: "sonnet", want: "sonnet"},
 		"versioned opus":    {model: "claude-opus-4-8[1m]", want: "opus"},

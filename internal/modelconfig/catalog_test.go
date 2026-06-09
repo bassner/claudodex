@@ -6,6 +6,10 @@ func TestConfigMapModelUsesOverrides(t *testing.T) {
 	cfg := Config{Opus: "gpt-opus-next", Sonnet: "gpt-sonnet-next", Haiku: "gpt-haiku-next"}
 	tests := map[string]string{
 		"opus":              "gpt-opus-next",
+		"fable":             "gpt-opus-next",
+		"fable[1m]":         "gpt-opus-next",
+		"claude-fable-5":    "gpt-opus-next",
+		"mythos-5":          "gpt-opus-next",
 		"gpt-5.5":           "gpt-opus-next",
 		"claude-sonnet-4-6": "gpt-sonnet-next",
 		"gpt-5.4[1m]":       "gpt-sonnet-next",
@@ -16,6 +20,16 @@ func TestConfigMapModelUsesOverrides(t *testing.T) {
 		if got := cfg.MapModel(input); got != want {
 			t.Fatalf("MapModel(%q) = %q, want %q", input, got, want)
 		}
+	}
+}
+
+func TestFamilyForModelPreservesFableAlias(t *testing.T) {
+	family, ok := FamilyForModel("claude-fable-5[1m]")
+	if !ok || family != FamilyFable {
+		t.Fatalf("FamilyForModel(claude-fable-5[1m]) = %q, %v; want fable, true", family, ok)
+	}
+	if got := (Config{Opus: "gpt-opus-next"}).Target(family); got != "gpt-opus-next" {
+		t.Fatalf("Target(fable) = %q, want gpt-opus-next", got)
 	}
 }
 

@@ -21,6 +21,7 @@ const (
 	FamilyOpus   Family = "opus"
 	FamilySonnet Family = "sonnet"
 	FamilyHaiku  Family = "haiku"
+	FamilyFable  Family = "fable"
 )
 
 type Config struct {
@@ -78,6 +79,8 @@ func (c Config) Target(family Family) string {
 	c = c.Normalize()
 	switch family {
 	case FamilyOpus:
+		return c.Opus
+	case FamilyFable:
 		return c.Opus
 	case FamilySonnet:
 		return c.Sonnet
@@ -155,6 +158,7 @@ func (c Config) IsLowEffortDefault(model string) bool {
 func ClaudeAliasSpecs(c Config) []ClaudeModelSpec {
 	c = c.Normalize()
 	return []ClaudeModelSpec{
+		{ID: "claude-fable-5", DisplayName: fmt.Sprintf("Fable 5 (%s)", c.Opus), Family: FamilyFable},
 		{ID: "claude-opus-4-8", DisplayName: fmt.Sprintf("Opus 4.8 (%s)", c.Opus), Family: FamilyOpus},
 		{ID: "claude-opus-4-6", DisplayName: fmt.Sprintf("Opus (%s)", c.Opus), Family: FamilyOpus},
 		{ID: "claude-opus-4-7", DisplayName: fmt.Sprintf("Opus 4.7 (%s)", c.Opus), Family: FamilyOpus},
@@ -165,6 +169,7 @@ func ClaudeAliasSpecs(c Config) []ClaudeModelSpec {
 
 func FamilyAliasSpecs() []ClaudeModelSpec {
 	return []ClaudeModelSpec{
+		{ID: string(FamilyFable), DisplayName: "Fable", Family: FamilyFable},
 		{ID: string(FamilyOpus), DisplayName: "Opus", Family: FamilyOpus},
 		{ID: string(FamilySonnet), DisplayName: "Sonnet", Family: FamilySonnet},
 		{ID: string(FamilyHaiku), DisplayName: "Haiku", Family: FamilyHaiku},
@@ -222,6 +227,9 @@ func normalizeModelName(model string) string {
 
 func modelFamily(normalized string) Family {
 	switch {
+	case strings.Contains(normalized, "fable"),
+		strings.Contains(normalized, "mythos"):
+		return FamilyFable
 	case strings.Contains(normalized, "haiku"),
 		strings.Contains(normalized, "small-fast"),
 		normalized == "small":

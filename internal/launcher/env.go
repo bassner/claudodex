@@ -52,6 +52,9 @@ func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, httpsP
 	if caPath != "" {
 		env["NODE_EXTRA_CA_CERTS"] = caPath
 	}
+	env["ANTHROPIC_DEFAULT_FABLE_MODEL"] = modelconfig.WithLongContext(modelCfg.RuntimeModel(string(modelconfig.FamilyFable)))
+	env["ANTHROPIC_DEFAULT_FABLE_MODEL_NAME"] = modelconfig.StripLongContext(modelCfg.Target(modelconfig.FamilyFable))
+	env["ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION"] = "Default Codex route"
 	env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = modelconfig.WithLongContext(modelCfg.RuntimeModel(string(modelconfig.FamilyOpus)))
 	env["ANTHROPIC_DEFAULT_OPUS_MODEL_NAME"] = modelconfig.StripLongContext(modelCfg.Opus)
 	env["ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION"] = "Default Codex route"
