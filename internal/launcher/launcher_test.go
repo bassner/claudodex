@@ -67,6 +67,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
   echo "oauth_token:$CLAUDE_CODE_OAUTH_TOKEN"
   echo "oauth_scopes:$CLAUDE_CODE_OAUTH_SCOPES"
   echo "subscription:$CLAUDE_CODE_SUBSCRIPTION_TYPE"
+  echo "fast_org_check:$CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK"
   echo "https_proxy:$HTTPS_PROXY"
   echo "ca:$NODE_EXTRA_CA_CERTS"
   echo "fable:$ANTHROPIC_DEFAULT_FABLE_MODEL"
@@ -140,9 +141,10 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		"provider_managed:1",
 		"user_type:ant",
 		"local_oauth:1",
-		"oauth_token:",
-		"oauth_scopes:",
-		"subscription:",
+		"oauth_token:" + localOAuthAccessToken,
+		"oauth_scopes:" + localOAuthScopes,
+		"subscription:" + localOAuthSubscriptionType,
+		"fast_org_check:1",
 		"fable:gpt-5.5",
 		"fable_name:gpt-5.5",
 		"opus:gpt-5.5",
@@ -200,7 +202,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 	if !strings.Contains(capture, "ca:/") {
 		t.Fatalf("capture missing local CA path:\n%s", capture)
 	}
-	if strings.Contains(capture, "auth_token:leak") || strings.Contains(capture, "api_key:leak") {
+	if strings.Contains(capture, "auth_token:leak") || strings.Contains(capture, "api_key:leak") || strings.Contains(capture, "oauth_token:leak") {
 		t.Fatalf("external Anthropic auth leaked into Claude env:\n%s", capture)
 	}
 	capabilities := mustReadJSONMap(t, filepath.Join(home, ".claudodex", "claude-config", "cache", claudeModelCapabilitiesFileName))

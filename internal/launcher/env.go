@@ -15,6 +15,9 @@ import (
 
 const (
 	firstPartyAnthropicBaseURL = "https://api.anthropic.com"
+	localOAuthAccessToken      = "claudodex-local-oauth"
+	localOAuthScopes           = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
+	localOAuthSubscriptionType = "max"
 )
 
 func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, httpsProxy string, caPath string, codexModels []codex.ModelInfo, modelCfg modelconfig.Config) []string {
@@ -43,6 +46,10 @@ func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, httpsP
 	delete(env, "CLAUDE_CODE_RATE_LIMIT_TIER")
 	delete(env, "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR")
 	delete(env, "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR")
+	env["CLAUDE_CODE_OAUTH_TOKEN"] = localOAuthAccessToken
+	env["CLAUDE_CODE_OAUTH_SCOPES"] = localOAuthScopes
+	env["CLAUDE_CODE_SUBSCRIPTION_TYPE"] = localOAuthSubscriptionType
+	env["CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK"] = "1"
 	if httpsProxy != "" {
 		env["HTTPS_PROXY"] = httpsProxy
 		env["https_proxy"] = httpsProxy
