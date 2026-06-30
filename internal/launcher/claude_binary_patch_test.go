@@ -369,6 +369,51 @@ func TestApplyClaudeUIPatches195BrandsHeaderAndModelPicker(t *testing.T) {
 	}
 }
 
+func TestApplyClaudeUIPatches196UsesVerifiedPatchShape(t *testing.T) {
+	data := claude196PatchFixture(t)
+
+	if !applyClaudeUIPatches_2_1_196(data, "0.1.1", "2.1.196", modelconfig.Default()) {
+		t.Fatal("applyClaudeUIPatches_2_1_196 reported no changes")
+	}
+	got := string(data)
+	for _, want := range []string{
+		"Claudodex Info",
+		"Set the AI model for Claudodex",
+		"Codex Plan",
+		`"0.1.1 using Claude Code v2.1.196"`,
+		`function CDX196(e){if(e==null||e==="")return"opus";let t=String(e).replace(/(\[1m\])+$/i,"").trim();return t===process.env.ANTHROPIC_DEFAULT_FABLE_MODEL?"opus":t===process.env.ANTHROPIC_DEFAULT_OPUS_MODEL?"opus":t===process.env.ANTHROPIC_DEFAULT_SONNET_MODEL?"sonnet":t===process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL?"haiku":e}`,
+		`function pmp(e=!1){let t=process.env,n=(r,o,s)=>({value:r,label:o,description:s,descriptionForModel:s});return[n("opus"`,
+		`function fmp(e){let t=pmp(e),n=process.env.ANTHROPIC_CUSTOM_MODEL_OPTION,r=CDX196(n);if(n&&r===n&&!t.some((l)=>l.value===n))t.push({value:n,label:process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME??n,description:process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION??` + "`" + `Custom model (${n})` + "`" + `});return t}`,
+		`let H=x,P,n2=CDX196(n);P=n2!==null&&!H.some((e)=>e.value===n2)&&Ua(n2)?[...H,{value:n2,label:O9(n2),description:"Current model"}]:H;let O=P,N;`,
+		`p=CDX196(p),M=D.some((e)=>e.value===p)?p:D[0]?.value`,
+		`function uc(){return!ct(process.env.CLAUDE_CODE_DISABLE_FAST_MODE)}`,
+		`function c6(){return"Codex AI"}`,
+		`function N9e(){return"opus"}`,
+		`function ih(e){return uc()}`,
+		`function Dda(e,t,n){return null}`,
+		`Resume with:
+claudodex `,
+		`function Ptl(e){let t=Math.max(0,e)/2000,n=1-Math.exp(-t/90);return Math.min(95,Math.round(n*100))}`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("patched data missing %q:\n%s", want, got)
+		}
+	}
+	for _, notWant := range []string{
+		`function pmp(e=!1){if(Eo())`,
+		`for(let l of BAn())`,
+		`availableModels:o`,
+		`try /model opus`,
+		`try /model sonnet`,
+		`Math.max(0,e)/1000,n=1-Math.exp(-t/90)`,
+		`D.some((Ee)=>Ee.value===p)?p:D[0]?.value??void 0`,
+	} {
+		if strings.Contains(got, notWant) {
+			t.Fatalf("patched data still contains %q:\n%s", notWant, got)
+		}
+	}
+}
+
 func TestApplyClaudeUIPatches154FailsWhenCriticalUsagePatchMissing(t *testing.T) {
 	data := []byte(strings.ReplaceAll(string(claude154PatchFixture(t)), "async function WXH()", "async function MISSING_WXH()"))
 
@@ -587,6 +632,60 @@ func claude195PatchFixture(t *testing.T) []byte {
 	}, "\n"))
 }
 
+func claude196PatchFixture(t *testing.T) []byte {
+	t.Helper()
+	return []byte(strings.Join([]string{
+		`Check the Claude Code changelog for updates`,
+		`What's new`,
+		`Welcome back!`,
+		`Set the AI model for Claude Code`,
+		`Claude Code will be able to read files in this directory and make edits when auto-accept edits is on.`,
+		`WARNING: Claude Code running in Bypass Permissions mode`,
+		`In Bypass Permissions mode, Claude Code will not ask for your approval before running potentially dangerous commands.`,
+		`No, exit Claude Code`,
+		`Claude Max`,
+		`Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model.`,
+		`Select model`,
+		`Default (recommended)`,
+		`best for everyday, complex tasks`,
+		`efficient for routine tasks`,
+		`Fastest for quick answers`,
+		` with 1M context \xB7 `,
+		`Fast mode (research preview)`,
+		`Draws from usage credits at a higher rate. Separate rate limits apply.`,
+		`Billed as extra usage at a premium rate. Separate rate limits apply.`,
+		`Draws from usage credits`,
+		`$10/$50 per Mtok`,
+		`$30/$150 per Mtok`,
+		`Learn more:`,
+		`https://code.claude.com/docs/en/fast-mode`,
+		`/upgrade to keep using Claude Code`,
+		`children:"Claude Code"`,
+		`("Claude Code")`,
+		`(" Claude Code ")`,
+		`function yAt(){` + strings.Repeat(" ", 1200) + `function AGl(e,t,n){}`,
+		`function OGl(e){let t=e.map((r)=>({text:r})),n="Check the Claude Code changelog for updates";return{title:"What's new",lines:t,footer:t.length>0?"/release-notes for more":void 0,emptyMessage:"Check the Claude Code changelog for updates"}}`,
+		`async function bde(){return Cl("api_usage_fetch",async()=>{if(!Eo()||!hx())return{};let e=0,t=await gD(async()=>{e++,C(` + "`" + `fetchUtilization: GET /api/oauth/usage (attempt ${e})` + "`" + `);let n=await Hs.get("/api/oauth/usage",{timeout:5000,headers:{"Content-Type":"application/json"},refreshOAuth:!0});if(!n.ok)throw Error(` + "`" + `Auth error: ${n.reason==="no-auth"?n.detail:n.reason}` + "`" + `);return n});return C(` + "`" + `fetchUtilization: 200 after ${e} attempt(s)${e>1?" (401\u2192refresh\u2192retry succeeded)":""}` + "`" + `),t.data})}` + strings.Repeat(" ", 400) + `var Cmp="tengu_usage_overage_included_models";`,
+		`function pmp(e=!1){if(Eo()){if(zle()||Bke()||Y_e()){let a=[hBn(e)];if(!uC()&&Yre()&&!Ilo())a.push(Jua());if(a.push(sda),JSe())a.push(Yua());return a.push(Xua),Dlo(a,e)}let i=[hBn(e)];if(JSe())i.push(Yua());if(uC())i.push(oda());else if(i.push(Flo(!1)),Yre()&&!Ilo())i.push(Jua());return i.push(Xua),Dlo(i,e)}if(Ed()){let i=[hBn(e)],a=Gua();if(a!==void 0)i.push(a);else if(!uC()&&Yre()&&!Ilo())i.push(Kua(e));let l=jua();if(l!==void 0)i.push(l);else if(i.push(Plo()),JSe())i.push(Vua());i.push(zua()??nda());let c=Wua();if(c!==void 0)Jut(i,c);else if(_r()==="anthropicAws"&&QSe("fable5"))Jut(i,Olo());return Dlo(i,e)}let t=[hBn(e)],n=jua();if(n!==void 0)t.push(n);else if(QSe("sonnet46")){if(t.push(Plo()),JSe())t.push(Vua())}let r=Gua();if(r!==void 0)t.push(r);else{if(QSe("opus41"))t.push(omp());if(QSe("opus48")){if(t.push(tda()),Yre()&&!CU(Yp().opus48))t.push(Kua())}if(QSe("opus47")){if(t.push(imp()),Yre()&&!CU(Yp().opus47))t.push(lmp())}if(QSe("opus46")){if(t.push(smp()),Yre())t.push(amp(e))}}let o=zua();if(o!==void 0)t.push(o);else if(QSe("haiku45")||QSe("haiku35"))t.push(ump());let s=Wua();if(s!==void 0||QSe("fable5"))Jut(t,s??Olo());return t}` + strings.Repeat(" ", 900) + `function QSe(e){return true}`,
+		`function fmp(e){let t=pmp(e),n=process.env.ANTHROPIC_CUSTOM_MODEL_OPTION;if(n&&!t.some((l)=>l.value===n))t.push({value:n,label:process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME??n,description:process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION??` + "`" + `Custom model (${n})` + "`" + `});for(let l of BAn())if(!t.some((c)=>gBn(c,l)))Jut(t,l);let r=_r();if(r==="firstParty"||r==="gateway"){let l=r==="gateway"||bu();for(let c of V_e()){if(c.disabled&&!l)continue;if(!t.some((u)=>gBn(u,c)))Jut(t,c)}}let{availableModels:o}=es()??{};if(o)for(let l of o){let c=l.trim();if(!c.startsWith("anthropic.")||t.some((u)=>u.value===c))continue;t.push({value:c,label:c,description:"Custom model"})}return VDe(t)}` + strings.Repeat(" ", 900) + `function VDe(e){return e}`,
+		`let H=x,P;if(t[5]!==n||t[6]!==H){e:{if(n!==null&&!H.some((Ee)=>Ee.value===n)&&Ua(n)){let Ee={value:n,label:O9(n),description:"Current model"},we=H.findIndex(Z1m);if(we===-1){P=[...H,Ee];break e}P=[...H.slice(0,we),Ee,...H.slice(we)];break e}P=H}t[5]=n,t[6]=H,t[7]=P}else P=t[7];let O=P,N;`,
+		`if(t[13]!==p||t[14]!==D)M=D.some((Ee)=>Ee.value===p)?p:D[0]?.value??void 0,t[13]=p,t[14]=D,t[15]=M;else M=t[15];`,
+		`function uc(){if(_r()!=="firstParty")return!1;return!ct(process.env.CLAUDE_CODE_DISABLE_FAST_MODE)}`,
+		`function c6(){return"Opus 4.8"}`,
+		`function N9e(){return"opus"+(uC()?"[1m]":"")}`,
+		`function ih(e){if(!uc())return!1;let t=e??Wv(),n=Wo(t);if(mU(io(n),"fast_mode"))return!0;let r=n.toLowerCase();return r.includes("opus-4-7")||r.includes("opus-4-8")}`,
+		`function Dda(e,t,n){if(Pi()!=="pro")return null;if(e.rateLimitType!=="seven_day")return null;if(t.includes("fable"))return{lever:"model",text:"try /model opus \xB7 more runway"};if(t.includes("opus"))return{lever:"model",text:"try /model sonnet \xB7 ~2\xD7 runway"};if(!Qv(t))return null;let r=tM(t,n);if(r==="high"||r==="xhigh"||r==="max")return{lever:"effort",text:"try /effort medium"};return null}function Vlo(e,t){}`,
+		`
+Resume this session with:
+claude `,
+		`Previous session saved \xB7 resume with: claude --resume `,
+		`Run claude --continue or claude --resume to resume a conversation`,
+		`Open ` + "`" + `claude agents` + "`" + ` to attach to it, or stop it there first to resume here.`,
+		`). Use ` + "`" + `claude agents` + "`" + ` to find and attach to it, or add --fork-session to branch off a copy.`,
+		`function Ptl(e){let t=Math.max(0,e)/1000,n=1-Math.exp(-t/90);return Math.min(95,Math.round(n*100))}`,
+	}, "\n"))
+}
+
 func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 	patch := findClaudeUIPatch("2.1.153", "449d9c89d7a63b1d427d912a7bd6e6f23f9a7b363866697c9fa9a0012546b254")
 	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
@@ -628,6 +727,14 @@ func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 	} else if patch != nil {
 		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
+	patch = findClaudeUIPatch("2.1.196", "6fc6e61ab7582c2bf241225ff90d9f79e91d69380cb9589fc9dedd3a30070f5a")
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		if patch == nil {
+			t.Fatal("expected local verified 2.1.196 darwin/arm64 patch to match")
+		}
+	} else if patch != nil {
+		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
 	if got := findClaudeUIPatch("2.1.154", "449d9c89d7a63b1d427d912a7bd6e6f23f9a7b363866697c9fa9a0012546b254"); got != nil {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
@@ -638,6 +745,9 @@ func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
 	if got := findClaudeUIPatch("2.1.195", "5adf7b4d349f743d669cd5adf2ce76dbb5e146d8ab99b3a63c5aef2ef15595f9"); got != nil {
+		t.Fatalf("patch matched unsupported sha: %#v", got)
+	}
+	if got := findClaudeUIPatch("2.1.196", "8b45adad93f336ab95f33e714494b19fd3377a494eb05c122c8677bc895876ad"); got != nil {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
 	if got := findClaudeUIPatch("2.1.153", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); got != nil {
