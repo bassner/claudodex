@@ -67,6 +67,9 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
   echo "oauth_token:$CLAUDE_CODE_OAUTH_TOKEN"
   echo "oauth_scopes:$CLAUDE_CODE_OAUTH_SCOPES"
   echo "subscription:$CLAUDE_CODE_SUBSCRIPTION_TYPE"
+  echo "bridge_base:$CLAUDE_BRIDGE_BASE_URL"
+  echo "bridge_ingress:$CLAUDE_BRIDGE_SESSION_INGRESS_URL"
+  echo "bridge_token:$CLAUDE_BRIDGE_OAUTH_TOKEN"
   echo "fast_org_check:$CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK"
   echo "https_proxy:$HTTPS_PROXY"
   echo "ca:$NODE_EXTRA_CA_CERTS"
@@ -105,6 +108,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "leak")
 	t.Setenv("DISABLE_TELEMETRY", "0")
 	t.Setenv("DISABLE_GROWTHBOOK", "0")
+	t.Setenv("CLAUDODEX_DISABLE_REAL_CLAUDE_BRIDGE_AUTH", "1")
 	t.Setenv("CLAUDODEX_CAPTURE", capturePath)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/codex/models" {
@@ -141,9 +145,12 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		"provider_managed:1",
 		"user_type:ant",
 		"local_oauth:1",
-		"oauth_token:" + localOAuthAccessToken,
-		"oauth_scopes:" + localOAuthScopes,
-		"subscription:" + localOAuthSubscriptionType,
+		"oauth_token:",
+		"oauth_scopes:",
+		"subscription:",
+		"bridge_base:" + firstPartyAnthropicBaseURL,
+		"bridge_ingress:" + firstPartyAnthropicBaseURL,
+		"bridge_token:",
 		"fast_org_check:1",
 		"fable:gpt-5.5",
 		"fable_name:gpt-5.5",

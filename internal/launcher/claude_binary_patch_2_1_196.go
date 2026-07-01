@@ -36,6 +36,8 @@ func applyClaudeUIPatches_2_1_196(data []byte, claudodexVersion, claudeVersion s
 	changed = resumeHintsPatched || changed
 	compactProgressPatched := patchCompactProgressCurve_2_1_196(data)
 	changed = compactProgressPatched || changed
+	remoteControlPatched := patchRemoteControlRuntimeFunctions_2_1_196(data)
+	changed = remoteControlPatched || changed
 
 	changed = replaceAllFixed(data, "Check the Claude Code changelog for updates", claudodexInfoLine()) || changed
 	changed = replaceAllFixed(data, "What's new", "Info") || changed
@@ -68,7 +70,7 @@ func applyClaudeUIPatches_2_1_196(data []byte, claudodexVersion, claudeVersion s
 	changed = replaceAllPatternString(data, `("Claude Code")`, "Claude Code", "Claudodex") || changed
 	changed = replaceAllPatternString(data, `(" Claude Code ")`, "Claude Code", "Claudodex") || changed
 
-	if !versionPatched || !whatsNewPatched || !usagePatched || !modelOptionsPatched || !modelExtraOptionsPatched || !modelSelectionPatched || !fastModePatched || !contextWarningHintPatched || !resumeHintsPatched || !compactProgressPatched {
+	if !versionPatched || !whatsNewPatched || !usagePatched || !modelOptionsPatched || !modelExtraOptionsPatched || !modelSelectionPatched || !fastModePatched || !contextWarningHintPatched || !resumeHintsPatched || !compactProgressPatched || !remoteControlPatched {
 		return false
 	}
 	return changed
@@ -186,6 +188,40 @@ func patchFastModeRuntimeFunctions_2_1_196(data []byte) bool {
 	n9Patched := replaceFirstFixed(data, `function N9e(){return"opus"+(uC()?"[1m]":"")}`, `function N9e(){return"opus"}`)
 	ihPatched := replaceFirstFixed(data, `function ih(e){if(!uc())return!1;let t=e??Wv(),n=Wo(t);if(mU(io(n),"fast_mode"))return!0;let r=n.toLowerCase();return r.includes("opus-4-7")||r.includes("opus-4-8")}`, `function ih(e){return uc()}`)
 	return ucPatched && c6Patched && n9Patched && ihPatched
+}
+
+func patchRemoteControlRuntimeFunctions_2_1_196(data []byte) bool {
+	tokenOverridePatched := replaceFirstFixed(data,
+		`function Pme(){return}function Ome(){return}function eB(){let e=Pme();if(e!==void 0)return e;if(!kc()||!Eo())return;return Gs()?.accessToken}function j7t(){return Ome()??Fs().BASE_API_URL}`,
+		`function Pme(){return Ne.CLAUDE_BRIDGE_OAUTH_TOKEN}function Ome(){return}function eB(){return Pme()||Gs()?.accessToken}function j7t(){return Ome()??Fs().BASE_API_URL}`,
+	)
+	visiblePatched := replaceFirstFixed(data,
+		`function Pw(){if(mdr())return!0;if(Yen())return!1;return!W2()&&$Ve()}`,
+		`function Pw(){return!Yen()&&!W2()}`,
+	)
+	enabledPatched := replaceFirstFixed(data,
+		`async function zGo(){if(mdr())return!0;if(Yen())return!1;return zen()&&!W2()&&aRt()&&await UU("tengu_ccr_bridge")}`,
+		`async function zGo(){return!Yen()&&!W2()&&!!Ne.CLAUDE_BRIDGE_OAUTH_TOKEN}`,
+	)
+	start := bytes.Index(data, []byte("async function klr(){"))
+	if start < 0 {
+		return false
+	}
+	endRel := bytes.Index(data[start:], []byte("function ddf()"))
+	if endRel < 0 {
+		return false
+	}
+	old := data[start : start+endRel]
+	replacement := "async function klr(){if(Yen())return\"Remote Control is disabled by your organization's policy (managed setting `disableRemoteControl`).\";if(W2())return\"Remote Control is not available inside a cloud session.\";if(!Ne.CLAUDE_BRIDGE_OAUTH_TOKEN)return\"Remote Control requires a normal Claude login. Run `claude auth login` outside Claudodex, then restart Claudodex.\";return null}"
+	if len([]byte(replacement)) > len(old) {
+		return false
+	}
+	newBytes, ok := fitReplacement(old, replacement)
+	if !ok {
+		return false
+	}
+	copy(old, newBytes)
+	return tokenOverridePatched && visiblePatched && enabledPatched
 }
 
 func patchContextWarningHint_2_1_196(data []byte) bool {

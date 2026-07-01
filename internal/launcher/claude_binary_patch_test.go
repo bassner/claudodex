@@ -390,7 +390,12 @@ func TestApplyClaudeUIPatches196UsesVerifiedPatchShape(t *testing.T) {
 		`function c6(){return"Codex AI"}`,
 		`function N9e(){return"opus"}`,
 		`function ih(e){return uc()}`,
+		`function Pme(){return Ne.CLAUDE_BRIDGE_OAUTH_TOKEN}`,
+		`function eB(){return Pme()||Gs()?.accessToken}`,
 		`function Dda(e,t,n){return null}`,
+		`function Pw(){return!Yen()&&!W2()}`,
+		`async function zGo(){return!Yen()&&!W2()&&!!Ne.CLAUDE_BRIDGE_OAUTH_TOKEN}`,
+		`async function klr(){if(Yen())return"Remote Control is disabled by your organization's policy (managed setting ` + "`" + `disableRemoteControl` + "`" + `).";if(W2())return"Remote Control is not available inside a cloud session.";if(!Ne.CLAUDE_BRIDGE_OAUTH_TOKEN)return"Remote Control requires a normal Claude login. Run ` + "`" + `claude auth login` + "`" + ` outside Claudodex, then restart Claudodex.";return null}`,
 		`Resume with:
 claudodex `,
 		`function Ptl(e){let t=Math.max(0,e)/2000,n=1-Math.exp(-t/90);return Math.min(95,Math.round(n*100))}`,
@@ -407,6 +412,10 @@ claudodex `,
 		`try /model sonnet`,
 		`Math.max(0,e)/1000,n=1-Math.exp(-t/90)`,
 		`D.some((Ee)=>Ee.value===p)?p:D[0]?.value??void 0`,
+		`return!W2()&&$Ve()`,
+		`await UU("tengu_ccr_bridge")`,
+		`Remote Control requires feature-flag evaluation`,
+		`function Pme(){return}function Ome(){return}`,
 	} {
 		if strings.Contains(got, notWant) {
 			t.Fatalf("patched data still contains %q:\n%s", notWant, got)
@@ -674,6 +683,10 @@ func claude196PatchFixture(t *testing.T) []byte {
 		`function c6(){return"Opus 4.8"}`,
 		`function N9e(){return"opus"+(uC()?"[1m]":"")}`,
 		`function ih(e){if(!uc())return!1;let t=e??Wv(),n=Wo(t);if(mU(io(n),"fast_mode"))return!0;let r=n.toLowerCase();return r.includes("opus-4-7")||r.includes("opus-4-8")}`,
+		`function Pme(){return}function Ome(){return}function eB(){let e=Pme();if(e!==void 0)return e;if(!kc()||!Eo())return;return Gs()?.accessToken}function j7t(){return Ome()??Fs().BASE_API_URL}`,
+		`function Pw(){if(mdr())return!0;if(Yen())return!1;return!W2()&&$Ve()}`,
+		`async function zGo(){if(mdr())return!0;if(Yen())return!1;return zen()&&!W2()&&aRt()&&await UU("tengu_ccr_bridge")}`,
+		`async function klr(){if(mdr())return null;if(!zen())return"Remote Control is only available when using Claude via api.anthropic.com.";if(W2())return"Remote Control is not available inside a cloud session.";if(Yen())return"Remote Control is disabled by your organization's policy (managed setting ` + "`" + `disableRemoteControl` + "`" + `).";if(!fdr())return"Remote Control requires a claude.ai subscription. Run ` + "`" + `claude auth login` + "`" + ` to sign in with your claude.ai account.";if(!L6()){let t=Kmn();if(t)return` + "`" + `Remote Control requires feature-flag evaluation, which is disabled because ${t} is set. Unset it (or run in a shell without it) to use Remote Control.` + "`" + `;return"Remote Control requires feature-flag evaluation, which is unavailable in this environment."}if(!await UU("tengu_ccr_bridge"))return"Remote Control is not yet enabled for your account.";return null}function ddf(){return""}`,
 		`function Dda(e,t,n){if(Pi()!=="pro")return null;if(e.rateLimitType!=="seven_day")return null;if(t.includes("fable"))return{lever:"model",text:"try /model opus \xB7 more runway"};if(t.includes("opus"))return{lever:"model",text:"try /model sonnet \xB7 ~2\xD7 runway"};if(!Qv(t))return null;let r=tM(t,n);if(r==="high"||r==="xhigh"||r==="max")return{lever:"effort",text:"try /effort medium"};return null}function Vlo(e,t){}`,
 		`
 Resume this session with:
@@ -735,6 +748,14 @@ func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 	} else if patch != nil {
 		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
+	patch = findClaudeUIPatch("2.1.197", "8cc0c4d1e4eb1dca3b0cc92ab02ee3505de764e023f8c901761c167b72041fb8")
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		if patch == nil {
+			t.Fatal("expected local verified 2.1.197 darwin/arm64 patch to match")
+		}
+	} else if patch != nil {
+		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
 	if got := findClaudeUIPatch("2.1.154", "449d9c89d7a63b1d427d912a7bd6e6f23f9a7b363866697c9fa9a0012546b254"); got != nil {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
@@ -748,6 +769,9 @@ func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
 	if got := findClaudeUIPatch("2.1.196", "8b45adad93f336ab95f33e714494b19fd3377a494eb05c122c8677bc895876ad"); got != nil {
+		t.Fatalf("patch matched unsupported sha: %#v", got)
+	}
+	if got := findClaudeUIPatch("2.1.197", "6fc6e61ab7582c2bf241225ff90d9f79e91d69380cb9589fc9dedd3a30070f5a"); got != nil {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
 	if got := findClaudeUIPatch("2.1.153", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); got != nil {

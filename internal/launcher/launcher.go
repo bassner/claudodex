@@ -126,6 +126,7 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 		return fmt.Errorf("prepare Claude Code statusline compatibility: %w", err)
 	}
 	childEnv := BuildClaudeEnv(os.Environ(), port, claudeConfigDir, oauthProxy.ProxyURL(), oauthProxy.CAPath(), models, modelCfg)
+	childEnv = WithRealClaudeBridgeAuth(childEnv)
 	if runtimeModel, ok := explicitModelArg(childArgs); ok {
 		childEnv = WithFriendlyCustomModelOption(childEnv, runtimeModel)
 	}

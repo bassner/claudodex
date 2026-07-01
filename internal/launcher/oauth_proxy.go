@@ -190,8 +190,12 @@ func (p *OAuthProxy) handleAnthropicTLS(conn *tls.Conn) {
 			return
 		}
 		p.log(req.Method + " " + req.URL.RequestURI())
+		upgraded := isUpgradeRequest(req)
 		if err := p.writeAnthropicResponse(conn, req); err != nil {
 			p.log("write Anthropic response failed: " + err.Error())
+			return
+		}
+		if upgraded {
 			return
 		}
 		if req.Close {
@@ -215,10 +219,21 @@ func (p *OAuthProxy) log(line string) {
 
 func (p *OAuthProxy) writeAnthropicResponse(w io.Writer, req *http.Request) error {
 	path := req.URL.Path
-	if !oauthProxyRouteAllowed(req.Method, path) {
+	switch oauthProxyRouteFor(req.Method, path) {
+	case oauthProxyRouteLocal:
+		return p.forwardToLocalProxy(w, req)
+	case oauthProxyRouteAnthropic:
+		if isUpgradeRequest(req) {
+			conn, ok := w.(net.Conn)
+			if !ok {
+				return writeHTTPResponse(w, http.StatusBadGateway, "application/json", []byte(`{"error":{"type":"api_error","message":"remote-control upgrade unavailable"}}`))
+			}
+			return p.forwardAnthropicUpgrade(conn, req)
+		}
+		return p.forwardToAnthropicAPI(w, req)
+	default:
 		return writeHTTPResponse(w, http.StatusNotFound, "application/json", []byte(`{"error":{"type":"not_found_error","message":"route not provided by Claudodex"}}`))
 	}
-	return p.forwardToLocalProxy(w, req)
 }
 
 func (p *OAuthProxy) forwardToLocalProxy(w io.Writer, in *http.Request) error {
@@ -236,14 +251,79 @@ func (p *OAuthProxy) forwardToLocalProxy(w io.Writer, in *http.Request) error {
 		return writeHTTPResponse(w, http.StatusBadGateway, "application/json", []byte(`{"error":{"type":"api_error","message":"local Claudodex proxy unavailable"}}`))
 	}
 	defer resp.Body.Close()
+	p.logForwardedResponse("local proxy", in, resp)
 	return writeForwardedResponse(w, resp)
+}
+
+func (p *OAuthProxy) forwardToAnthropicAPI(w io.Writer, in *http.Request) error {
+	targetURL, err := url.Parse(firstPartyAnthropicBaseURL + in.URL.RequestURI())
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(context.Background(), in.Method, targetURL.String(), in.Body)
+	if err != nil {
+		return err
+	}
+	copyForwardHeaders(req.Header, in.Header)
+	req.Host = "api.anthropic.com"
+	resp, err := oauthProxyForwardClient.Do(req)
+	if err != nil {
+		p.log("direct Anthropic forward failed " + in.Method + " " + in.URL.RequestURI() + ": " + err.Error())
+		return writeHTTPResponse(w, http.StatusBadGateway, "application/json", []byte(`{"error":{"type":"api_error","message":"Anthropic Remote Control API unavailable"}}`))
+	}
+	defer resp.Body.Close()
+	p.logForwardedResponse("direct Anthropic", in, resp)
+	return writeForwardedResponse(w, resp)
+}
+
+func (p *OAuthProxy) logForwardedResponse(target string, req *http.Request, resp *http.Response) {
+	if p == nil || resp == nil {
+		return
+	}
+	p.log(fmt.Sprintf("%s %s %s -> %d", target, req.Method, req.URL.RequestURI(), resp.StatusCode))
+}
+
+func (p *OAuthProxy) forwardAnthropicUpgrade(client net.Conn, in *http.Request) error {
+	upstream, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", "api.anthropic.com:443", &tls.Config{ServerName: "api.anthropic.com", MinVersion: tls.VersionTLS12})
+	if err != nil {
+		p.log("direct Anthropic upgrade dial failed " + in.URL.RequestURI() + ": " + err.Error())
+		return writeHTTPResponse(client, http.StatusBadGateway, "application/json", []byte(`{"error":{"type":"api_error","message":"Anthropic Remote Control websocket unavailable"}}`))
+	}
+	defer upstream.Close()
+
+	out := in.Clone(context.Background())
+	out.URL.Scheme = "https"
+	out.URL.Host = "api.anthropic.com"
+	out.Host = "api.anthropic.com"
+	out.RequestURI = ""
+	if err := out.Write(upstream); err != nil {
+		return err
+	}
+
+	done := make(chan struct{}, 2)
+	go proxyCopy(done, upstream, client)
+	go proxyCopy(done, client, upstream)
+	<-done
+	return nil
 }
 
 var oauthProxyForwardClient = &http.Client{
 	Transport: &http.Transport{Proxy: nil},
 }
 
+type oauthProxyRoute int
+
+const (
+	oauthProxyRouteNone oauthProxyRoute = iota
+	oauthProxyRouteLocal
+	oauthProxyRouteAnthropic
+)
+
 func oauthProxyRouteAllowed(method string, path string) bool {
+	return oauthProxyRouteFor(method, path) == oauthProxyRouteLocal
+}
+
+func oauthProxyRouteFor(method string, path string) oauthProxyRoute {
 	path = normalizeOAuthProxyPath(path)
 	switch path {
 	case "/api/oauth/usage",
@@ -256,14 +336,53 @@ func oauthProxyRouteAllowed(method string, path string) bool {
 		"/v1",
 		"/v1/models",
 		"/v1/mcp_servers":
-		return method == http.MethodGet || method == http.MethodHead
+		if method == http.MethodGet || method == http.MethodHead {
+			return oauthProxyRouteLocal
+		}
+		return oauthProxyRouteNone
 	case "/v1/messages",
 		"/v1/messages/count_tokens",
 		"/v1/messages/batches":
-		return method == http.MethodPost
+		if method == http.MethodPost {
+			return oauthProxyRouteLocal
+		}
+		return oauthProxyRouteNone
+	default:
+		if oauthProxyRemoteControlRouteAllowed(method, path) {
+			return oauthProxyRouteAnthropic
+		}
+		return oauthProxyRouteNone
+	}
+}
+
+func oauthProxyRemoteControlRouteAllowed(method string, path string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPatch, http.MethodPut, http.MethodDelete:
 	default:
 		return false
 	}
+	switch {
+	case path == "/v1/sessions" || strings.HasPrefix(path, "/v1/sessions/"):
+		return true
+	case path == "/v1/code/sessions" || strings.HasPrefix(path, "/v1/code/sessions/"):
+		return true
+	case path == "/v1/environments" || strings.HasPrefix(path, "/v1/environments/"):
+		return true
+	case strings.HasPrefix(path, "/v1/session_ingress/"):
+		return true
+	case methodAllowsReadOnly(method) && strings.HasPrefix(path, "/api/oauth/files/"):
+		return true
+	default:
+		return false
+	}
+}
+
+func methodAllowsReadOnly(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead
+}
+
+func isUpgradeRequest(req *http.Request) bool {
+	return strings.EqualFold(req.Header.Get("Upgrade"), "websocket") || strings.Contains(strings.ToLower(req.Header.Get("Connection")), "upgrade")
 }
 
 func normalizeOAuthProxyPath(path string) string {

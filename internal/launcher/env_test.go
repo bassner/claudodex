@@ -44,10 +44,9 @@ func TestBuildClaudeEnv(t *testing.T) {
 		"USER_TYPE":                                 "ant",
 		"USE_LOCAL_OAUTH":                           "1",
 		"CLAUDE_LOCAL_OAUTH_API_BASE":               "http://127.0.0.1:4321",
-		"CLAUDE_CODE_OAUTH_TOKEN":                   localOAuthAccessToken,
-		"CLAUDE_CODE_OAUTH_SCOPES":                  localOAuthScopes,
-		"CLAUDE_CODE_SUBSCRIPTION_TYPE":             localOAuthSubscriptionType,
 		"CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK":      "1",
+		"CLAUDE_BRIDGE_BASE_URL":                    firstPartyAnthropicBaseURL,
+		"CLAUDE_BRIDGE_SESSION_INGRESS_URL":         firstPartyAnthropicBaseURL,
 		"HTTP_PROXY":                                "http://user-http",
 		"HTTPS_PROXY":                               "http://127.0.0.1:9999",
 		"https_proxy":                               "http://127.0.0.1:9999",
@@ -86,7 +85,7 @@ func TestBuildClaudeEnv(t *testing.T) {
 			t.Fatalf("%s = %q, want %q", key, got[key], value)
 		}
 	}
-	for _, key := range []string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_REFRESH_TOKEN", "CLAUDE_CODE_RATE_LIMIT_TIER"} {
+	for _, key := range []string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_SCOPES", "CLAUDE_CODE_OAUTH_REFRESH_TOKEN", "CLAUDE_CODE_SUBSCRIPTION_TYPE", "CLAUDE_CODE_RATE_LIMIT_TIER"} {
 		if got[key] != "" {
 			t.Fatalf("%s leaked into Claude env: %q", key, got[key])
 		}
@@ -102,6 +101,8 @@ func TestBuildClaudeEnv(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"tengu_ant_model_override"`,
+		`"tengu_ccr_bridge":true`,
+		`"tengu_bridge_repl_v2":true`,
 		`"defaultModel":"gpt-5.5"`,
 		`"defaultModelEffortLevel":"max"`,
 		`"alias":"fable"`,

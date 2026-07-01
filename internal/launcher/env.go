@@ -46,9 +46,6 @@ func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, httpsP
 	delete(env, "CLAUDE_CODE_RATE_LIMIT_TIER")
 	delete(env, "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR")
 	delete(env, "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR")
-	env["CLAUDE_CODE_OAUTH_TOKEN"] = localOAuthAccessToken
-	env["CLAUDE_CODE_OAUTH_SCOPES"] = localOAuthScopes
-	env["CLAUDE_CODE_SUBSCRIPTION_TYPE"] = localOAuthSubscriptionType
 	env["CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK"] = "1"
 	if httpsProxy != "" {
 		env["HTTPS_PROXY"] = httpsProxy
@@ -79,6 +76,7 @@ func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, httpsP
 	env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = strconv.FormatInt(requiredContextWindow, 10)
 	env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = strconv.FormatInt(requiredContextWindow, 10)
 	applyModelOverrideEnv(env, codexModels, modelCfg)
+	applyRemoteControlBridgeEnv(env)
 	applyPrivacyEnv(env)
 	return flattenEnv(env)
 }
@@ -107,6 +105,17 @@ func applyPrivacyEnv(env map[string]string) {
 	env["DISABLE_TELEMETRY"] = "1"
 	env["DO_NOT_TRACK"] = "1"
 	env["DISABLE_GROWTHBOOK"] = "1"
+}
+
+func applyRemoteControlBridgeEnv(env map[string]string) {
+	if strings.TrimSpace(env["CLAUDE_BRIDGE_BASE_URL"]) == "" {
+		env["CLAUDE_BRIDGE_BASE_URL"] = firstPartyAnthropicBaseURL
+	}
+	if strings.TrimSpace(env["CLAUDE_BRIDGE_SESSION_INGRESS_URL"]) == "" {
+		env["CLAUDE_BRIDGE_SESSION_INGRESS_URL"] = firstPartyAnthropicBaseURL
+	}
+	mergeGrowthBookOverride(env, "tengu_ccr_bridge", true)
+	mergeGrowthBookOverride(env, "tengu_bridge_repl_v2", true)
 }
 
 type antModelOverrideConfig struct {

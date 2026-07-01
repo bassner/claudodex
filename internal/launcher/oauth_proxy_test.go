@@ -122,6 +122,34 @@ func TestOAuthProxyRejectsUnknownAnthropicRoute(t *testing.T) {
 	}
 }
 
+func TestOAuthProxyRoutesRemoteControlOnlyToAnthropic(t *testing.T) {
+	tests := []struct {
+		method string
+		path   string
+		want   oauthProxyRoute
+	}{
+		{http.MethodPost, "/v1/messages", oauthProxyRouteLocal},
+		{http.MethodGet, "/v1/models", oauthProxyRouteLocal},
+		{http.MethodGet, "/api/oauth/profile", oauthProxyRouteLocal},
+		{http.MethodPost, "/v1/sessions", oauthProxyRouteAnthropic},
+		{http.MethodGet, "/v1/sessions/session_123/events", oauthProxyRouteAnthropic},
+		{http.MethodGet, "/v1/sessions/ws/session_123/subscribe", oauthProxyRouteAnthropic},
+		{http.MethodPost, "/v1/code/sessions", oauthProxyRouteAnthropic},
+		{http.MethodPost, "/v1/code/sessions/cse_123/bridge", oauthProxyRouteAnthropic},
+		{http.MethodGet, "/v1/code/sessions/cse_123/worker/events/stream", oauthProxyRouteAnthropic},
+		{http.MethodPost, "/v1/environments/bridge", oauthProxyRouteAnthropic},
+		{http.MethodPut, "/v1/session_ingress/session/session_123", oauthProxyRouteAnthropic},
+		{http.MethodGet, "/api/oauth/files/file_123/content", oauthProxyRouteAnthropic},
+		{http.MethodPost, "/api/oauth/files/file_123/content", oauthProxyRouteNone},
+		{http.MethodGet, "/api/oauth/claude_cli/create_api_key", oauthProxyRouteNone},
+	}
+	for _, tt := range tests {
+		if got := oauthProxyRouteFor(tt.method, tt.path); got != tt.want {
+			t.Fatalf("%s %s route = %v, want %v", tt.method, tt.path, got, tt.want)
+		}
+	}
+}
+
 func TestOAuthProxyCertificateValidityCoversLongSessions(t *testing.T) {
 	cert, caPEM, err := generateOAuthProxyCertificate()
 	if err != nil {
