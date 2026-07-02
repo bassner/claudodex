@@ -700,7 +700,15 @@ claude `,
 }
 
 func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
-	patch := findClaudeUIPatch("2.1.153", "449d9c89d7a63b1d427d912a7bd6e6f23f9a7b363866697c9fa9a0012546b254")
+	patch := findClaudeUIPatch("2.1.198", "ab6f7ee109816ede414f7c285446633f805b623aa609f425609a64266451d61e")
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		if patch == nil {
+			t.Fatal("expected local verified 2.1.198 darwin/arm64 patch to match")
+		}
+	} else if patch != nil {
+		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+	patch = findClaudeUIPatch("2.1.153", "449d9c89d7a63b1d427d912a7bd6e6f23f9a7b363866697c9fa9a0012546b254")
 	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
 		if patch == nil {
 			t.Fatal("expected local verified 2.1.153 darwin/arm64 patch to match")
@@ -772,6 +780,9 @@ func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
 	if got := findClaudeUIPatch("2.1.197", "6fc6e61ab7582c2bf241225ff90d9f79e91d69380cb9589fc9dedd3a30070f5a"); got != nil {
+		t.Fatalf("patch matched unsupported sha: %#v", got)
+	}
+	if got := findClaudeUIPatch("2.1.198", "8cc0c4d1e4eb1dca3b0cc92ab02ee3505de764e023f8c901761c167b72041fb8"); got != nil {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
 	if got := findClaudeUIPatch("2.1.153", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); got != nil {
