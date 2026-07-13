@@ -90,6 +90,31 @@ func TestPrepareClaudeConfigSidecarLinksUserStateAndWritesLocalOAuth(t *testing.
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("credentials mode = %o, want 600", info.Mode().Perm())
 	}
+	policyData, err := os.ReadFile(filepath.Join(sidecarDir, "policy-limits.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var policy map[string]any
+	if err := json.Unmarshal(policyData, &policy); err != nil {
+		t.Fatal(err)
+	}
+	restrictions, ok := policy["restrictions"].(map[string]any)
+	if !ok {
+		t.Fatalf("policy restrictions missing: %#v", policy)
+	}
+	for _, key := range []string{"allow_remote_control", "allow_remote_sessions"} {
+		restriction, ok := restrictions[key].(map[string]any)
+		if !ok || restriction["allowed"] != true {
+			t.Fatalf("%s restriction = %#v", key, restrictions[key])
+		}
+	}
+	policyInfo, err := os.Stat(filepath.Join(sidecarDir, "policy-limits.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policyInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("policy limits mode = %o, want 600", policyInfo.Mode().Perm())
+	}
 	shellPath := filepath.Join(sidecarDir, claudodexShimDirName, "zsh")
 	shellInfo, err := os.Stat(shellPath)
 	if err != nil {
@@ -205,9 +230,9 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 	}
 
 	err := WriteClaudeModelCapabilitiesCache(sidecarDir, []codex.ModelInfo{
-		{Slug: "gpt-5.5", ContextWindow: 272000},
-		{Slug: "gpt-5.4", ContextWindow: 300000},
-		{Slug: "gpt-5.4-mini", ContextWindow: 400000},
+		{Slug: "gpt-5.6-sol", ContextWindow: 272000},
+		{Slug: "gpt-5.6-terra", ContextWindow: 300000},
+		{Slug: "gpt-5.6-luna", ContextWindow: 400000},
 	}, modelconfig.Default())
 	if err != nil {
 		t.Fatal(err)
@@ -227,8 +252,8 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 	cachePath := filepath.Join(cacheDir, claudeModelCapabilitiesFileName)
 	cache := mustReadJSONMap(t, cachePath)
 	models := cache["models"].([]any)
-	if len(models) != 13 {
-		t.Fatalf("models length = %d, want 13: %#v", len(models), models)
+	if len(models) != 11 {
+		t.Fatalf("models length = %d, want 11: %#v", len(models), models)
 	}
 	foundSonnet := false
 	for _, item := range models {
@@ -260,7 +285,7 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 		t.Fatalf("additional model options length = %d, want 3: %#v", len(options), options)
 	}
 	first := options[0].(map[string]any)
-	if first["value"] != "gpt-5.5[1m]" || first["label"] != "gpt-5.5" {
+	if first["value"] != "gpt-5.6-sol[1m]" || first["label"] != "gpt-5.6-sol" {
 		t.Fatalf("first additional model option = %#v", first)
 	}
 	oauthAccount := globalConfig["oauthAccount"].(map[string]any)
@@ -340,7 +365,7 @@ func TestWithClaudeConfigLocksWaitsForTransientLock(t *testing.T) {
 func TestNormalizeClaudeSettingsModelMapsCodexRuntimeModels(t *testing.T) {
 	settingsPath := filepath.Join(t.TempDir(), "settings.json")
 	if err := writeJSONFile(settingsPath, map[string]any{
-		"model":       "gpt-5.4[1m][1m]",
+		"model":       "gpt-5.6-terra[1m][1m]",
 		"effortLevel": "xhigh",
 	}, 0o600); err != nil {
 		t.Fatal(err)
@@ -365,8 +390,8 @@ func TestNormalizeClaudeSettingsModelMapsNativeLongContextAliases(t *testing.T) 
 		want  string
 	}{
 		"plain opus":        {model: "opus", want: "opus"},
-		"plain fable":       {model: "fable", want: "fable"},
-		"versioned fable":   {model: "claude-fable-5[1m]", want: "fable"},
+		"retired fable":     {model: "fable", want: "opus"},
+		"versioned fable":   {model: "claude-fable-5[1m]", want: "opus"},
 		"family opus":       {model: "opus[1m]", want: "opus"},
 		"plain sonnet":      {model: "sonnet", want: "sonnet"},
 		"versioned opus":    {model: "claude-opus-4-8[1m]", want: "opus"},
@@ -770,7 +795,7 @@ func TestSyncTranscriptModelDefaultWritesSharedClaudeSetting(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	transcriptPath := filepath.Join(sessionDir, "session.jsonl")
-	line := fmt.Sprintf(`{"timestamp":%q,"message":{"content":"<local-command-stdout>Set model to \u001b[1mgpt-5.4-mini[1m]\u001b[22m and saved as your default for new sessions</local-command-stdout>"}}`+"\n", now.Format(time.RFC3339Nano))
+	line := fmt.Sprintf(`{"timestamp":%q,"message":{"content":"<local-command-stdout>Set model to \u001b[1mgpt-5.6-luna[1m]\u001b[22m and saved as your default for new sessions</local-command-stdout>"}}`+"\n", now.Format(time.RFC3339Nano))
 	if err := os.WriteFile(transcriptPath, []byte(line), 0o600); err != nil {
 		t.Fatal(err)
 	}

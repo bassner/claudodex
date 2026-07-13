@@ -43,10 +43,12 @@ Why not call it `claudex`? Because that name is already used in multiple places.
 - Runs your installed `claude` binary with normal Claude Code flags.
 - Authenticates to OpenAI through `claudodex clx:auth-login`.
 - Maps Claude model families to Codex models:
-  - Opus -> `gpt-5.5`
-  - Sonnet -> `gpt-5.4`
-  - Haiku -> `gpt-5.4-mini`
-- Maps Claude Code `max` effort to Codex `xhigh`.
+  - Opus -> `gpt-5.6-sol`
+  - Sonnet -> `gpt-5.6-terra`
+  - Haiku -> `gpt-5.6-luna`
+- Maps Claude Code `max` effort to Codex `max` for GPT-5.6. Claude Code's
+  `ultracode` mode enables its workflow orchestration while still sending
+  Codex `max` effort; older models fall back to their highest supported level.
 - Fetches live Codex model metadata for context windows, model capabilities, and
   auto-compact limits.
 - Keeps Claude Code settings shared with normal Claude Code while keeping

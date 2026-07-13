@@ -12,7 +12,6 @@ func CodexUsageToClaude(raw map[string]any) map[string]any {
 		"five_hour":            nil,
 		"seven_day":            nil,
 		"seven_day_oauth_apps": nil,
-		"seven_day_fable":      nil,
 		"seven_day_haiku":      nil,
 		"seven_day_opus":       nil,
 		"seven_day_sonnet":     nil,
@@ -106,9 +105,6 @@ func extraUsage(raw map[string]any) any {
 func modelFamilyFromLimit(limit map[string]any) string {
 	value := strings.ToLower(stringFromAny(limit["metered_feature"]) + " " + stringFromAny(limit["limit_name"]))
 	switch {
-	case strings.Contains(value, "fable"),
-		strings.Contains(value, "mythos"):
-		return "fable"
 	case strings.Contains(value, "opus"):
 		return "opus"
 	case strings.Contains(value, "sonnet"):

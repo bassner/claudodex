@@ -47,12 +47,12 @@ func TestAutomationModeDetectsEqualsOutputFormat(t *testing.T) {
 func TestRewriteClaudeModelArgsUsesLongContextCodexModel(t *testing.T) {
 	got := RewriteClaudeModelArgs([]string{
 		"--model", "claude-sonnet-4-6",
-		"--fallback-model=gpt-5.5[1m]",
+		"--fallback-model=gpt-5.6-sol[1m]",
 		"-p", "leave --model text alone",
 	})
 	want := []string{
-		"--model", "gpt-5.4[1m]",
-		"--fallback-model=gpt-5.5[1m]",
+		"--model", "gpt-5.6-terra[1m]",
+		"--fallback-model=gpt-5.6-sol[1m]",
 		"-p", "leave --model text alone",
 	}
 	if len(got) != len(want) {

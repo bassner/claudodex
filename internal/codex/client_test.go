@@ -174,3 +174,9 @@ func TestClientFetchModelsUsesProtocolVersionForOlderProductVersion(t *testing.T
 		t.Fatal(err)
 	}
 }
+
+func TestModelsClientVersionUsesGPT56CatalogMinimum(t *testing.T) {
+	if got := modelsClientVersion("0.1.4"); got != "0.144.3" {
+		t.Fatalf("modelsClientVersion(0.1.4) = %q, want GPT-5.6 catalog minimum", got)
+	}
+}

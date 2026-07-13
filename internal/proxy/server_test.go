@@ -1,8 +1,11 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
+	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -62,19 +65,42 @@ func TestRoutes(t *testing.T) {
 			t.Fatalf("long-context runtime suffix leaked into visible models response: %#v", body.Data)
 		}
 		switch model.ID {
-		case "claude-fable-5", "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "fable", "gpt-5.5":
+		case "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "gpt-5.6-sol":
 			if model.MaxInputTokens != 111000 {
 				t.Fatalf("%s max_input_tokens = %d, want 111000", model.ID, model.MaxInputTokens)
 			}
-		case "claude-sonnet-4-6", "gpt-5.4":
+		case "claude-sonnet-4-6", "gpt-5.6-terra":
 			if model.MaxInputTokens != 222000 {
 				t.Fatalf("%s max_input_tokens = %d, want 222000", model.ID, model.MaxInputTokens)
 			}
-		case "claude-haiku-4-5", "gpt-5.4-mini":
+		case "claude-haiku-4-5", "gpt-5.6-luna":
 			if model.MaxInputTokens != 333000 {
 				t.Fatalf("%s max_input_tokens = %d, want 333000", model.ID, model.MaxInputTokens)
 			}
 		}
+	}
+}
+
+func TestUnixSocketRoutes(t *testing.T) {
+	server := New(Config{Version: "test", AuthPresent: true, Models: testModels()})
+	socketPath := filepath.Join(t.TempDir(), "api.sock")
+	if _, err := server.StartUnix(socketPath); err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	client := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+		},
+	}}
+	resp, err := client.Get("http://api.anthropic.com/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("models status = %d", resp.StatusCode)
 	}
 }
 
@@ -223,6 +249,13 @@ func TestClaudeLocalOAuthCompatibilityRoutes(t *testing.T) {
 	if _, ok := policy["restrictions"].(map[string]any); !ok {
 		t.Fatalf("policy body = %#v", policy)
 	}
+	restrictions := policy["restrictions"].(map[string]any)
+	for _, key := range []string{"allow_remote_control", "allow_remote_sessions"} {
+		restriction, ok := restrictions[key].(map[string]any)
+		if !ok || restriction["allowed"] != true {
+			t.Fatalf("%s restriction = %#v", key, restrictions[key])
+		}
+	}
 
 	resp, err = http.Get(base + "/api/claude_code_penguin_mode")
 	if err != nil {
@@ -312,8 +345,8 @@ func TestCountTokensAddsImagePadding(t *testing.T) {
 
 func testModels() []codex.ModelInfo {
 	return []codex.ModelInfo{
-		{Slug: "gpt-5.5", ContextWindow: 111000},
-		{Slug: "gpt-5.4", ContextWindow: 222000},
-		{Slug: "gpt-5.4-mini", ContextWindow: 333000},
+		{Slug: "gpt-5.6-sol", ContextWindow: 111000},
+		{Slug: "gpt-5.6-terra", ContextWindow: 222000},
+		{Slug: "gpt-5.6-luna", ContextWindow: 333000},
 	}
 }

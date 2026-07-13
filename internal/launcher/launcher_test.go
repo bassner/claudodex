@@ -64,6 +64,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
   echo "user_type:$USER_TYPE"
   echo "local_oauth:$USE_LOCAL_OAUTH"
   echo "local_oauth_base:$CLAUDE_LOCAL_OAUTH_API_BASE"
+  echo "unix_socket:$ANTHROPIC_UNIX_SOCKET"
   echo "oauth_token:$CLAUDE_CODE_OAUTH_TOKEN"
   echo "oauth_scopes:$CLAUDE_CODE_OAUTH_SCOPES"
   echo "subscription:$CLAUDE_CODE_SUBSCRIPTION_TYPE"
@@ -73,8 +74,6 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
   echo "fast_org_check:$CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK"
   echo "https_proxy:$HTTPS_PROXY"
   echo "ca:$NODE_EXTRA_CA_CERTS"
-  echo "fable:$ANTHROPIC_DEFAULT_FABLE_MODEL"
-  echo "fable_name:$ANTHROPIC_DEFAULT_FABLE_MODEL_NAME"
   echo "opus:$ANTHROPIC_DEFAULT_OPUS_MODEL"
   echo "opus_name:$ANTHROPIC_DEFAULT_OPUS_MODEL_NAME"
   echo "sonnet:$ANTHROPIC_DEFAULT_SONNET_MODEL"
@@ -117,7 +116,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		if got := r.URL.Query().Get("client_version"); got != "1.2.3" {
 			t.Fatalf("client_version = %q", got)
 		}
-		_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-5.5","context_window":272000},{"slug":"gpt-5.4","context_window":300000},{"slug":"gpt-5.4-mini","context_window":400000}]}`)
+		_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-5.6-sol","context_window":272000},{"slug":"gpt-5.6-terra","context_window":300000},{"slug":"gpt-5.6-luna","context_window":400000}]}`)
 	}))
 	defer upstream.Close()
 
@@ -137,7 +136,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 	capture := string(data)
 	for _, want := range []string{
 		"args:4:--effort:max",
-		"args_all:[--effort][max][--model][gpt-5.4[1m]]",
+		"args_all:[--effort][max][--model][gpt-5.6-terra[1m]]",
 		"auth_token:",
 		"api_key:",
 		"claude_config:" + filepath.Join(home, ".claudodex", "claude-config"),
@@ -145,42 +144,39 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		"provider_managed:1",
 		"user_type:ant",
 		"local_oauth:1",
-		"oauth_token:",
+		"unix_socket:/",
+		"oauth_token:" + localOAuthAccessToken,
 		"oauth_scopes:",
 		"subscription:",
 		"bridge_base:" + firstPartyAnthropicBaseURL,
 		"bridge_ingress:" + firstPartyAnthropicBaseURL,
 		"bridge_token:",
 		"fast_org_check:1",
-		"fable:gpt-5.5",
-		"fable_name:gpt-5.5",
-		"opus:gpt-5.5",
-		"opus_name:gpt-5.5",
-		"sonnet:gpt-5.4",
-		"sonnet_name:gpt-5.4",
-		"haiku:gpt-5.4-mini",
-		"haiku_name:gpt-5.4-mini",
-		"small_fast:gpt-5.4-mini",
+		"opus:gpt-5.6-sol",
+		"opus_name:gpt-5.6-sol",
+		"sonnet:gpt-5.6-terra",
+		"sonnet_name:gpt-5.6-terra",
+		"haiku:gpt-5.6-luna",
+		"haiku_name:gpt-5.6-luna",
+		"small_fast:gpt-5.6-luna",
 		"max_context:",
 		"claudodex_context_window:272000",
 		"claudodex_statusline_source:" + filepath.Join(home, ".claudodex", "claude-config", claudodexStatuslineSourceName),
 		"auto_compact_window:272000",
 		"context_tokens:272000",
 		"model_capabilities:yes",
-		`"alias":"fable"`,
-		`"alias":"claude-fable-5"`,
 		`"alias":"opus"`,
-		`"defaultModel":"gpt-5.5"`,
+		`"defaultModel":"gpt-5.6-sol"`,
 		`"defaultModelEffortLevel":"max"`,
-		`"model":"gpt-5.5"`,
+		`"model":"gpt-5.6-sol"`,
 		`"defaultEffortLevel":"max"`,
 		`"contextWindow":272000`,
 		`"alias":"claude-sonnet-4-6"`,
 		`"contextWindow":300000`,
 		`"alias":"haiku"`,
 		`"contextWindow":400000`,
-		"custom_model_option:gpt-5.4[1m]",
-		"custom_model_option_name:gpt-5.4",
+		"custom_model_option:gpt-5.6-terra[1m]",
+		"custom_model_option_name:gpt-5.6-terra",
 		"full_logo:1",
 		"nonessential:1",
 		"telemetry:1",
@@ -191,7 +187,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 			t.Fatalf("capture missing %q:\n%s", want, capture)
 		}
 	}
-	if strings.Contains(capture, `"model":"gpt-5.5[1m]"`) {
+	if strings.Contains(capture, `"model":"gpt-5.6-sol[1m]"`) {
 		t.Fatalf("capture should strip [1m] from ant model backend ids:\n%s", capture)
 	}
 	if !strings.Contains(capture, "base:"+firstPartyAnthropicBaseURL) {
@@ -203,11 +199,11 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 	if !strings.Contains(capture, "local_oauth_base:http://127.0.0.1:") {
 		t.Fatalf("capture missing local OAuth base URL:\n%s", capture)
 	}
-	if !strings.Contains(capture, "https_proxy:http://127.0.0.1:") {
-		t.Fatalf("capture missing HTTPS proxy:\n%s", capture)
+	if strings.Contains(capture, "https_proxy:http://127.0.0.1:") {
+		t.Fatalf("Claude process should not see HTTPS proxy in unix-socket mode:\n%s", capture)
 	}
 	if !strings.Contains(capture, "ca:/") {
-		t.Fatalf("capture missing local CA path:\n%s", capture)
+		t.Fatalf("capture missing local CA path for unix-socket TLS:\n%s", capture)
 	}
 	if strings.Contains(capture, "auth_token:leak") || strings.Contains(capture, "api_key:leak") || strings.Contains(capture, "oauth_token:leak") {
 		t.Fatalf("external Anthropic auth leaked into Claude env:\n%s", capture)
@@ -225,8 +221,8 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 	if len(modelOptions) != 3 {
 		t.Fatalf("additional model options length = %d, want 3: %#v", len(modelOptions), modelOptions)
 	}
-	if got := modelOptions[0].(map[string]any)["value"]; got != "gpt-5.5[1m]" {
-		t.Fatalf("first additional model option value = %#v, want gpt-5.5[1m]", got)
+	if got := modelOptions[0].(map[string]any)["value"]; got != "gpt-5.6-sol[1m]" {
+		t.Fatalf("first additional model option value = %#v, want gpt-5.6-sol[1m]", got)
 	}
 	if runtime.GOOS == "darwin" {
 		wantPrefix := "path:" + filepath.Join(home, ".claudodex", "claude-config", claudodexShimDirName) + string(os.PathListSeparator)

@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,15 +32,16 @@ type Config struct {
 }
 
 type Server struct {
-	cfg      Config
-	server   *http.Server
-	listener net.Listener
-	once     sync.Once
-	traceMu  sync.Mutex
-	chainsMu sync.Mutex
-	chains   map[string]responseChain
-	wsMu     sync.Mutex
-	ws       map[string]*codex.WebSocketConversation
+	cfg            Config
+	server         *http.Server
+	listener       net.Listener
+	unixSocketPath string
+	once           sync.Once
+	traceMu        sync.Mutex
+	chainsMu       sync.Mutex
+	chains         map[string]responseChain
+	wsMu           sync.Mutex
+	ws             map[string]*codex.WebSocketConversation
 }
 
 func New(cfg Config) *Server {
@@ -67,6 +69,42 @@ func (s *Server) Start(host string, port int) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	s.startOnListener(listener)
+	return listener.Addr().String(), nil
+}
+
+func (s *Server) StartUnix(socketPath string) (string, error) {
+	return s.startUnix(socketPath, nil)
+}
+
+func (s *Server) StartUnixTLS(socketPath string, tlsConfig *tls.Config) (string, error) {
+	if tlsConfig == nil {
+		return "", fmt.Errorf("tls config is required")
+	}
+	return s.startUnix(socketPath, tlsConfig)
+}
+
+func (s *Server) startUnix(socketPath string, tlsConfig *tls.Config) (string, error) {
+	socketPath = strings.TrimSpace(socketPath)
+	if socketPath == "" {
+		return "", fmt.Errorf("unix socket path is required")
+	}
+	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return "", err
+	}
+	s.unixSocketPath = socketPath
+	if tlsConfig != nil {
+		listener = tls.NewListener(listener, tlsConfig)
+	}
+	s.startOnListener(listener)
+	return socketPath, nil
+}
+
+func (s *Server) startOnListener(listener net.Listener) {
 	s.listener = listener
 	mux := http.NewServeMux()
 	s.routes(mux)
@@ -74,7 +112,6 @@ func (s *Server) Start(host string, port int) (string, error) {
 	go func() {
 		_ = s.server.Serve(listener)
 	}()
-	return listener.Addr().String(), nil
 }
 
 func (s *Server) Port() int {
@@ -95,6 +132,9 @@ func (s *Server) Close() error {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			err = s.server.Shutdown(ctx)
+		}
+		if s.unixSocketPath != "" {
+			_ = os.Remove(s.unixSocketPath)
 		}
 		s.closeWebSockets()
 	})
@@ -195,7 +235,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 		case r.Method == http.MethodGet && path == "/api/claude_code/settings":
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodGet && path == "/api/claude_code/policy_limits":
-			writeJSON(w, http.StatusOK, map[string]any{"restrictions": map[string]any{}})
+			writeJSON(w, http.StatusOK, claudePolicyLimitsResponse())
 		case r.Method == http.MethodGet && path == "/api/claude_code_penguin_mode":
 			writeJSON(w, http.StatusOK, map[string]any{"enabled": true})
 		default:
@@ -255,6 +295,18 @@ func claudeProfileResponse() map[string]any {
 			"billing_type":            nil,
 			"subscription_created_at": "2026-01-01T00:00:00Z",
 		},
+	}
+}
+
+func claudePolicyLimitsResponse() map[string]any {
+	return map[string]any{
+		"restrictions": map[string]any{
+			"allow_remote_control":  map[string]bool{"allowed": true},
+			"allow_remote_sessions": map[string]bool{"allowed": true},
+		},
+		"compliance_taints": []string{},
+		"monitoring_notice": nil,
+		"defaults":          map[string]any{},
 	}
 }
 

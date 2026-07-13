@@ -2,6 +2,7 @@ package launcher
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -82,7 +85,7 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 		return err
 	}
 
-	server := proxy.New(proxy.Config{
+	serverCfg := proxy.Config{
 		Version:      cfg.Version,
 		Interactive:  cfg.Interactive,
 		AuthPresent:  true,
@@ -91,16 +94,30 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 		HTTPClient:   cfg.HTTPClient,
 		Models:       models,
 		ModelConfig:  modelCfg,
-	})
-	addr, err := server.Start("127.0.0.1", 0)
+	}
+	oauthServer := proxy.New(serverCfg)
+	addr, err := oauthServer.Start("127.0.0.1", 0)
 	if err != nil {
 		return fmt.Errorf("start local proxy: %w", err)
 	}
-	defer server.Close()
+	defer oauthServer.Close()
 
-	port := server.Port()
+	port := oauthServer.Port()
 	if port == 0 {
 		return fmt.Errorf("local proxy did not expose a port at %s", addr)
+	}
+	apiServer, apiSocket, apiSocketDir, apiCAPath, err := startAnthropicAPIServer(serverCfg)
+	if err != nil {
+		return fmt.Errorf("start local Anthropic API socket: %w", err)
+	}
+	if apiServer != nil {
+		defer apiServer.Close()
+	}
+	if apiSocketDir != "" {
+		defer os.RemoveAll(apiSocketDir)
+	}
+	if apiCAPath != "" {
+		defer os.Remove(apiCAPath)
 	}
 	claudeConfigDir, err := PrepareClaudeConfigSidecar(cfg.Home, modelCfg)
 	if err != nil {
@@ -113,19 +130,29 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	if err != nil {
 		return fmt.Errorf("start Claude Code config mirror: %w", err)
 	}
-	oauthProxy, err := StartOAuthProxy(fmt.Sprintf("http://127.0.0.1:%d", port))
-	if err != nil {
-		_ = configMirror.Close()
-		return fmt.Errorf("start Claude Code OAuth compatibility proxy: %w", err)
+	httpsProxy := ""
+	caPath := ""
+	var oauthProxy *OAuthProxy
+	if apiSocket == "" {
+		oauthProxy, err = StartOAuthProxy(fmt.Sprintf("http://127.0.0.1:%d", port))
+		if err != nil {
+			_ = configMirror.Close()
+			return fmt.Errorf("start Claude Code OAuth compatibility proxy: %w", err)
+		}
+		defer oauthProxy.Close()
+		httpsProxy = oauthProxy.ProxyURL()
+		caPath = oauthProxy.CAPath()
 	}
-	defer oauthProxy.Close()
 	childArgs := RewriteClaudeModelArgsWithConfig(args, modelCfg)
 	childArgs, err = PrepareStatusLineFlagSettings(claudeConfigDir, childArgs)
 	if err != nil {
 		_ = configMirror.Close()
 		return fmt.Errorf("prepare Claude Code statusline compatibility: %w", err)
 	}
-	childEnv := BuildClaudeEnv(os.Environ(), port, claudeConfigDir, oauthProxy.ProxyURL(), oauthProxy.CAPath(), models, modelCfg)
+	if apiCAPath != "" {
+		caPath = apiCAPath
+	}
+	childEnv := BuildClaudeEnv(os.Environ(), port, claudeConfigDir, apiSocket, httpsProxy, caPath, models, modelCfg)
 	childEnv = WithRealClaudeBridgeAuth(childEnv)
 	if runtimeModel, ok := explicitModelArg(childArgs); ok {
 		childEnv = WithFriendlyCustomModelOption(childEnv, runtimeModel)
@@ -133,6 +160,35 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	claudePath = prepareClaudeExecutable(ctx, cfg.Home, claudePath, cfg.Version, modelCfg, stderr)
 	childErr := runChild(ctx, claudePath, childArgs, childEnv, stdin, stdout, stderr, !cfg.Interactive)
 	return errors.Join(childErr, configMirror.Close())
+}
+
+func startAnthropicAPIServer(serverCfg proxy.Config) (*proxy.Server, string, string, string, error) {
+	if runtime.GOOS == "windows" {
+		return nil, "", "", "", nil
+	}
+	cert, caPEM, err := generateOAuthProxyCertificate()
+	if err != nil {
+		return nil, "", "", "", err
+	}
+	caPath, err := writeOAuthProxyCAFile(caPEM)
+	if err != nil {
+		return nil, "", "", "", err
+	}
+	socketDir, err := os.MkdirTemp("", "claudodex-api-*")
+	if err != nil {
+		_ = os.Remove(caPath)
+		return nil, "", "", "", err
+	}
+	socketPath := filepath.Join(socketDir, "api.sock")
+	server := proxy.New(serverCfg)
+	tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+	if _, err := server.StartUnixTLS(socketPath, tlsConfig); err != nil {
+		_ = server.Close()
+		_ = os.RemoveAll(socketDir)
+		_ = os.Remove(caPath)
+		return nil, "", "", "", err
+	}
+	return server, socketPath, socketDir, caPath, nil
 }
 
 func FetchCodexModels(ctx context.Context, cfg Config, file auth.File) ([]codex.ModelInfo, error) {

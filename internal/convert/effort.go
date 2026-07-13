@@ -13,6 +13,7 @@ const (
 	EffortMedium ReasoningEffort = "medium"
 	EffortHigh   ReasoningEffort = "high"
 	EffortXHigh  ReasoningEffort = "xhigh"
+	EffortMax    ReasoningEffort = "max"
 )
 
 func MapReasoningEffort(model string, outputEffort string, budgetTokens int) ReasoningEffort {
@@ -22,6 +23,12 @@ func MapReasoningEffort(model string, outputEffort string, budgetTokens int) Rea
 func MapReasoningEffortWithConfig(model string, outputEffort string, budgetTokens int, models modelconfig.Config) ReasoningEffort {
 	models = models.Normalize()
 	if effort, ok := normalizeEffort(outputEffort); ok {
+		if effort == EffortMax {
+			if supportsMax(model) {
+				return EffortMax
+			}
+			effort = EffortXHigh
+		}
 		if effort == EffortXHigh && !supportsXHigh(model, models) {
 			return EffortHigh
 		}
@@ -61,8 +68,12 @@ func normalizeEffort(value string) (ReasoningEffort, bool) {
 		return EffortMedium, true
 	case "high":
 		return EffortHigh, true
-	case "xhigh", "max", "ultracode":
+	case "xhigh":
 		return EffortXHigh, true
+	case "max":
+		return EffortMax, true
+	case "ultracode":
+		return EffortMax, true
 	case "auto":
 		return "", false
 	default:
@@ -72,4 +83,13 @@ func normalizeEffort(value string) (ReasoningEffort, bool) {
 
 func supportsXHigh(model string, models modelconfig.Config) bool {
 	return models.SupportsXHigh(model)
+}
+
+func supportsMax(model string) bool {
+	switch strings.ToLower(modelconfig.StripLongContext(model)) {
+	case modelconfig.DefaultOpusModel, modelconfig.DefaultSonnetModel, modelconfig.DefaultHaikuModel:
+		return true
+	default:
+		return false
+	}
 }

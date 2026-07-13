@@ -41,23 +41,8 @@ func StartOAuthProxy(target string) (*OAuthProxy, error) {
 	if err != nil {
 		return nil, err
 	}
-	caFile, err := os.CreateTemp("", "claudodex-ca-*.pem")
+	caPath, err := writeOAuthProxyCAFile(caPEM)
 	if err != nil {
-		return nil, err
-	}
-	caPath := caFile.Name()
-	if _, err := caFile.Write(caPEM); err != nil {
-		_ = caFile.Close()
-		_ = os.Remove(caPath)
-		return nil, err
-	}
-	if err := caFile.Chmod(0o600); err != nil {
-		_ = caFile.Close()
-		_ = os.Remove(caPath)
-		return nil, err
-	}
-	if err := caFile.Close(); err != nil {
-		_ = os.Remove(caPath)
 		return nil, err
 	}
 
@@ -76,6 +61,29 @@ func StartOAuthProxy(target string) (*OAuthProxy, error) {
 	}
 	go proxy.serve()
 	return proxy, nil
+}
+
+func writeOAuthProxyCAFile(caPEM []byte) (string, error) {
+	caFile, err := os.CreateTemp("", "claudodex-ca-*.pem")
+	if err != nil {
+		return "", err
+	}
+	caPath := caFile.Name()
+	if _, err := caFile.Write(caPEM); err != nil {
+		_ = caFile.Close()
+		_ = os.Remove(caPath)
+		return "", err
+	}
+	if err := caFile.Chmod(0o600); err != nil {
+		_ = caFile.Close()
+		_ = os.Remove(caPath)
+		return "", err
+	}
+	if err := caFile.Close(); err != nil {
+		_ = os.Remove(caPath)
+		return "", err
+	}
+	return caPath, nil
 }
 
 func (p *OAuthProxy) ProxyURL() string {

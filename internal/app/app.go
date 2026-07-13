@@ -355,7 +355,6 @@ func printCodexModelUsageWindows(w io.Writer, models modelconfig.Config, mapped 
 		key   string
 		model string
 	}{
-		{key: "seven_day_fable", model: models.Target(modelconfig.FamilyFable)},
 		{key: "seven_day_opus", model: models.Target(modelconfig.FamilyOpus)},
 		{key: "seven_day_sonnet", model: models.Target(modelconfig.FamilySonnet)},
 		{key: "seven_day_haiku", model: models.Target(modelconfig.FamilyHaiku)},

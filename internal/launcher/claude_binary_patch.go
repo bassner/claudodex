@@ -21,7 +21,7 @@ import (
 
 const (
 	claudodexPatchedClaudeDirName = "patched-claude"
-	claudodexPatchSchemaVersion   = "claude-ui-patch-v49"
+	claudodexPatchSchemaVersion   = "claude-ui-patch-v50"
 )
 
 var (
@@ -40,6 +40,7 @@ type claudeUIPatchSpec struct {
 }
 
 var claudeUIPatches = []claudeUIPatchSpec{
+	claudeUIPatch_2_1_207,
 	claudeUIPatch_2_1_198,
 	claudeUIPatch_2_1_197,
 	claudeUIPatch_2_1_196,
@@ -278,10 +279,7 @@ func modelDescriptionPatch(model, suffix string) string {
 
 func replaceAllFixed(data []byte, old, replacement string) bool {
 	oldBytes := []byte(old)
-	newBytes, ok := fitReplacement(oldBytes, replacement)
-	if !ok {
-		return false
-	}
+	newBytes := fitDisplayReplacement(oldBytes, replacement)
 	changed := false
 	for {
 		index := bytes.Index(data, oldBytes)
@@ -296,10 +294,7 @@ func replaceAllFixed(data []byte, old, replacement string) bool {
 func replaceAllPatternString(data []byte, pattern, old, replacement string) bool {
 	patternBytes := []byte(pattern)
 	oldBytes := []byte(old)
-	newBytes, ok := fitReplacement(oldBytes, replacement)
-	if !ok {
-		return false
-	}
+	newBytes := fitDisplayReplacement(oldBytes, replacement)
 	changed := false
 	searchFrom := 0
 	for {
@@ -334,7 +329,7 @@ func replaceFirstFixed(data []byte, old, replacement string) bool {
 func fitReplacement(old []byte, replacement string) ([]byte, bool) {
 	newBytes := []byte(replacement)
 	if len(newBytes) > len(old) {
-		newBytes = newBytes[:len(old)]
+		return nil, false
 	}
 	if len(newBytes) < len(old) {
 		padded := make([]byte, len(old))
@@ -345,4 +340,20 @@ func fitReplacement(old []byte, replacement string) ([]byte, bool) {
 		newBytes = padded
 	}
 	return newBytes, true
+}
+
+func fitDisplayReplacement(old []byte, replacement string) []byte {
+	newBytes := []byte(replacement)
+	if len(newBytes) > len(old) {
+		newBytes = newBytes[:len(old)]
+	}
+	if len(newBytes) < len(old) {
+		padded := make([]byte, len(old))
+		copy(padded, newBytes)
+		for i := len(newBytes); i < len(padded); i++ {
+			padded[i] = ' '
+		}
+		newBytes = padded
+	}
+	return newBytes
 }

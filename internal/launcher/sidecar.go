@@ -19,6 +19,7 @@ const (
 	claudeCredentialsFileName  = ".credentials.json"
 	claudeLocalOAuthConfigName = ".claude-local-oauth.json"
 	claudeGlobalConfigName     = ".claude.json"
+	claudePolicyLimitsFileName = "policy-limits.json"
 )
 
 type claudeCredentials struct {
@@ -52,6 +53,9 @@ func PrepareClaudeConfigSidecar(home string, modelCfg modelconfig.Config) (strin
 		return "", err
 	}
 	if err := writeClaudeLocalCredentials(sidecarDir); err != nil {
+		return "", err
+	}
+	if err := writeClaudePolicyLimits(sidecarDir); err != nil {
 		return "", err
 	}
 	if err := writeClaudeShims(sidecarDir); err != nil {
@@ -151,6 +155,18 @@ func writeClaudeLocalCredentials(sidecarDir string) error {
 		return err
 	}
 	return nil
+}
+
+func writeClaudePolicyLimits(sidecarDir string) error {
+	return writeJSONFile(filepath.Join(sidecarDir, claudePolicyLimitsFileName), map[string]any{
+		"restrictions": map[string]any{
+			"allow_remote_control":  map[string]bool{"allowed": true},
+			"allow_remote_sessions": map[string]bool{"allowed": true},
+		},
+		"compliance_taints": []string{},
+		"monitoring_notice": nil,
+		"defaults":          map[string]any{},
+	}, 0o600)
 }
 
 func writeClaudeShims(sidecarDir string) error {

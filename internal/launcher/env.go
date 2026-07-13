@@ -20,7 +20,7 @@ const (
 	localOAuthSubscriptionType = "max"
 )
 
-func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, httpsProxy string, caPath string, codexModels []codex.ModelInfo, modelCfg modelconfig.Config) []string {
+func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, anthropicUnixSocket string, httpsProxy string, caPath string, codexModels []codex.ModelInfo, modelCfg modelconfig.Config) []string {
 	modelCfg = modelCfg.Normalize()
 	env := envMap(base)
 	captureOriginalToolEnv(env)
@@ -47,7 +47,14 @@ func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, httpsP
 	delete(env, "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR")
 	delete(env, "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR")
 	env["CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK"] = "1"
-	if httpsProxy != "" {
+	if anthropicUnixSocket != "" {
+		env["ANTHROPIC_UNIX_SOCKET"] = anthropicUnixSocket
+		env["CLAUDE_CODE_OAUTH_TOKEN"] = localOAuthAccessToken
+		clearClaudeVisibleProxyEnv(env)
+	} else {
+		delete(env, "ANTHROPIC_UNIX_SOCKET")
+	}
+	if anthropicUnixSocket == "" && httpsProxy != "" {
 		env["HTTPS_PROXY"] = httpsProxy
 		env["https_proxy"] = httpsProxy
 		env["NO_PROXY"] = mergeNoProxy(filterNoProxy(env["NO_PROXY"]), "127.0.0.1", "localhost")
@@ -56,9 +63,9 @@ func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, httpsP
 	if caPath != "" {
 		env["NODE_EXTRA_CA_CERTS"] = caPath
 	}
-	env["ANTHROPIC_DEFAULT_FABLE_MODEL"] = modelconfig.StripLongContext(modelCfg.RuntimeModel(string(modelconfig.FamilyFable)))
-	env["ANTHROPIC_DEFAULT_FABLE_MODEL_NAME"] = modelconfig.StripLongContext(modelCfg.Target(modelconfig.FamilyFable))
-	env["ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION"] = "Default Codex route"
+	delete(env, "ANTHROPIC_DEFAULT_FABLE_MODEL")
+	delete(env, "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME")
+	delete(env, "ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION")
 	env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = modelconfig.StripLongContext(modelCfg.RuntimeModel(string(modelconfig.FamilyOpus)))
 	env["ANTHROPIC_DEFAULT_OPUS_MODEL_NAME"] = modelconfig.StripLongContext(modelCfg.Opus)
 	env["ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION"] = "Default Codex route"
@@ -79,6 +86,19 @@ func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, httpsP
 	applyRemoteControlBridgeEnv(env)
 	applyPrivacyEnv(env)
 	return flattenEnv(env)
+}
+
+func clearClaudeVisibleProxyEnv(env map[string]string) {
+	for _, key := range []string{
+		"HTTP_PROXY",
+		"http_proxy",
+		"HTTPS_PROXY",
+		"https_proxy",
+		"ALL_PROXY",
+		"all_proxy",
+	} {
+		delete(env, key)
+	}
 }
 
 func BuildClaudePrivacyEnv(base []string) []string {

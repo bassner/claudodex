@@ -106,9 +106,9 @@ func TestServeFetchesDynamicModelMetadata(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"models": []map[string]any{
-				{"slug": "gpt-5.5", "context_window": 111000},
-				{"slug": "gpt-5.4", "context_window": 222000},
-				{"slug": "gpt-5.4-mini", "context_window": 333000},
+				{"slug": "gpt-5.6-sol", "context_window": 111000},
+				{"slug": "gpt-5.6-terra", "context_window": 222000},
+				{"slug": "gpt-5.6-luna", "context_window": 333000},
 			},
 		})
 	}))
@@ -184,7 +184,6 @@ func TestUsageCommandFetchesCodexUsage(t *testing.T) {
 		"Codex usage",
 		"five_hour: 13%",
 		"seven_day: 22%",
-		"gpt-5.5: 44%",
 		"service_tier: standard",
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -194,6 +193,36 @@ func TestUsageCommandFetchesCodexUsage(t *testing.T) {
 	for _, unwanted := range []string{"opus", "sonnet", "fable", "haiku"} {
 		if strings.Contains(stdout.String(), unwanted) {
 			t.Fatalf("stdout should not expose Claude family %q:\n%s", unwanted, stdout.String())
+		}
+	}
+}
+
+func TestUsageCommandHandlesMissingFiveHourWindow(t *testing.T) {
+	home := t.TempDir()
+	saveAppAuth(t, home)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/wham/usage" {
+			t.Fatalf("path = %q, want /wham/usage", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"rate_limit": map[string]any{
+				"secondary_window": map[string]any{
+					"limit_window_seconds": 604800,
+					"used_percent":         22,
+				},
+			},
+		})
+	}))
+	defer upstream.Close()
+
+	var stdout bytes.Buffer
+	code := Run(context.Background(), Config{Home: home, Stdout: &stdout, CodexBaseURL: upstream.URL, HTTPClient: upstream.Client()}, []string{"clx:usage"})
+	if code != 0 {
+		t.Fatalf("code = %d, stdout = %q", code, stdout.String())
+	}
+	for _, want := range []string{"five_hour: unavailable", "seven_day: 22%"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
 		}
 	}
 }

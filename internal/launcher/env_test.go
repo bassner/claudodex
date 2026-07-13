@@ -22,10 +22,13 @@ func TestBuildClaudeEnv(t *testing.T) {
 		"ANTHROPIC_AUTH_TOKEN=leak",
 		"ANTHROPIC_API_KEY=leak",
 		"CLAUDE_CODE_OAUTH_TOKEN=leak",
-	}, 4321, "/tmp/claudodex-claude", "http://127.0.0.1:9999", "/tmp/ca.pem", []codex.ModelInfo{
-		{Slug: "gpt-5.5", ContextWindow: 272000},
-		{Slug: "gpt-5.4", ContextWindow: 300000},
-		{Slug: "gpt-5.4-mini", ContextWindow: 400000},
+		"ANTHROPIC_DEFAULT_FABLE_MODEL=leak",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL_NAME=leak",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION=leak",
+	}, 4321, "/tmp/claudodex-claude", "/tmp/claudodex-api.sock", "http://127.0.0.1:9999", "/tmp/ca.pem", []codex.ModelInfo{
+		{Slug: "gpt-5.6-sol", ContextWindow: 272000},
+		{Slug: "gpt-5.6-terra", ContextWindow: 300000},
+		{Slug: "gpt-5.6-luna", ContextWindow: 400000},
 	}, modelconfig.Default())
 	got := map[string]string{}
 	for _, item := range env {
@@ -36,56 +39,52 @@ func TestBuildClaudeEnv(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"ANTHROPIC_BASE_URL":                        firstPartyAnthropicBaseURL,
-		"CLAUDE_CODE_API_BASE_URL":                  firstPartyAnthropicBaseURL,
-		"CLAUDE_CONFIG_DIR":                         "/tmp/claudodex-claude",
-		"CLAUDE_SECURESTORAGE_CONFIG_DIR":           "/tmp/claudodex-claude",
-		"CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST":      "1",
-		"USER_TYPE":                                 "ant",
-		"USE_LOCAL_OAUTH":                           "1",
-		"CLAUDE_LOCAL_OAUTH_API_BASE":               "http://127.0.0.1:4321",
-		"CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK":      "1",
-		"CLAUDE_BRIDGE_BASE_URL":                    firstPartyAnthropicBaseURL,
-		"CLAUDE_BRIDGE_SESSION_INGRESS_URL":         firstPartyAnthropicBaseURL,
-		"HTTP_PROXY":                                "http://user-http",
-		"HTTPS_PROXY":                               "http://127.0.0.1:9999",
-		"https_proxy":                               "http://127.0.0.1:9999",
-		"NO_PROXY":                                  ".example.com,127.0.0.1,localhost",
-		"NODE_EXTRA_CA_CERTS":                       "/tmp/ca.pem",
-		"CLAUDODEX_REAL_SHELL":                      "/bin/zsh",
-		"SHELL":                                     filepath.Join("/tmp/claudodex-claude", claudodexShimDirName, "zsh"),
-		"CLAUDODEX_ORIGINAL_SHELL":                  "/bin/zsh",
-		"CLAUDODEX_ORIGINAL_HTTP_PROXY":             "http://user-http",
-		"CLAUDODEX_ORIGINAL_HTTPS_PROXY":            "http://user-https",
-		"CLAUDODEX_ORIGINAL_NO_PROXY":               ".anthropic.com,.example.com",
-		"CLAUDODEX_ORIGINAL_NODE_EXTRA_CA_CERTS":    "/tmp/user-ca.pem",
-		"ANTHROPIC_DEFAULT_FABLE_MODEL":             "gpt-5.5",
-		"ANTHROPIC_DEFAULT_FABLE_MODEL_NAME":        "gpt-5.5",
-		"ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION": "Default Codex route",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL":              "gpt-5.5",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL_NAME":         "gpt-5.5",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION":  "Default Codex route",
-		"ANTHROPIC_DEFAULT_SONNET_MODEL":            "gpt-5.4",
-		"ANTHROPIC_DEFAULT_SONNET_MODEL_NAME":       "gpt-5.4",
-		"ANTHROPIC_DEFAULT_HAIKU_MODEL":             "gpt-5.4-mini",
-		"ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME":        "gpt-5.4-mini",
-		"ANTHROPIC_SMALL_FAST_MODEL":                "gpt-5.4-mini",
-		"CLAUDODEX_CONTEXT_WINDOW":                  "272000",
-		"CLAUDODEX_STATUSLINE_SOURCE":               filepath.Join("/tmp/claudodex-claude", claudodexStatuslineSourceName),
-		"CLAUDE_CODE_AUTO_COMPACT_WINDOW":           "272000",
-		"CLAUDE_CODE_MAX_CONTEXT_TOKENS":            "272000",
-		"CLAUDE_CODE_FORCE_FULL_LOGO":               "1",
-		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":  "1",
-		"DISABLE_TELEMETRY":                         "1",
-		"DO_NOT_TRACK":                              "1",
-		"DISABLE_GROWTHBOOK":                        "1",
+		"ANTHROPIC_BASE_URL":                       firstPartyAnthropicBaseURL,
+		"CLAUDE_CODE_API_BASE_URL":                 firstPartyAnthropicBaseURL,
+		"CLAUDE_CONFIG_DIR":                        "/tmp/claudodex-claude",
+		"CLAUDE_SECURESTORAGE_CONFIG_DIR":          "/tmp/claudodex-claude",
+		"CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST":     "1",
+		"USER_TYPE":                                "ant",
+		"USE_LOCAL_OAUTH":                          "1",
+		"CLAUDE_LOCAL_OAUTH_API_BASE":              "http://127.0.0.1:4321",
+		"ANTHROPIC_UNIX_SOCKET":                    "/tmp/claudodex-api.sock",
+		"CLAUDE_CODE_OAUTH_TOKEN":                  localOAuthAccessToken,
+		"CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK":     "1",
+		"CLAUDE_BRIDGE_BASE_URL":                   firstPartyAnthropicBaseURL,
+		"CLAUDE_BRIDGE_SESSION_INGRESS_URL":        firstPartyAnthropicBaseURL,
+		"NO_PROXY":                                 ".anthropic.com,.example.com",
+		"NODE_EXTRA_CA_CERTS":                      "/tmp/ca.pem",
+		"CLAUDODEX_REAL_SHELL":                     "/bin/zsh",
+		"SHELL":                                    filepath.Join("/tmp/claudodex-claude", claudodexShimDirName, "zsh"),
+		"CLAUDODEX_ORIGINAL_SHELL":                 "/bin/zsh",
+		"CLAUDODEX_ORIGINAL_HTTP_PROXY":            "http://user-http",
+		"CLAUDODEX_ORIGINAL_HTTPS_PROXY":           "http://user-https",
+		"CLAUDODEX_ORIGINAL_NO_PROXY":              ".anthropic.com,.example.com",
+		"CLAUDODEX_ORIGINAL_NODE_EXTRA_CA_CERTS":   "/tmp/user-ca.pem",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":             "gpt-5.6-sol",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL_NAME":        "gpt-5.6-sol",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION": "Default Codex route",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL":           "gpt-5.6-terra",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL_NAME":      "gpt-5.6-terra",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL":            "gpt-5.6-luna",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME":       "gpt-5.6-luna",
+		"ANTHROPIC_SMALL_FAST_MODEL":               "gpt-5.6-luna",
+		"CLAUDODEX_CONTEXT_WINDOW":                 "272000",
+		"CLAUDODEX_STATUSLINE_SOURCE":              filepath.Join("/tmp/claudodex-claude", claudodexStatuslineSourceName),
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW":          "272000",
+		"CLAUDE_CODE_MAX_CONTEXT_TOKENS":           "272000",
+		"CLAUDE_CODE_FORCE_FULL_LOGO":              "1",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+		"DISABLE_TELEMETRY":                        "1",
+		"DO_NOT_TRACK":                             "1",
+		"DISABLE_GROWTHBOOK":                       "1",
 	}
 	for key, value := range want {
 		if got[key] != value {
 			t.Fatalf("%s = %q, want %q", key, got[key], value)
 		}
 	}
-	for _, key := range []string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_SCOPES", "CLAUDE_CODE_OAUTH_REFRESH_TOKEN", "CLAUDE_CODE_SUBSCRIPTION_TYPE", "CLAUDE_CODE_RATE_LIMIT_TIER"} {
+	for _, key := range []string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME", "ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION", "CLAUDE_CODE_OAUTH_SCOPES", "CLAUDE_CODE_OAUTH_REFRESH_TOKEN", "CLAUDE_CODE_SUBSCRIPTION_TYPE", "CLAUDE_CODE_RATE_LIMIT_TIER", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
 		if got[key] != "" {
 			t.Fatalf("%s leaked into Claude env: %q", key, got[key])
 		}
@@ -103,12 +102,10 @@ func TestBuildClaudeEnv(t *testing.T) {
 		`"tengu_ant_model_override"`,
 		`"tengu_ccr_bridge":true`,
 		`"tengu_bridge_repl_v2":true`,
-		`"defaultModel":"gpt-5.5"`,
+		`"defaultModel":"gpt-5.6-sol"`,
 		`"defaultModelEffortLevel":"max"`,
-		`"alias":"fable"`,
-		`"alias":"claude-fable-5"`,
 		`"alias":"opus"`,
-		`"model":"gpt-5.5"`,
+		`"model":"gpt-5.6-sol"`,
 		`"defaultEffortLevel":"max"`,
 		`"contextWindow":272000`,
 		`"alias":"claude-sonnet-4-6"`,
@@ -120,13 +117,13 @@ func TestBuildClaudeEnv(t *testing.T) {
 			t.Fatalf("CLAUDE_INTERNAL_FC_OVERRIDES missing %s:\n%s", want, got["CLAUDE_INTERNAL_FC_OVERRIDES"])
 		}
 	}
-	if strings.Contains(got["CLAUDE_INTERNAL_FC_OVERRIDES"], `"model":"gpt-5.5[1m]"`) {
+	if strings.Contains(got["CLAUDE_INTERNAL_FC_OVERRIDES"], `"model":"gpt-5.6-sol[1m]"`) {
 		t.Fatalf("CLAUDE_INTERNAL_FC_OVERRIDES should strip [1m] from ant model backend ids:\n%s", got["CLAUDE_INTERNAL_FC_OVERRIDES"])
 	}
 }
 
-func TestBuildClaudeEnvDoesNotInventHTTPProxy(t *testing.T) {
-	env := BuildClaudeEnv([]string{"PATH=/bin"}, 4321, "/tmp/claudodex-claude", "http://127.0.0.1:9999", "", nil, modelconfig.Default())
+func TestBuildClaudeEnvFallbackProxyDoesNotInventHTTPProxy(t *testing.T) {
+	env := BuildClaudeEnv([]string{"PATH=/bin"}, 4321, "/tmp/claudodex-claude", "", "http://127.0.0.1:9999", "", nil, modelconfig.Default())
 	got := map[string]string{}
 	for _, item := range env {
 		key, value, ok := strings.Cut(item, "=")
@@ -139,6 +136,36 @@ func TestBuildClaudeEnvDoesNotInventHTTPProxy(t *testing.T) {
 	}
 	if got["HTTPS_PROXY"] != "http://127.0.0.1:9999" || got["https_proxy"] != "http://127.0.0.1:9999" {
 		t.Fatalf("HTTPS proxy not set: %#v", got)
+	}
+}
+
+func TestBuildClaudeEnvUnixSocketHidesProxyFromClaude(t *testing.T) {
+	env := BuildClaudeEnv([]string{
+		"PATH=/bin",
+		"HTTP_PROXY=http://user-http",
+		"https_proxy=http://user-https",
+		"ALL_PROXY=socks5://user-all",
+	}, 4321, "/tmp/claudodex-claude", "/tmp/claudodex-api.sock", "http://127.0.0.1:9999", "/tmp/ca.pem", nil, modelconfig.Default())
+	got := map[string]string{}
+	for _, item := range env {
+		key, value, ok := strings.Cut(item, "=")
+		if ok {
+			got[key] = value
+		}
+	}
+	for _, key := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"} {
+		if got[key] != "" {
+			t.Fatalf("%s visible to Claude in unix-socket mode: %#v", key, got)
+		}
+	}
+	if got["ANTHROPIC_UNIX_SOCKET"] != "/tmp/claudodex-api.sock" {
+		t.Fatalf("ANTHROPIC_UNIX_SOCKET = %q", got["ANTHROPIC_UNIX_SOCKET"])
+	}
+	if got["CLAUDE_CODE_OAUTH_TOKEN"] != localOAuthAccessToken {
+		t.Fatalf("CLAUDE_CODE_OAUTH_TOKEN = %q", got["CLAUDE_CODE_OAUTH_TOKEN"])
+	}
+	if got["CLAUDODEX_ORIGINAL_HTTP_PROXY"] != "http://user-http" || got["CLAUDODEX_ORIGINAL_https_proxy"] != "http://user-https" || got["CLAUDODEX_ORIGINAL_ALL_PROXY"] != "socks5://user-all" {
+		t.Fatalf("original tool proxy env not preserved: %#v", got)
 	}
 }
 
@@ -160,7 +187,7 @@ func TestWithFriendlyCustomModelOptionLabelsRuntimeModel(t *testing.T) {
 }
 
 func TestBuildClaudeEnvAvoidsFishForToolShell(t *testing.T) {
-	env := BuildClaudeEnv([]string{"PATH=/bin", "SHELL=/opt/homebrew/bin/fish"}, 4321, "/tmp/claudodex-claude", "", "", nil, modelconfig.Default())
+	env := BuildClaudeEnv([]string{"PATH=/bin", "SHELL=/opt/homebrew/bin/fish"}, 4321, "/tmp/claudodex-claude", "", "", "", nil, modelconfig.Default())
 	got := map[string]string{}
 	for _, item := range env {
 		key, value, ok := strings.Cut(item, "=")

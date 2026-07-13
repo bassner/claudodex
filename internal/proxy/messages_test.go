@@ -103,7 +103,7 @@ func TestMessagesStreamsCodexResponseAndBuildsUpstreamRequest(t *testing.T) {
 	if !strings.Contains(sse, `"text":"ok"`) || !strings.Contains(sse, "event: message_stop") {
 		t.Fatalf("missing text/stop in SSE:\n%s", sse)
 	}
-	if captured["model"] != "gpt-5.4" {
+	if captured["model"] != "gpt-5.6-terra" {
 		t.Fatalf("upstream model = %#v", captured["model"])
 	}
 	instructions, _ := captured["instructions"].(string)
@@ -114,7 +114,7 @@ func TestMessagesStreamsCodexResponseAndBuildsUpstreamRequest(t *testing.T) {
 		t.Fatalf("billing header leaked into instructions: %q", instructions)
 	}
 	reasoning := captured["reasoning"].(map[string]any)
-	if reasoning["effort"] != "xhigh" {
+	if reasoning["effort"] != "max" {
 		t.Fatalf("reasoning = %#v", reasoning)
 	}
 	if captured["stream"] != true || captured["store"] != false || captured["parallel_tool_calls"] != true {
@@ -1236,6 +1236,44 @@ func TestUsageFetchesWhamUsageAndMapsResponse(t *testing.T) {
 	extra := body["extra_usage"].(map[string]any)
 	if extra["is_enabled"] != true {
 		t.Fatalf("extra_usage = %#v", extra)
+	}
+}
+
+func TestUsageAllowsMissingFiveHourWindow(t *testing.T) {
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/wham/usage" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"rate_limit":{"secondary_window":{"used_percent":34,"limit_window_seconds":604800}}}`))
+	}))
+	defer upstream.Close()
+	server := New(Config{Home: home, CodexBaseURL: upstream.URL, HTTPClient: upstream.Client(), AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	resp, err := http.Get("http://" + addr + "/api/oauth/usage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if fiveHour, ok := body["five_hour"]; !ok || fiveHour != nil {
+		t.Fatalf("five_hour = %#v, present=%v; want present null", fiveHour, ok)
+	}
+	sevenDay, _ := body["seven_day"].(map[string]any)
+	if sevenDay == nil || sevenDay["utilization"] != float64(34) {
+		t.Fatalf("seven_day = %#v, want mapped secondary window", body["seven_day"])
 	}
 }
 

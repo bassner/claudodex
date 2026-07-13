@@ -68,8 +68,8 @@ func TestApplyClaudeUIPatchesBrandsHeaderAndModelPicker(t *testing.T) {
 		"Codex model",
 		"Default (Claudodex)",
 		"default Codex work",
-		"gpt-5.4 everyday coding",
-		"gpt-5.4-mini quick code",
+		"gpt-5.6-terra everyday",
+		"gpt-5.6-luna quick code",
 		` via Codex model \xB7 `,
 		`"Claudodex  "`,
 		`"0.1.0 using Claude Code v2.1.153"`,
@@ -120,8 +120,8 @@ func TestApplyClaudeUIPatches154BrandsHeaderAndModelPicker(t *testing.T) {
 		"Default Codex route",
 		"default Codex work",
 		"default Codex reasoning tasks",
-		"gpt-5.4 everyday coding",
-		"gpt-5.4-mini quick code",
+		"gpt-5.6-terra everyday",
+		"gpt-5.6-luna quick code",
 		` via Codex model \xB7 `,
 		"Fast mode for Claudodex",
 		"Fast mode (Codex priority)",
@@ -152,7 +152,7 @@ func TestApplyClaudeUIPatches154BrandsHeaderAndModelPicker(t *testing.T) {
 		`"0.1.0 using Claude Code v2.1.154"`,
 		`function ki3(H=!1){let _=[],q=qNK();if(q!==void 0)_.push(q);let K=HNK();if(K!==void 0)_.push(K);let O=TNK();if(O!==void 0)_.push(O);return _}function ZX(H){return H===process.env.ANTHROPIC_DEFAULT_OPUS_MODEL?"opus":H===process.env.ANTHROPIC_DEFAULT_SONNET_MODEL?"sonnet":H===process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL?"haiku":H}`,
 		`j=$q(),J=(q=ZX(q))??KN_,[M,D]`,
-		`function v__(H=!1){let _=process.env,q=(O,T,$)=>({value:O,label:T,description:$});return[q("opus",_.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME??_.ANTHROPIC_DEFAULT_OPUS_MODEL??"gpt-5.5",_.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION??"Default Codex route"),q("sonnet",_.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME??_.ANTHROPIC_DEFAULT_SONNET_MODEL??"gpt-5.4",_.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION??"Everyday Codex coding route"),q("haiku",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME??_.ANTHROPIC_DEFAULT_HAIKU_MODEL??"gpt-5.4-mini",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION??"Fast Codex coding route")]}`,
+		`function v__(H=!1){let _=process.env,q=(O,T,$)=>({value:O,label:T,description:$});return[q("opus",_.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME??_.ANTHROPIC_DEFAULT_OPUS_MODEL??"gpt-5.6-sol",_.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION??"Default Codex route"),q("sonnet",_.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME??_.ANTHROPIC_DEFAULT_SONNET_MODEL??"gpt-5.6-terra",_.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION??"Everyday Codex coding route"),q("haiku",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME??_.ANTHROPIC_DEFAULT_HAIKU_MODEL??"gpt-5.6-luna",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION??"Fast Codex coding route")]}`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("patched data missing %q:\n%s", want, got)
@@ -253,8 +253,8 @@ func TestApplyClaudeUIPatches159BrandsHeaderAndModelPicker(t *testing.T) {
 		"Default (Claudodex)",
 		"Default Codex route",
 		"default Codex work",
-		"gpt-5.4 everyday coding",
-		"gpt-5.4-mini quick code",
+		"gpt-5.6-terra everyday",
+		"gpt-5.6-luna quick code",
 		` via Codex model \xB7 `,
 		"Fast mode for Claudodex",
 		"Fast mode (Codex priority)",
@@ -279,7 +279,7 @@ func TestApplyClaudeUIPatches159BrandsHeaderAndModelPicker(t *testing.T) {
 		`"0.1.0 using Claude Code v2.1.159"`,
 		`function yr3(H=!1){let _=[],q=yvK();if(q!==void 0)_.push(q);let K=vvK();if(K!==void 0)_.push(K);let O=CvK();if(O!==void 0)_.push(O);return _}function ZX(H){return H===process.env.ANTHROPIC_DEFAULT_OPUS_MODEL?"opus":H===process.env.ANTHROPIC_DEFAULT_SONNET_MODEL?"sonnet":H===process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL?"haiku":H}`,
 		`j=Aq(),J=(q=ZX(q))??bN_,[M,D]`,
-		`function $6_(H=!1){let _=process.env,q=(O,T,$)=>({value:O,label:T,description:$});return[q("opus",_.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME??_.ANTHROPIC_DEFAULT_OPUS_MODEL??"gpt-5.5",_.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION??"Default Codex route"),q("sonnet",_.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME??_.ANTHROPIC_DEFAULT_SONNET_MODEL??"gpt-5.4",_.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION??"Everyday Codex coding route"),q("haiku",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME??_.ANTHROPIC_DEFAULT_HAIKU_MODEL??"gpt-5.4-mini",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION??"Fast Codex coding route")]}`,
+		`function $6_(H=!1){let _=process.env,q=(O,T,$)=>({value:O,label:T,description:$});return[q("opus",_.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME??_.ANTHROPIC_DEFAULT_OPUS_MODEL??"gpt-5.6-sol",_.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION??"Default Codex route"),q("sonnet",_.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME??_.ANTHROPIC_DEFAULT_SONNET_MODEL??"gpt-5.6-terra",_.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION??"Everyday Codex coding route"),q("haiku",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME??_.ANTHROPIC_DEFAULT_HAIKU_MODEL??"gpt-5.6-luna",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION??"Fast Codex coding route")]}`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("patched data missing %q:\n%s", want, got)
@@ -334,8 +334,8 @@ func TestApplyClaudeUIPatches195BrandsHeaderAndModelPicker(t *testing.T) {
 		"Switch between Codex-backed models.",
 		"Codex model",
 		"default Codex work",
-		"gpt-5.4 everyday coding",
-		"gpt-5.4-mini quick code",
+		"gpt-5.6-terra everyday",
+		"gpt-5.6-luna quick code",
 		`"0.1.0 using Claude Code v2.1.195"`,
 		`function CDX195(e){if(e==null||e==="")return"opus";let t=String(e).replace(/(\[1m\])+$/i,"").trim();return t===process.env.ANTHROPIC_DEFAULT_OPUS_MODEL?"opus":t===process.env.ANTHROPIC_DEFAULT_SONNET_MODEL?"sonnet":t===process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL?"haiku":e}`,
 		`function Kap(e){let t=process.env,n=(r,o,s)=>({value:r,label:o,description:s,descriptionForModel:s});return iDe([n("opus"`,
@@ -381,7 +381,7 @@ func TestApplyClaudeUIPatches196UsesVerifiedPatchShape(t *testing.T) {
 		"Set the AI model for Claudodex",
 		"Codex Plan",
 		`"0.1.1 using Claude Code v2.1.196"`,
-		`function CDX196(e){if(e==null||e==="")return"opus";let t=String(e).replace(/(\[1m\])+$/i,"").trim();return t===process.env.ANTHROPIC_DEFAULT_FABLE_MODEL?"opus":t===process.env.ANTHROPIC_DEFAULT_OPUS_MODEL?"opus":t===process.env.ANTHROPIC_DEFAULT_SONNET_MODEL?"sonnet":t===process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL?"haiku":e}`,
+		`function CDX196(e){if(e==null||e==="")return"opus";let t=String(e).replace(/(\[1m\])+$/i,"").trim();return t===process.env.ANTHROPIC_DEFAULT_OPUS_MODEL?"opus":t===process.env.ANTHROPIC_DEFAULT_SONNET_MODEL?"sonnet":t===process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL?"haiku":e}`,
 		`function pmp(e=!1){let t=process.env,n=(r,o,s)=>({value:r,label:o,description:s,descriptionForModel:s});return[n("opus"`,
 		`function fmp(e){let t=pmp(e),n=process.env.ANTHROPIC_CUSTOM_MODEL_OPTION,r=CDX196(n);if(n&&r===n&&!t.some((l)=>l.value===n))t.push({value:n,label:process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME??n,description:process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION??` + "`" + `Custom model (${n})` + "`" + `});return t}`,
 		`let H=x,P,n2=CDX196(n);P=n2!==null&&!H.some((e)=>e.value===n2)&&Ua(n2)?[...H,{value:n2,label:O9(n2),description:"Current model"}]:H;let O=P,N;`,
@@ -700,7 +700,15 @@ claude `,
 }
 
 func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
-	patch := findClaudeUIPatch("2.1.198", "ab6f7ee109816ede414f7c285446633f805b623aa609f425609a64266451d61e")
+	patch := findClaudeUIPatch("2.1.207", "1397a062c6889675055e3314dd956376ac51262a7734ad9e819c26975d71547a")
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		if patch == nil {
+			t.Fatal("expected local verified 2.1.207 darwin/arm64 patch to match")
+		}
+	} else if patch != nil {
+		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+	patch = findClaudeUIPatch("2.1.198", "ab6f7ee109816ede414f7c285446633f805b623aa609f425609a64266451d61e")
 	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
 		if patch == nil {
 			t.Fatal("expected local verified 2.1.198 darwin/arm64 patch to match")
@@ -785,8 +793,37 @@ func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 	if got := findClaudeUIPatch("2.1.198", "8cc0c4d1e4eb1dca3b0cc92ab02ee3505de764e023f8c901761c167b72041fb8"); got != nil {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
+	if got := findClaudeUIPatch("2.1.207", "ab6f7ee109816ede414f7c285446633f805b623aa609f425609a64266451d61e"); got != nil {
+		t.Fatalf("patch matched unsupported sha: %#v", got)
+	}
 	if got := findClaudeUIPatch("2.1.153", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); got != nil {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
+	}
+}
+
+func TestClaude207ModelPickerContainsExactlyThreeCodexTiers(t *testing.T) {
+	data := []byte(`function Beh(e=!1){` + strings.Repeat(" ", 2400) + `function XSe(e){}`)
+	if !patchModelPickerOptions_2_1_207(data) {
+		t.Fatal("patchModelPickerOptions_2_1_207 reported no changes")
+	}
+	got := string(data)
+	for _, want := range []string{
+		`n("opus",`, `??"gpt-5.6-sol"`,
+		`n("sonnet",`, `??"gpt-5.6-terra"`,
+		`n("haiku",`, `??"gpt-5.6-luna"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("patched picker missing %q", want)
+		}
+	}
+	if strings.Contains(got, `n("fable",`) || strings.Contains(got, "ANTHROPIC_DEFAULT_FABLE_MODEL") {
+		t.Fatalf("patched picker retained a Fable tier:\n%s", got)
+	}
+}
+
+func TestFitReplacementRejectsTruncation(t *testing.T) {
+	if got, ok := fitReplacement([]byte("short"), "too long"); ok || got != nil {
+		t.Fatalf("fitReplacement silently truncated replacement: got %q, ok=%v", got, ok)
 	}
 }
 

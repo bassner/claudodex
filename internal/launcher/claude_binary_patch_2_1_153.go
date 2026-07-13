@@ -32,7 +32,7 @@ func applyClaudeUIPatches_2_1_153(data []byte, claudodexVersion, claudeVersion s
 	changed = replaceAllFixed(data, "Select model", "Codex model") || changed
 	changed = replaceAllFixed(data, "Default (recommended)", "Default (Claudodex)") || changed
 	changed = replaceAllFixed(data, "Most capable for complex work", "default Codex work") || changed
-	changed = replaceAllFixed(data, "Best for everyday tasks", modelDescriptionPatch(modelCfg.Sonnet, "everyday coding")) || changed
+	changed = replaceAllFixed(data, "Best for everyday tasks", modelDescriptionPatch(modelCfg.Sonnet, "everyday")) || changed
 	changed = replaceAllFixed(data, "Fastest for quick answers", modelDescriptionPatch(modelCfg.Haiku, "quick code")) || changed
 	changed = replaceAllFixed(data, ` with 1M context \xB7 `, ` via Codex model \xB7 `) || changed
 

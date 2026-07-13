@@ -56,7 +56,7 @@ func applyClaudeUIPatches_2_1_159(data []byte, claudodexVersion, claudeVersion s
 	changed = replaceAllFixed(data, "Default (recommended)", "Default (Claudodex)") || changed
 	changed = replaceAllFixed(data, "Most capable for complex work", "default Codex work") || changed
 	changed = replaceAllFixed(data, "Most capable for complex reasoning tasks", "default Codex reasoning tasks") || changed
-	changed = replaceAllFixed(data, "Best for everyday tasks", modelDescriptionPatch(modelCfg.Sonnet, "everyday coding")) || changed
+	changed = replaceAllFixed(data, "Best for everyday tasks", modelDescriptionPatch(modelCfg.Sonnet, "everyday")) || changed
 	changed = replaceAllFixed(data, "Fastest for quick answers", modelDescriptionPatch(modelCfg.Haiku, "quick code")) || changed
 	changed = replaceAllFixed(data, ` with 1M context \xB7 `, ` via Codex model \xB7 `) || changed
 	changed = replaceAllFixed(data, "Fast mode for Claude Code uses Claude Opus with faster output (it does not downgrade to a smaller model). It can be toggled with /fast and is available on Opus 4.8/4.7/4.6.", "Fast mode for Claudodex requests the Codex priority service tier for lower latency. It can be toggled with /fast.") || changed
@@ -256,7 +256,7 @@ func patchModelPickerOptions_2_1_159(data []byte) bool {
 		return false
 	}
 	window := data[start : start+end]
-	replacement := `function $6_(H=!1){let _=process.env,q=(O,T,$)=>({value:O,label:T,description:$});return[q("opus",_.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME??_.ANTHROPIC_DEFAULT_OPUS_MODEL??"gpt-5.5",_.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION??"Default Codex route"),q("sonnet",_.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME??_.ANTHROPIC_DEFAULT_SONNET_MODEL??"gpt-5.4",_.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION??"Everyday Codex coding route"),q("haiku",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME??_.ANTHROPIC_DEFAULT_HAIKU_MODEL??"gpt-5.4-mini",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION??"Fast Codex coding route")]}`
+	replacement := `function $6_(H=!1){let _=process.env,q=(O,T,$)=>({value:O,label:T,description:$});return[q("opus",_.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME??_.ANTHROPIC_DEFAULT_OPUS_MODEL??"gpt-5.6-sol",_.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION??"Default Codex route"),q("sonnet",_.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME??_.ANTHROPIC_DEFAULT_SONNET_MODEL??"gpt-5.6-terra",_.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION??"Everyday Codex coding route"),q("haiku",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME??_.ANTHROPIC_DEFAULT_HAIKU_MODEL??"gpt-5.6-luna",_.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION??"Fast Codex coding route")]}`
 	if len([]byte(replacement)) > len(window) {
 		return false
 	}

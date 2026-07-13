@@ -74,9 +74,8 @@ func TestCodexUsageToClaudeMapsWindowsAndExtraUsage(t *testing.T) {
 	if sonnet["utilization"] != float64(50) {
 		t.Fatalf("seven_day_sonnet = %#v", sonnet)
 	}
-	fable := got["seven_day_fable"].(map[string]any)
-	if fable["utilization"] != float64(40) {
-		t.Fatalf("seven_day_fable = %#v", fable)
+	if _, ok := got["seven_day_fable"]; ok {
+		t.Fatalf("retired fourth-tier quota leaked into Claude usage: %#v", got)
 	}
 	haiku := got["seven_day_haiku"].(map[string]any)
 	if haiku["utilization"] != float64(25) {
@@ -88,5 +87,33 @@ func TestCodexUsageToClaudeMapsWindowsAndExtraUsage(t *testing.T) {
 	}
 	if _, ok := got["account_id"]; ok {
 		t.Fatalf("personal account field passed through: %#v", got)
+	}
+}
+
+func TestCodexUsageToClaudeAllowsMissingFiveHourWindow(t *testing.T) {
+	for name, raw := range map[string]map[string]any{
+		"primary window omitted": {
+			"rate_limit": map[string]any{
+				"secondary_window": map[string]any{
+					"used_percent":         float64(34),
+					"limit_window_seconds": float64(604800),
+				},
+			},
+		},
+		"rate limit omitted": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := CodexUsageToClaude(raw)
+			fiveHour, ok := got["five_hour"]
+			if !ok || fiveHour != nil {
+				t.Fatalf("five_hour = %#v, present=%v; want present null", fiveHour, ok)
+			}
+			if name == "primary window omitted" {
+				sevenDay, _ := got["seven_day"].(map[string]any)
+				if sevenDay == nil || sevenDay["utilization"] != float64(34) {
+					t.Fatalf("seven_day = %#v, want mapped secondary window", got["seven_day"])
+				}
+			}
+		})
 	}
 }

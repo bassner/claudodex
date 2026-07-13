@@ -6,14 +6,11 @@ func TestConfigMapModelUsesOverrides(t *testing.T) {
 	cfg := Config{Opus: "gpt-opus-next", Sonnet: "gpt-sonnet-next", Haiku: "gpt-haiku-next"}
 	tests := map[string]string{
 		"opus":              "gpt-opus-next",
-		"fable":             "gpt-opus-next",
-		"fable[1m]":         "gpt-opus-next",
-		"claude-fable-5":    "gpt-opus-next",
-		"mythos-5":          "gpt-opus-next",
-		"gpt-5.5":           "gpt-opus-next",
+		"gpt-5.6-sol":       "gpt-opus-next",
 		"claude-sonnet-4-6": "gpt-sonnet-next",
-		"gpt-5.4[1m]":       "gpt-sonnet-next",
+		"gpt-5.6-terra[1m]": "gpt-sonnet-next",
 		"small-fast":        "gpt-haiku-next",
+		"gpt-5.6-luna":      "gpt-haiku-next",
 		"gpt-haiku-next":    "gpt-haiku-next",
 	}
 	for input, want := range tests {
@@ -23,13 +20,11 @@ func TestConfigMapModelUsesOverrides(t *testing.T) {
 	}
 }
 
-func TestFamilyForModelPreservesFableAlias(t *testing.T) {
-	family, ok := FamilyForModel("claude-fable-5[1m]")
-	if !ok || family != FamilyFable {
-		t.Fatalf("FamilyForModel(claude-fable-5[1m]) = %q, %v; want fable, true", family, ok)
-	}
-	if got := (Config{Opus: "gpt-opus-next"}).Target(family); got != "gpt-opus-next" {
-		t.Fatalf("Target(fable) = %q, want gpt-opus-next", got)
+func TestFamilyForModelRejectsRetiredFourthTierAliases(t *testing.T) {
+	for _, model := range []string{"fable", "claude-fable-5[1m]", "mythos-5"} {
+		if family, ok := FamilyForModel(model); ok {
+			t.Fatalf("FamilyForModel(%q) = %q, true; want no family", model, family)
+		}
 	}
 }
 
@@ -70,14 +65,26 @@ func TestDirectRuntimeModelSpecsUseLongContextAliases(t *testing.T) {
 
 func TestStripLongContextRemovesRepeatedSuffixes(t *testing.T) {
 	tests := map[string]string{
-		"gpt-5.5[1m]":       "gpt-5.5",
-		"gpt-5.5[1m][1m]":   "gpt-5.5",
-		"gpt-5.5[1M] [1m]":  "gpt-5.5",
-		" gpt-5.4-mini[1m]": "gpt-5.4-mini",
+		"gpt-5.6-sol[1m]":      "gpt-5.6-sol",
+		"gpt-5.6-sol[1m][1m]":  "gpt-5.6-sol",
+		"gpt-5.6-sol[1M] [1m]": "gpt-5.6-sol",
+		" gpt-5.6-luna[1m]":    "gpt-5.6-luna",
 	}
 	for input, want := range tests {
 		if got := StripLongContext(input); got != want {
 			t.Fatalf("StripLongContext(%q) = %q, want %q", input, got, want)
 		}
+	}
+}
+
+func TestSupportsXHighPreservesKnownLegacyModels(t *testing.T) {
+	cfg := Default()
+	for _, model := range []string{"gpt-5.5", "gpt-5.4[1m]", "gpt-5.4-mini"} {
+		if !cfg.SupportsXHigh(model) {
+			t.Errorf("SupportsXHigh(%q) = false, want true", model)
+		}
+	}
+	if cfg.SupportsXHigh("gpt-5.1") {
+		t.Error("SupportsXHigh(gpt-5.1) = true, want false")
 	}
 }

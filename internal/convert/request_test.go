@@ -9,7 +9,7 @@ import (
 	"github.com/bassner/claudodex/internal/modelconfig"
 )
 
-func TestAnthropicToCodexStripsBillingAndMapsMaxEffortToXHigh(t *testing.T) {
+func TestAnthropicToCodexStripsBillingAndMapsMaxEffort(t *testing.T) {
 	body := []byte(`{
 		"model":"claude-sonnet-4-6",
 		"system":"keep this\nx-anthropic-billing-header: cc_version=1; cch=secret\nand this",
@@ -24,11 +24,11 @@ func TestAnthropicToCodexStripsBillingAndMapsMaxEffortToXHigh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Request.Model != "gpt-5.4" {
+	if got.Request.Model != "gpt-5.6-terra" {
 		t.Fatalf("model = %q", got.Request.Model)
 	}
-	if got.Request.Reasoning == nil || got.Request.Reasoning.Effort != "xhigh" {
-		t.Fatalf("effort = %#v, want xhigh", got.Request.Reasoning)
+	if got.Request.Reasoning == nil || got.Request.Reasoning.Effort != "max" {
+		t.Fatalf("effort = %#v, want max", got.Request.Reasoning)
 	}
 	if !strings.HasPrefix(got.Request.Instructions, "keep this\nand this\n\nClaude Code compatibility:\n") {
 		t.Fatalf("instructions = %q", got.Request.Instructions)
@@ -215,8 +215,8 @@ func TestAnthropicToCodexMapsFastSpeedToPriorityServiceTier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Request.Model != "gpt-5.5" {
-		t.Fatalf("model = %q, want gpt-5.5", got.Request.Model)
+	if got.Request.Model != "gpt-5.6-sol" {
+		t.Fatalf("model = %q, want gpt-5.6-sol", got.Request.Model)
 	}
 	if got.Request.ServiceTier != "priority" {
 		t.Fatalf("service_tier = %q, want priority", got.Request.ServiceTier)
@@ -328,7 +328,7 @@ func TestAnthropicToCodexConvertsToolsImagesAndResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Request.Model != "gpt-5.4-mini" {
+	if got.Request.Model != "gpt-5.6-luna" {
 		t.Fatalf("model = %q", got.Request.Model)
 	}
 	if got.Request.Reasoning == nil || got.Request.Reasoning.Effort != "low" {
