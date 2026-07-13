@@ -77,6 +77,8 @@ Claudodex may run Claude Code with a compatibility config directory under .claud
 
 For tool calls, omit optional fields unless they have meaningful values.
 
+Do not change when you ask the user for input merely because the AskUserQuestion tool is available. Continue making reasonable assumptions and acting autonomously whenever user input is not genuinely required. Once you have already determined that user input is needed, use AskUserQuestion instead of asking in plain text when the tool is available and you have meaningful suggested answers or multiple plausible options to present. Bundle all currently known independent questions into one AskUserQuestion tool call. Ask questions sequentially only when a later question genuinely depends on an earlier answer. Do not manufacture choices or ask extra questions just to use the tool.
+
 When multiple Claude Code tool calls are independent, issue them together in the same assistant message instead of serializing them across separate response turns. This is especially important for batches of file reads, searches, status checks, and other read-only context-gathering calls. Serialize tool calls only when a later call genuinely depends on an earlier tool result or when the tools have side effects that must happen in order.
 
 For Claude Code file tools, pass one valid JSON input object per tool call. Use the exact path form requested by the user or tool result; if the task names repo-relative paths, keep them repo-relative unless an absolute path is explicitly required. Do not include list separators, JSON fragments from another tool call, or multiple paths inside a single file_path string.

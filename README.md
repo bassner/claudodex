@@ -213,6 +213,11 @@ Claude Code's built-in `/usage` command is still subject to Claude Code's own
 essential-traffic privacy gate. Claudodex keeps that privacy flag enabled, so
 `clx:usage` is the reliable usage command for now.
 
+Codex generation requests wait up to 45 seconds for upstream response headers
+and retry that wait once. This does not limit an SSE response body after its
+headers arrive. Set `CLAUDODEX_CODEX_RESPONSE_HEADER_TIMEOUT` to a duration
+such as `90s`, a number of seconds, or `off` to override that behavior.
+
 ## Development
 
 ```sh

@@ -64,7 +64,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	route := codexRouteForResult(result, sessionID)
+	route := codex.MaterializeRoute(codexRouteForResult(result, sessionID))
 	chainKey := route.ThreadID
 	fullRequest := result.Request
 	upstreamRequest := result.Request
@@ -98,25 +98,43 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		"previous_response_id": upstreamRequest.PreviousResponseID,
 	})
 	s.trace("messages.request", traceBase)
+	remainingGenerationAttempts := 2
+	createResponse := func(req codex.Request) (*http.Response, error) {
+		s.trace("upstream.waiting_headers", mergeTraceFields(traceBase, map[string]any{
+			"generation_attempt":            3 - remainingGenerationAttempts,
+			"generation_attempts_remaining": remainingGenerationAttempts,
+		}))
+		resp, used, err := s.createCodexResponse(r, req, route, remainingGenerationAttempts)
+		if used < 0 {
+			used = 0
+		}
+		if used > remainingGenerationAttempts {
+			used = remainingGenerationAttempts
+		}
+		remainingGenerationAttempts -= used
+		return resp, err
+	}
 
 	createStarted := time.Now()
-	upstream, err := s.createCodexResponse(r, upstreamRequest, route)
+	upstream, err := createResponse(upstreamRequest)
 	if err != nil {
-		s.trace("upstream.create_error", mergeTraceFields(traceBase, map[string]any{
-			"attempt":    1,
-			"elapsed_ms": traceDurationMS(createStarted),
-			"error":      err.Error(),
-		}))
+		s.trace("upstream.create_error", mergeTraceFields(traceBase, upstreamCreateErrorTraceFields(err, map[string]any{
+			"attempt":                       1,
+			"elapsed_ms":                    traceDurationMS(createStarted),
+			"generation_attempts_remaining": remainingGenerationAttempts,
+		})))
 	} else {
 		s.trace("upstream.opened", mergeTraceFields(traceBase, map[string]any{
-			"attempt":    1,
-			"elapsed_ms": traceDurationMS(createStarted),
-			"status":     upstream.StatusCode,
-			"transport":  upstream.Header.Get("x-claudodex-transport"),
-			"ws_reused":  upstream.Header.Get("x-claudodex-ws-reused"),
+			"attempt":                       1,
+			"elapsed_ms":                    traceDurationMS(createStarted),
+			"status":                        upstream.StatusCode,
+			"transport":                     upstream.Header.Get("x-claudodex-transport"),
+			"ws_reused":                     upstream.Header.Get("x-claudodex-ws-reused"),
+			"response_header_retries":       upstream.Header.Get("x-claudodex-response-header-retries"),
+			"generation_attempts_remaining": remainingGenerationAttempts,
 		}))
 	}
-	if err != nil && usedImplicitResume {
+	if err != nil && usedImplicitResume && remainingGenerationAttempts > 0 {
 		s.trace("resume.retry_full", mergeTraceFields(traceBase, map[string]any{
 			"reason": "create_error",
 			"error":  err.Error(),
@@ -124,22 +142,24 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		s.clearImplicitResume(chainKey)
 		s.closeWebSocket(chainKey)
 		createStarted = time.Now()
-		upstream, err = s.createCodexResponse(r, fullRequest, route)
+		upstream, err = createResponse(fullRequest)
 		if err != nil {
-			s.trace("upstream.create_error", mergeTraceFields(traceBase, map[string]any{
-				"attempt":    2,
-				"elapsed_ms": traceDurationMS(createStarted),
-				"error":      err.Error(),
-			}))
+			s.trace("upstream.create_error", mergeTraceFields(traceBase, upstreamCreateErrorTraceFields(err, map[string]any{
+				"attempt":                       2,
+				"elapsed_ms":                    traceDurationMS(createStarted),
+				"generation_attempts_remaining": remainingGenerationAttempts,
+			})))
 		} else {
 			s.trace("upstream.opened", mergeTraceFields(traceBase, map[string]any{
-				"attempt":              2,
-				"elapsed_ms":           traceDurationMS(createStarted),
-				"status":               upstream.StatusCode,
-				"transport":            upstream.Header.Get("x-claudodex-transport"),
-				"ws_reused":            upstream.Header.Get("x-claudodex-ws-reused"),
-				"upstream_input_items": len(fullRequest.Input),
-				"previous_response_id": "",
+				"attempt":                       2,
+				"elapsed_ms":                    traceDurationMS(createStarted),
+				"status":                        upstream.StatusCode,
+				"transport":                     upstream.Header.Get("x-claudodex-transport"),
+				"ws_reused":                     upstream.Header.Get("x-claudodex-ws-reused"),
+				"response_header_retries":       upstream.Header.Get("x-claudodex-response-header-retries"),
+				"generation_attempts_remaining": remainingGenerationAttempts,
+				"upstream_input_items":          len(fullRequest.Input),
+				"previous_response_id":          "",
 			}))
 		}
 	}
@@ -153,7 +173,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		applyRateLimitHeaders(w.Header(), upstream.Header, false)
 		err = s.streamAnthropicWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, fallbackInputTokens, chainKey, fullRequest, traceBase, usedImplicitResume)
 		_ = upstream.Body.Close()
-		if shouldRetryStream(r, err, usedImplicitResume) {
+		if shouldRetryStream(r, err, usedImplicitResume) && remainingGenerationAttempts > 0 {
 			s.trace("resume.retry_full", mergeTraceFields(traceBase, map[string]any{
 				"reason": "stream_error",
 				"error":  err.Error(),
@@ -161,16 +181,18 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			s.clearImplicitResume(chainKey)
 			s.closeWebSocket(chainKey)
 			createStarted = time.Now()
-			upstream, err = s.createCodexResponse(r, fullRequest, route)
+			upstream, err = createResponse(fullRequest)
 			if err == nil {
 				s.trace("upstream.opened", mergeTraceFields(traceBase, map[string]any{
-					"attempt":              2,
-					"elapsed_ms":           traceDurationMS(createStarted),
-					"status":               upstream.StatusCode,
-					"transport":            upstream.Header.Get("x-claudodex-transport"),
-					"ws_reused":            upstream.Header.Get("x-claudodex-ws-reused"),
-					"upstream_input_items": len(fullRequest.Input),
-					"previous_response_id": "",
+					"attempt":                       2,
+					"elapsed_ms":                    traceDurationMS(createStarted),
+					"status":                        upstream.StatusCode,
+					"transport":                     upstream.Header.Get("x-claudodex-transport"),
+					"ws_reused":                     upstream.Header.Get("x-claudodex-ws-reused"),
+					"response_header_retries":       upstream.Header.Get("x-claudodex-response-header-retries"),
+					"generation_attempts_remaining": remainingGenerationAttempts,
+					"upstream_input_items":          len(fullRequest.Input),
+					"previous_response_id":          "",
 				}))
 				applyRateLimitHeaders(w.Header(), upstream.Header, false)
 				err = s.streamAnthropicWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, fallbackInputTokens, chainKey, fullRequest, mergeTraceFields(traceBase, map[string]any{
@@ -180,22 +202,27 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 				}), false)
 				_ = upstream.Body.Close()
 			} else {
-				s.trace("upstream.create_error", mergeTraceFields(traceBase, map[string]any{
-					"attempt":    2,
-					"elapsed_ms": traceDurationMS(createStarted),
-					"error":      err.Error(),
-				}))
+				s.trace("upstream.create_error", mergeTraceFields(traceBase, upstreamCreateErrorTraceFields(err, map[string]any{
+					"attempt":                       2,
+					"elapsed_ms":                    traceDurationMS(createStarted),
+					"generation_attempts_remaining": remainingGenerationAttempts,
+				})))
 			}
 		}
 		if err != nil {
-			writeAnthropicError(w, http.StatusBadGateway, "api_error", "Codex upstream stream failed")
+			var timeoutErr *codex.ResponseHeaderTimeoutError
+			if errors.As(err, &timeoutErr) {
+				writeMappedUpstreamError(w, err)
+			} else {
+				writeAnthropicError(w, http.StatusBadGateway, "api_error", "Codex upstream stream failed")
+			}
 		}
 		return
 	}
 	applyRateLimitHeaders(w.Header(), upstream.Header, false)
 	err = s.writeNonStreamingMessageWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, fallbackInputTokens, chainKey, fullRequest, traceBase)
 	_ = upstream.Body.Close()
-	if shouldRetryStream(r, err, usedImplicitResume) {
+	if shouldRetryStream(r, err, usedImplicitResume) && remainingGenerationAttempts > 0 {
 		s.trace("resume.retry_full", mergeTraceFields(traceBase, map[string]any{
 			"reason": "stream_error",
 			"error":  err.Error(),
@@ -203,16 +230,18 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		s.clearImplicitResume(chainKey)
 		s.closeWebSocket(chainKey)
 		createStarted = time.Now()
-		upstream, err = s.createCodexResponse(r, fullRequest, route)
+		upstream, err = createResponse(fullRequest)
 		if err == nil {
 			s.trace("upstream.opened", mergeTraceFields(traceBase, map[string]any{
-				"attempt":              2,
-				"elapsed_ms":           traceDurationMS(createStarted),
-				"status":               upstream.StatusCode,
-				"transport":            upstream.Header.Get("x-claudodex-transport"),
-				"ws_reused":            upstream.Header.Get("x-claudodex-ws-reused"),
-				"upstream_input_items": len(fullRequest.Input),
-				"previous_response_id": "",
+				"attempt":                       2,
+				"elapsed_ms":                    traceDurationMS(createStarted),
+				"status":                        upstream.StatusCode,
+				"transport":                     upstream.Header.Get("x-claudodex-transport"),
+				"ws_reused":                     upstream.Header.Get("x-claudodex-ws-reused"),
+				"response_header_retries":       upstream.Header.Get("x-claudodex-response-header-retries"),
+				"generation_attempts_remaining": remainingGenerationAttempts,
+				"upstream_input_items":          len(fullRequest.Input),
+				"previous_response_id":          "",
 			}))
 			applyRateLimitHeaders(w.Header(), upstream.Header, false)
 			err = s.writeNonStreamingMessageWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, fallbackInputTokens, chainKey, fullRequest, mergeTraceFields(traceBase, map[string]any{
@@ -222,31 +251,59 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			}))
 			_ = upstream.Body.Close()
 		} else {
-			s.trace("upstream.create_error", mergeTraceFields(traceBase, map[string]any{
-				"attempt":    2,
-				"elapsed_ms": traceDurationMS(createStarted),
-				"error":      err.Error(),
-			}))
+			s.trace("upstream.create_error", mergeTraceFields(traceBase, upstreamCreateErrorTraceFields(err, map[string]any{
+				"attempt":                       2,
+				"elapsed_ms":                    traceDurationMS(createStarted),
+				"generation_attempts_remaining": remainingGenerationAttempts,
+			})))
 		}
 	}
 	if err != nil {
-		writeAnthropicError(w, http.StatusBadGateway, "api_error", err.Error())
+		var timeoutErr *codex.ResponseHeaderTimeoutError
+		if errors.As(err, &timeoutErr) {
+			writeMappedUpstreamError(w, err)
+		} else {
+			writeAnthropicError(w, http.StatusBadGateway, "api_error", err.Error())
+		}
 	}
 }
 
-func (s *Server) createCodexResponse(r *http.Request, req codex.Request, route codex.Route) (*http.Response, error) {
+func (s *Server) createCodexResponse(r *http.Request, req codex.Request, route codex.Route, generationAttemptBudget int) (*http.Response, int, error) {
+	attemptsUsed := 0
+	finish := func(resp *http.Response, err error) (*http.Response, int, error) {
+		if attemptsUsed > 0 {
+			codex.SetCreateResponseAttempts(resp, attemptsUsed)
+			err = codex.WithCreateResponseAttempts(err, attemptsUsed)
+		}
+		return resp, attemptsUsed, err
+	}
+	remainingAttempts := func() int {
+		remaining := generationAttemptBudget - attemptsUsed
+		if remaining < 0 {
+			return 0
+		}
+		return remaining
+	}
+	observeHTTPAttempt := func(resp *http.Response, err error) {
+		used := codex.CreateResponseAttempts(resp, err)
+		if used > remainingAttempts() {
+			used = remainingAttempts()
+		}
+		attemptsUsed += used
+	}
+
 	store := auth.NewStore(s.cfg.Home)
 	file, err := auth.NewRefresher(store, s.cfg.HTTPClient, s.cfg.TokenEndpoint).EnsureFresh(r.Context(), 5*time.Minute)
 	if err != nil {
-		return nil, err
+		return finish(nil, err)
 	}
 	installationID, err := auth.InstallationID(s.cfg.Home)
 	if err != nil {
-		return nil, err
+		return finish(nil, err)
 	}
 	req.ClientMetadata = map[string]string{"x-codex-installation-id": installationID}
 
-	client := codex.Client{BaseURL: s.cfg.CodexBaseURL, HTTPClient: s.cfg.HTTPClient, Version: s.cfg.Version}
+	client := codex.Client{BaseURL: s.cfg.CodexBaseURL, HTTPClient: s.cfg.HTTPClient, Version: s.cfg.Version, ResponseHeaderAttempts: remainingAttempts()}
 	credentials := codex.Credentials{
 		AccessToken:    file.Tokens.AccessToken,
 		AccountID:      file.Tokens.AccountID,
@@ -259,46 +316,67 @@ func (s *Server) createCodexResponse(r *http.Request, req codex.Request, route c
 			waitForWebSocket := strings.TrimSpace(req.PreviousResponseID) != ""
 			resp, err := conversation.CreateResponse(r.Context(), client, req, credentials, route, waitForWebSocket)
 			if err == nil {
+				attemptsUsed++
 				resp.Header.Set("x-claudodex-transport", "websocket")
 				resp.Header.Set("x-claudodex-ws-reused", strconv.FormatBool(reused))
-				return resp, nil
+				return finish(resp, nil)
 			}
 			if errors.Is(err, codex.ErrWebSocketBusy) && strings.TrimSpace(req.PreviousResponseID) == "" {
-				resp, err := client.CreateResponse(r.Context(), req, credentials, route)
-				if err == nil {
-					resp.Header.Set("x-claudodex-transport", "http")
-					resp.Header.Set("x-claudodex-ws-reused", strconv.FormatBool(reused))
+				// No request was sent: preserve the full budget for the HTTP fallback.
+			} else {
+				attemptsUsed++
+				s.closeWebSocket(route.ThreadID)
+				if strings.TrimSpace(req.PreviousResponseID) != "" || remainingAttempts() == 0 {
+					return finish(nil, err)
 				}
-				return resp, err
-			}
-			s.closeWebSocket(route.ThreadID)
-			if strings.TrimSpace(req.PreviousResponseID) != "" {
-				return nil, err
 			}
 		}
 	}
+	if remainingAttempts() == 0 {
+		return finish(nil, errors.New("Codex generation attempt budget exhausted"))
+	}
+	client.ResponseHeaderAttempts = remainingAttempts()
 	resp, err := client.CreateResponse(r.Context(), req, credentials, route)
+	observeHTTPAttempt(resp, err)
 	if err == nil {
 		resp.Header.Set("x-claudodex-transport", "http")
-		return resp, nil
+		return finish(resp, nil)
 	}
 	var upstream *codex.UpstreamError
 	if !errors.As(err, &upstream) || upstream.Status != http.StatusUnauthorized {
-		return nil, err
+		return finish(nil, err)
+	}
+	if remainingAttempts() == 0 {
+		return finish(nil, err)
 	}
 
 	file, refreshErr := auth.NewRefresher(store, s.cfg.HTTPClient, s.cfg.TokenEndpoint).Refresh(r.Context())
 	if refreshErr != nil {
-		return nil, refreshErr
+		return finish(nil, refreshErr)
 	}
 	credentials.AccessToken = file.Tokens.AccessToken
 	credentials.AccountID = file.Tokens.AccountID
 	credentials.FedRAMP = file.Tokens.ChatGPTAccountIsFedRAMP
+	client.ResponseHeaderAttempts = remainingAttempts()
 	resp, err = client.CreateResponse(r.Context(), req, credentials, route)
+	observeHTTPAttempt(resp, err)
 	if err == nil {
 		resp.Header.Set("x-claudodex-transport", "http")
 	}
-	return resp, err
+	return finish(resp, err)
+}
+
+func upstreamCreateErrorTraceFields(err error, fields map[string]any) map[string]any {
+	fields = mergeTraceFields(fields, map[string]any{"error": err.Error()})
+	var timeoutErr *codex.ResponseHeaderTimeoutError
+	if errors.As(err, &timeoutErr) {
+		fields = mergeTraceFields(fields, map[string]any{
+			"response_header_timeout":    true,
+			"response_header_timeout_ms": timeoutErr.Timeout.Milliseconds(),
+			"response_header_attempts":   timeoutErr.Attempts,
+		})
+	}
+	return fields
 }
 
 func (s *Server) codexWebSocketEnabled() bool {

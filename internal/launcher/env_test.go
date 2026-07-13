@@ -22,6 +22,7 @@ func TestBuildClaudeEnv(t *testing.T) {
 		"ANTHROPIC_AUTH_TOKEN=leak",
 		"ANTHROPIC_API_KEY=leak",
 		"CLAUDE_CODE_OAUTH_TOKEN=leak",
+		"CLAUDE_CODE_DISABLE_AGENT_VIEW=0",
 		"ENABLE_TOOL_SEARCH=true",
 		"CLAUDODEX_PRESERVE_ME=yes",
 		"ANTHROPIC_DEFAULT_FABLE_MODEL=leak",
@@ -78,6 +79,7 @@ func TestBuildClaudeEnv(t *testing.T) {
 		"CLAUDE_CODE_AUTO_COMPACT_WINDOW":          "272000",
 		"CLAUDE_CODE_MAX_CONTEXT_TOKENS":           "272000",
 		"CLAUDE_CODE_FORCE_FULL_LOGO":              "1",
+		"CLAUDE_CODE_DISABLE_AGENT_VIEW":           "1",
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
 		"DISABLE_TELEMETRY":                        "1",
 		"DO_NOT_TRACK":                             "1",
@@ -211,7 +213,7 @@ func TestBuildClaudeEnvAvoidsFishForToolShell(t *testing.T) {
 }
 
 func TestBuildClaudePrivacyEnvDoesNotSetProxy(t *testing.T) {
-	env := BuildClaudePrivacyEnv([]string{"ANTHROPIC_BASE_URL=http://old", "DISABLE_GROWTHBOOK=0"})
+	env := BuildClaudePrivacyEnv([]string{"ANTHROPIC_BASE_URL=http://old", "CLAUDE_CODE_DISABLE_AGENT_VIEW=0", "DISABLE_GROWTHBOOK=0"})
 	got := map[string]string{}
 	for _, item := range env {
 		key, value, ok := strings.Cut(item, "=")
@@ -223,7 +225,7 @@ func TestBuildClaudePrivacyEnvDoesNotSetProxy(t *testing.T) {
 	if got["ANTHROPIC_BASE_URL"] != "http://old" {
 		t.Fatalf("ANTHROPIC_BASE_URL = %q", got["ANTHROPIC_BASE_URL"])
 	}
-	if got["CLAUDE_CODE_FORCE_FULL_LOGO"] != "1" || got["DISABLE_GROWTHBOOK"] != "1" || got["DO_NOT_TRACK"] != "1" {
+	if got["CLAUDE_CODE_FORCE_FULL_LOGO"] != "1" || got["CLAUDE_CODE_DISABLE_AGENT_VIEW"] != "1" || got["DISABLE_GROWTHBOOK"] != "1" || got["DO_NOT_TRACK"] != "1" {
 		t.Fatalf("privacy flags not forced: %#v", got)
 	}
 }

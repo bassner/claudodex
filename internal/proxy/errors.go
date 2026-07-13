@@ -15,6 +15,11 @@ func writeMappedUpstreamError(w http.ResponseWriter, err error) {
 		writeAnthropicError(w, http.StatusUnauthorized, "authentication_error", "Codex authentication is missing or expired; run claudodex clx:auth-login")
 		return
 	}
+	var timeoutErr *codex.ResponseHeaderTimeoutError
+	if errors.As(err, &timeoutErr) {
+		writeAnthropicError(w, http.StatusGatewayTimeout, "api_error", "Codex upstream timed out waiting for response headers")
+		return
+	}
 	var upstream *codex.UpstreamError
 	if errors.As(err, &upstream) {
 		status, typ := mapUpstreamStatus(upstream.Status)

@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/bassner/claudodex/internal/codex"
 )
@@ -117,5 +119,29 @@ func TestWriteMappedUpstreamErrorStatusTable(t *testing.T) {
 				t.Fatalf("body = %#v", got)
 			}
 		})
+	}
+}
+
+func TestWriteMappedUpstreamErrorMapsResponseHeaderTimeoutToSafe504(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeMappedUpstreamError(rec, &codex.ResponseHeaderTimeoutError{Timeout: 45 * time.Second, Attempts: 2})
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusGatewayTimeout)
+	}
+	var got struct {
+		Type  string `json:"type"`
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Type != "error" || got.Error.Type != "api_error" || got.Error.Message != "Codex upstream timed out waiting for response headers" {
+		t.Fatalf("body = %#v", got)
+	}
+	if strings.Contains(got.Error.Message, "45s") || strings.Contains(got.Error.Message, "2 attempts") {
+		t.Fatalf("response exposed internal timeout details: %q", got.Error.Message)
 	}
 }

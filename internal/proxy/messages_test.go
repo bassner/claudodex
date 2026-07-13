@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bassner/claudodex/internal/auth"
+	"github.com/bassner/claudodex/internal/codex"
 	"github.com/gorilla/websocket"
 )
 
@@ -848,13 +850,69 @@ func TestMessagesWritesMetadataTraceWithIdleMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	trace := string(traceData)
-	for _, want := range []string{`"event":"messages.request"`, `"event":"upstream.opened"`, `"event":"stream.idle"`, `"event":"stream.first_event"`, `"event":"stream.completed"`} {
+	for _, want := range []string{`"event":"messages.request"`, `"event":"upstream.waiting_headers"`, `"event":"upstream.opened"`, `"response_header_retries":"0"`, `"event":"stream.idle"`, `"event":"stream.first_event"`, `"event":"stream.completed"`} {
 		if !strings.Contains(trace, want) {
 			t.Fatalf("trace missing %s:\n%s", want, trace)
 		}
 	}
 	if strings.Contains(trace, "trace me") {
 		t.Fatalf("trace leaked message content:\n%s", trace)
+	}
+}
+
+func TestMessagesHeaderTimeoutRetryConsumesEarlyStreamRetryBudget(t *testing.T) {
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	t.Setenv("CLAUDODEX_CODEX_RESPONSE_HEADER_TIMEOUT", "10ms")
+	var attempts atomic.Int32
+	upstreamClient := &http.Client{Transport: proxyRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		attempt := attempts.Add(1)
+		if trace := httptrace.ContextClientTrace(r.Context()); trace != nil && trace.WroteRequest != nil {
+			trace.WroteRequest(httptrace.WroteRequestInfo{})
+		}
+		if attempt == 1 {
+			<-r.Context().Done()
+			return nil, r.Context().Err()
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"content-type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+				"event: response.created",
+				`data: {"type":"response.created","response":{"id":"resp_partial"}}`,
+				"",
+			}, "\n"))),
+			Request: r,
+		}, nil
+	})}
+	server := New(Config{Home: home, CodexBaseURL: "https://codex.invalid", HTTPClient: upstreamClient, AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-opus-4-6","stream":true,"messages":[{"role":"user","content":"x"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	_ = readAllString(t, resp)
+	if got := attempts.Load(); got != 2 {
+		t.Fatalf("generation attempts = %d, want exactly 2 after header timeout plus early stream failure", got)
+	}
+}
+
+func TestUpstreamCreateErrorTraceFieldsIncludesResponseHeaderTimeout(t *testing.T) {
+	fields := upstreamCreateErrorTraceFields(&codex.ResponseHeaderTimeoutError{Timeout: 125 * time.Millisecond, Attempts: 2}, map[string]any{"attempt": 1})
+	if fields["response_header_timeout"] != true {
+		t.Fatalf("response_header_timeout = %#v", fields["response_header_timeout"])
+	}
+	if fields["response_header_timeout_ms"] != int64(125) {
+		t.Fatalf("response_header_timeout_ms = %#v", fields["response_header_timeout_ms"])
+	}
+	if fields["response_header_attempts"] != 2 {
+		t.Fatalf("response_header_attempts = %#v", fields["response_header_attempts"])
 	}
 }
 
@@ -1100,6 +1158,224 @@ func TestMessagesRefreshesAndRetriesOnceOn401(t *testing.T) {
 	}
 }
 
+func TestMessages401ThenHeaderTimeoutUsesOnlyTwoGenerationAttempts(t *testing.T) {
+	home := t.TempDir()
+	saveTestAuth(t, home, "expired-access")
+	t.Setenv("CLAUDODEX_CODEX_RESPONSE_HEADER_TIMEOUT", "10ms")
+	var generationAttempts atomic.Int32
+	upstreamClient := &http.Client{Transport: proxyRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/oauth/token":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"content-type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"access_token":"fresh-access","refresh_token":"refresh-2"}`)),
+				Request:    r,
+			}, nil
+		case "/codex/responses":
+			attempt := generationAttempts.Add(1)
+			if attempt == 1 {
+				return &http.Response{
+					StatusCode: http.StatusUnauthorized,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"expired"}}`)),
+					Request:    r,
+				}, nil
+			}
+			if trace := httptrace.ContextClientTrace(r.Context()); trace != nil && trace.WroteRequest != nil {
+				trace.WroteRequest(httptrace.WroteRequestInfo{})
+			}
+			<-r.Context().Done()
+			return nil, r.Context().Err()
+		default:
+			return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: http.NoBody, Request: r}, nil
+		}
+	})}
+	server := New(Config{Home: home, CodexBaseURL: "https://codex.invalid", TokenEndpoint: "https://codex.invalid/oauth/token", HTTPClient: upstreamClient, AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-opus-4-6","messages":[{"role":"user","content":"x"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d body=%s", resp.StatusCode, readAllString(t, resp))
+	}
+	if got := generationAttempts.Load(); got != 2 {
+		t.Fatalf("generation attempts = %d, want 401 plus one timed-out refreshed request", got)
+	}
+}
+
+func TestMessages401ThenSuccessConsumesEarlyStreamRetryBudget(t *testing.T) {
+	home := t.TempDir()
+	saveTestAuth(t, home, "expired-access")
+	var generationAttempts atomic.Int32
+	upstreamClient := &http.Client{Transport: proxyRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/oauth/token":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"content-type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"access_token":"fresh-access","refresh_token":"refresh-2"}`)),
+				Request:    r,
+			}, nil
+		case "/codex/responses":
+			attempt := generationAttempts.Add(1)
+			if attempt == 1 {
+				return &http.Response{
+					StatusCode: http.StatusUnauthorized,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"expired"}}`)),
+					Request:    r,
+				}, nil
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"content-type": []string{"text/event-stream"}},
+				Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+					"event: response.created",
+					`data: {"type":"response.created","response":{"id":"resp_partial"}}`,
+					"",
+				}, "\n"))),
+				Request: r,
+			}, nil
+		default:
+			return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: http.NoBody, Request: r}, nil
+		}
+	})}
+	server := New(Config{Home: home, CodexBaseURL: "https://codex.invalid", TokenEndpoint: "https://codex.invalid/oauth/token", HTTPClient: upstreamClient, AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-opus-4-6","stream":true,"messages":[{"role":"user","content":"x"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	_ = readAllString(t, resp)
+	if got := generationAttempts.Load(); got != 2 {
+		t.Fatalf("generation attempts = %d, want no stream retry after 401 plus refreshed generation", got)
+	}
+}
+
+func TestMessagesGeneratedRouteIDsStayStableAcrossAuthRetry(t *testing.T) {
+	home := t.TempDir()
+	saveTestAuth(t, home, "expired-access")
+	var routeHeaders [][3]string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/codex/responses":
+			routeHeaders = append(routeHeaders, [3]string{
+				r.Header.Get("x-client-request-id"),
+				r.Header.Get("session-id"),
+				r.Header.Get("thread-id"),
+			})
+			if len(routeHeaders) == 1 {
+				http.Error(w, `{"error":{"message":"expired"}}`, http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("content-type", "text/event-stream")
+			_, _ = io.WriteString(w, "event: response.completed\n")
+			_, _ = io.WriteString(w, `data: {"type":"response.completed","response":{"usage":{"input_tokens":0,"output_tokens":0}}}`+"\n\n")
+		case "/oauth/token":
+			w.Header().Set("content-type", "application/json")
+			_, _ = io.WriteString(w, `{"access_token":"fresh-access","refresh_token":"refresh-2"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+	server := New(Config{Home: home, CodexBaseURL: upstream.URL, TokenEndpoint: upstream.URL + "/oauth/token", HTTPClient: upstream.Client(), AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-opus-4-6","messages":[{"role":"user","content":"x"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d body=%s", resp.StatusCode, readAllString(t, resp))
+	}
+	if len(routeHeaders) != 2 || routeHeaders[0][0] == "" || routeHeaders[0] != routeHeaders[1] {
+		t.Fatalf("generated route headers changed across auth retry: %#v", routeHeaders)
+	}
+	if routeHeaders[0][0] != routeHeaders[0][1] || routeHeaders[0][1] != routeHeaders[0][2] {
+		t.Fatalf("generated route headers are inconsistent: %#v", routeHeaders[0])
+	}
+}
+
+func TestMessagesGeneratedRouteIDsStayStableAcrossEarlyStreamRetry(t *testing.T) {
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	var attempts atomic.Int32
+	var routeHeaders [][3]string
+	upstreamClient := &http.Client{Transport: proxyRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		routeHeaders = append(routeHeaders, [3]string{
+			r.Header.Get("x-client-request-id"),
+			r.Header.Get("session-id"),
+			r.Header.Get("thread-id"),
+		})
+		attempt := attempts.Add(1)
+		if attempt == 1 {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"content-type": []string{"text/event-stream"}},
+				Body:       errorReadCloser{err: io.ErrUnexpectedEOF},
+				Request:    r,
+			}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"content-type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+				"event: response.output_item.done",
+				`data: {"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"recovered"}]}}`,
+				"",
+				"event: response.completed",
+				`data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1}}}`,
+				"",
+			}, "\n"))),
+			Request: r,
+		}, nil
+	})}
+	server := New(Config{Home: home, CodexBaseURL: "https://codex.invalid", HTTPClient: upstreamClient, AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-opus-4-6","stream":true,"messages":[{"role":"user","content":"x"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if body := readAllString(t, resp); !strings.Contains(body, "recovered") {
+		t.Fatalf("missing recovered response: %s", body)
+	}
+	if got := attempts.Load(); got != 2 {
+		t.Fatalf("generation attempts = %d, want one early stream retry", got)
+	}
+	if len(routeHeaders) != 2 || routeHeaders[0][0] == "" || routeHeaders[0] != routeHeaders[1] {
+		t.Fatalf("generated route headers changed across stream retry: %#v", routeHeaders)
+	}
+	if routeHeaders[0][0] != routeHeaders[0][1] || routeHeaders[0][1] != routeHeaders[0][2] {
+		t.Fatalf("generated route headers are inconsistent: %#v", routeHeaders[0])
+	}
+}
+
 func TestMessagesMapsNonJSONUpstreamError(t *testing.T) {
 	home := t.TempDir()
 	saveTestAuth(t, home, "access-1")
@@ -1326,6 +1602,19 @@ func TestUsageRefreshesAndRetriesOnceOn401(t *testing.T) {
 		t.Fatalf("attempts = %d, want 2", attempts.Load())
 	}
 }
+
+type proxyRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f proxyRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+type errorReadCloser struct {
+	err error
+}
+
+func (r errorReadCloser) Read([]byte) (int, error) { return 0, r.err }
+func (errorReadCloser) Close() error               { return nil }
 
 func saveTestAuth(t *testing.T, home, accessToken string) {
 	t.Helper()

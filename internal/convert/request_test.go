@@ -88,6 +88,36 @@ func TestAnthropicToCodexAddsCompatibilityInstructionsWithoutSystemPrompt(t *tes
 	}
 }
 
+func TestAnthropicToCodexAddsAskUserQuestionCompatibilityInstructions(t *testing.T) {
+	var req AnthropicRequest
+	if err := json.Unmarshal([]byte(`{
+		"messages":[{"role":"user","content":"help me choose"}],
+		"tools":[{
+			"name":"AskUserQuestion",
+			"description":"Ask the user a multiple-choice question",
+			"input_schema":{"type":"object"}
+		}]
+	}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := AnthropicToCodex(req, ConvertOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Do not change when you ask the user for input merely because the AskUserQuestion tool is available.",
+		"Continue making reasonable assumptions and acting autonomously whenever user input is not genuinely required.",
+		"Once you have already determined that user input is needed, use AskUserQuestion instead of asking in plain text when the tool is available and you have meaningful suggested answers or multiple plausible options to present.",
+		"Bundle all currently known independent questions into one AskUserQuestion tool call.",
+		"Ask questions sequentially only when a later question genuinely depends on an earlier answer.",
+		"Do not manufacture choices or ask extra questions just to use the tool.",
+	} {
+		if !strings.Contains(got.Request.Instructions, want) {
+			t.Fatalf("AskUserQuestion compatibility instruction %q missing from %q", want, got.Request.Instructions)
+		}
+	}
+}
+
 func TestAnthropicToCodexDerivesCodexSubagentRoute(t *testing.T) {
 	var req AnthropicRequest
 	if err := json.Unmarshal([]byte(`{
