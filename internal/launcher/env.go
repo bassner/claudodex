@@ -30,6 +30,7 @@ func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, anthro
 	env["CLAUDE_CONFIG_DIR"] = claudeConfigDir
 	env["CLAUDE_SECURESTORAGE_CONFIG_DIR"] = claudeConfigDir
 	env["CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST"] = "1"
+	env["ENABLE_TOOL_SEARCH"] = "false"
 	env["USER_TYPE"] = "ant"
 	env["USE_LOCAL_OAUTH"] = "1"
 	env["CLAUDE_LOCAL_OAUTH_API_BASE"] = proxyURL

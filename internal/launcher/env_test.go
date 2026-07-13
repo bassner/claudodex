@@ -22,6 +22,8 @@ func TestBuildClaudeEnv(t *testing.T) {
 		"ANTHROPIC_AUTH_TOKEN=leak",
 		"ANTHROPIC_API_KEY=leak",
 		"CLAUDE_CODE_OAUTH_TOKEN=leak",
+		"ENABLE_TOOL_SEARCH=true",
+		"CLAUDODEX_PRESERVE_ME=yes",
 		"ANTHROPIC_DEFAULT_FABLE_MODEL=leak",
 		"ANTHROPIC_DEFAULT_FABLE_MODEL_NAME=leak",
 		"ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION=leak",
@@ -44,6 +46,8 @@ func TestBuildClaudeEnv(t *testing.T) {
 		"CLAUDE_CONFIG_DIR":                        "/tmp/claudodex-claude",
 		"CLAUDE_SECURESTORAGE_CONFIG_DIR":          "/tmp/claudodex-claude",
 		"CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST":     "1",
+		"ENABLE_TOOL_SEARCH":                       "false",
+		"CLAUDODEX_PRESERVE_ME":                    "yes",
 		"USER_TYPE":                                "ant",
 		"USE_LOCAL_OAUTH":                          "1",
 		"CLAUDE_LOCAL_OAUTH_API_BASE":              "http://127.0.0.1:4321",
@@ -133,6 +137,9 @@ func TestBuildClaudeEnvFallbackProxyDoesNotInventHTTPProxy(t *testing.T) {
 	}
 	if got["HTTP_PROXY"] != "" || got["http_proxy"] != "" {
 		t.Fatalf("HTTP proxy should not be set for Claude process: %#v", got)
+	}
+	if got["ENABLE_TOOL_SEARCH"] != "false" {
+		t.Fatalf("ENABLE_TOOL_SEARCH = %q, want false", got["ENABLE_TOOL_SEARCH"])
 	}
 	if got["HTTPS_PROXY"] != "http://127.0.0.1:9999" || got["https_proxy"] != "http://127.0.0.1:9999" {
 		t.Fatalf("HTTPS proxy not set: %#v", got)

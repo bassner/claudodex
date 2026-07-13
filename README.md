@@ -49,6 +49,8 @@ Why not call it `claudex`? Because that name is already used in multiple places.
 - Maps Claude Code `max` effort to Codex `max` for GPT-5.6. Claude Code's
   `ultracode` mode enables its workflow orchestration while still sending
   Codex `max` effort; older models fall back to their highest supported level.
+- Disables Claude Code's deferred tool-search protocol so complete tool
+  definitions are sent through the Codex-compatible request path.
 - Fetches live Codex model metadata for context windows, model capabilities, and
   auto-compact limits.
 - Keeps Claude Code settings shared with normal Claude Code while keeping

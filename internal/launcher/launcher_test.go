@@ -92,6 +92,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		  echo "custom_model_option_name:$ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"
 		  echo "full_logo:$CLAUDE_CODE_FORCE_FULL_LOGO"
 		  echo "nonessential:$CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"
+		  echo "tool_search:$ENABLE_TOOL_SEARCH"
   echo "telemetry:$DISABLE_TELEMETRY"
   echo "dnt:$DO_NOT_TRACK"
   echo "growthbook:$DISABLE_GROWTHBOOK"
@@ -179,6 +180,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		"custom_model_option_name:gpt-5.6-terra",
 		"full_logo:1",
 		"nonessential:1",
+		"tool_search:false",
 		"telemetry:1",
 		"dnt:1",
 		"growthbook:1",

@@ -90,6 +90,9 @@ UI labels and real context windows are separate concerns.
 
 Long tool calls and streamed JSON arguments are fragile. Be conservative:
 
+- Keep Claude Code tool search disabled until Claudodex translates Anthropic
+  `tool_reference` blocks end to end. Normal complete tool definitions remain
+  supported.
 - Schema-backed tool calls must remain pending until arguments are complete.
 - Do not emit partial tool blocks just because partial argument deltas arrived.
 - Preserve retryability across transient stream resets, unexpected EOFs, broken
