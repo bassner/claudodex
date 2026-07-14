@@ -40,6 +40,7 @@ type claudeUIPatchSpec struct {
 }
 
 var claudeUIPatches = []claudeUIPatchSpec{
+	claudeUIPatch_2_1_208,
 	claudeUIPatch_2_1_207,
 	claudeUIPatch_2_1_198,
 	claudeUIPatch_2_1_197,
