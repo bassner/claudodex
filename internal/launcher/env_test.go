@@ -29,9 +29,9 @@ func TestBuildClaudeEnv(t *testing.T) {
 		"ANTHROPIC_DEFAULT_FABLE_MODEL_NAME=leak",
 		"ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION=leak",
 	}, 4321, "/tmp/claudodex-claude", "/tmp/claudodex-api.sock", "http://127.0.0.1:9999", "/tmp/ca.pem", []codex.ModelInfo{
-		{Slug: "gpt-5.6-sol", ContextWindow: 272000},
-		{Slug: "gpt-5.6-terra", ContextWindow: 300000},
-		{Slug: "gpt-5.6-luna", ContextWindow: 400000},
+		{Slug: "gpt-5.6-sol", ContextWindow: 272000, EffectiveContextWindowPercent: 95},
+		{Slug: "gpt-5.6-terra", ContextWindow: 300000, EffectiveContextWindowPercent: 90},
+		{Slug: "gpt-5.6-luna", ContextWindow: 400000, EffectiveContextWindowPercent: 80},
 	}, modelconfig.Default())
 	got := map[string]string{}
 	for _, item := range env {
@@ -76,7 +76,7 @@ func TestBuildClaudeEnv(t *testing.T) {
 		"ANTHROPIC_SMALL_FAST_MODEL":               "gpt-5.6-luna",
 		"CLAUDODEX_CONTEXT_WINDOW":                 "272000",
 		"CLAUDODEX_STATUSLINE_SOURCE":              filepath.Join("/tmp/claudodex-claude", claudodexStatuslineSourceName),
-		"CLAUDE_CODE_AUTO_COMPACT_WINDOW":          "272000",
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW":          "258400",
 		"CLAUDE_CODE_MAX_CONTEXT_TOKENS":           "272000",
 		"CLAUDE_CODE_FORCE_FULL_LOGO":              "1",
 		"CLAUDE_CODE_DISABLE_AGENT_VIEW":           "1",
@@ -125,6 +125,121 @@ func TestBuildClaudeEnv(t *testing.T) {
 	}
 	if strings.Contains(got["CLAUDE_INTERNAL_FC_OVERRIDES"], `"model":"gpt-5.6-sol[1m]"`) {
 		t.Fatalf("CLAUDE_INTERNAL_FC_OVERRIDES should strip [1m] from ant model backend ids:\n%s", got["CLAUDE_INTERNAL_FC_OVERRIDES"])
+	}
+}
+
+func TestRequiredModelAutoCompactWindow(t *testing.T) {
+	configuredModels := modelconfig.Config{Opus: "custom-opus", Sonnet: "custom-sonnet", Haiku: "custom-haiku"}
+	tests := []struct {
+		name   string
+		models []codex.ModelInfo
+		want   int64
+		ok     bool
+	}{
+		{
+			name: "minimum uses each models live context and percentage",
+			models: []codex.ModelInfo{
+				{Slug: "custom-opus", ContextWindow: 300_000, EffectiveContextWindowPercent: 90},
+				{Slug: "custom-sonnet", ContextWindow: 250_000, EffectiveContextWindowPercent: 100},
+				{Slug: "custom-haiku", ContextWindow: 400_000, EffectiveContextWindowPercent: 50},
+			},
+			want: 200_000,
+			ok:   true,
+		},
+		{
+			name: "changed live context and percentage change threshold",
+			models: []codex.ModelInfo{
+				{Slug: "custom-opus", ContextWindow: 500_000, EffectiveContextWindowPercent: 80},
+				{Slug: "custom-sonnet", ContextWindow: 450_000, EffectiveContextWindowPercent: 70},
+				{Slug: "custom-haiku", ContextWindow: 600_000, EffectiveContextWindowPercent: 95},
+			},
+			want: 315_000,
+			ok:   true,
+		},
+		{
+			name: "max context fallback",
+			models: []codex.ModelInfo{
+				{Slug: "custom-opus", MaxContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+				{Slug: "custom-sonnet", MaxContextWindow: 400_000, EffectiveContextWindowPercent: 95},
+				{Slug: "custom-haiku", MaxContextWindow: 500_000, EffectiveContextWindowPercent: 95},
+			},
+			want: 285_000,
+			ok:   true,
+		},
+		{
+			name: "catalog auto compact limit is an additional ceiling",
+			models: []codex.ModelInfo{
+				{Slug: "custom-opus", ContextWindow: 1_000_000, EffectiveContextWindowPercent: 95, AutoCompactTokenLimit: 900_000},
+				{Slug: "custom-sonnet", ContextWindow: 1_000_000, EffectiveContextWindowPercent: 95},
+				{Slug: "custom-haiku", ContextWindow: 1_000_000, EffectiveContextWindowPercent: 95},
+			},
+			want: 900_000,
+			ok:   true,
+		},
+		{
+			name: "missing required model",
+			models: []codex.ModelInfo{
+				{Slug: "custom-opus", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+				{Slug: "custom-sonnet", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+			},
+		},
+		{
+			name: "omitted effective percentage uses Codex default",
+			models: []codex.ModelInfo{
+				{Slug: "custom-opus", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+				{Slug: "custom-sonnet", ContextWindow: 300_000},
+				{Slug: "custom-haiku", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+			},
+			want: 285_000,
+			ok:   true,
+		},
+		{
+			name: "invalid effective percentage",
+			models: []codex.ModelInfo{
+				{Slug: "custom-opus", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+				{Slug: "custom-sonnet", ContextWindow: 300_000, EffectiveContextWindowPercent: 101},
+				{Slug: "custom-haiku", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+			},
+		},
+		{
+			name: "invalid negative effective percentage",
+			models: []codex.ModelInfo{
+				{Slug: "custom-opus", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+				{Slug: "custom-sonnet", ContextWindow: 300_000, EffectiveContextWindowPercent: -1},
+				{Slug: "custom-haiku", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+			},
+		},
+		{
+			name: "invalid negative auto compact limit",
+			models: []codex.ModelInfo{
+				{Slug: "custom-opus", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+				{Slug: "custom-sonnet", ContextWindow: 300_000, EffectiveContextWindowPercent: 95, AutoCompactTokenLimit: -1},
+				{Slug: "custom-haiku", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := requiredModelAutoCompactWindow(test.models, configuredModels)
+			if got != test.want || ok != test.ok {
+				t.Fatalf("requiredModelAutoCompactWindow() = (%d, %t), want (%d, %t)", got, ok, test.want, test.ok)
+			}
+		})
+	}
+}
+
+func TestBuildClaudeEnvDropsUnsafeInheritedAutoCompactWindow(t *testing.T) {
+	env := BuildClaudeEnv([]string{"CLAUDE_CODE_AUTO_COMPACT_WINDOW=999999"}, 4321, "/tmp/claudodex-claude", "", "", "", []codex.ModelInfo{
+		{Slug: "gpt-5.6-sol", ContextWindow: 272_000, EffectiveContextWindowPercent: 95},
+		{Slug: "gpt-5.6-terra", ContextWindow: 272_000, EffectiveContextWindowPercent: 101},
+		{Slug: "gpt-5.6-luna", ContextWindow: 272_000, EffectiveContextWindowPercent: 95},
+	}, modelconfig.Default())
+
+	for _, item := range env {
+		if strings.HasPrefix(item, "CLAUDE_CODE_AUTO_COMPACT_WINDOW=") {
+			t.Fatalf("unsafe inherited auto-compact threshold survived metadata validation: %q", item)
+		}
 	}
 }
 

@@ -14,10 +14,14 @@ import (
 )
 
 const (
-	firstPartyAnthropicBaseURL = "https://api.anthropic.com"
-	localOAuthAccessToken      = "claudodex-local-oauth"
-	localOAuthScopes           = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
-	localOAuthSubscriptionType = "max"
+	firstPartyAnthropicBaseURL   = "https://api.anthropic.com"
+	localOAuthAccessToken        = "claudodex-local-oauth"
+	localOAuthScopes             = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
+	localOAuthSubscriptionType   = "max"
+	claudeDefaultMaxOutputTokens = int64(64_000)
+	claudeUpperMaxTokensLimit    = int64(128_000)
+	// Codex ModelInfo uses 95 percent when the catalog omits this field.
+	codexDefaultEffectiveContextWindowPercent = int64(95)
 )
 
 func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, anthropicUnixSocket string, httpsProxy string, caPath string, codexModels []codex.ModelInfo, modelCfg modelconfig.Config) []string {
@@ -81,7 +85,11 @@ func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, anthro
 	requiredContextWindow := requiredModelContextWindow(codexModels, modelCfg)
 	env["CLAUDODEX_CONTEXT_WINDOW"] = strconv.FormatInt(requiredContextWindow, 10)
 	env[claudodexStatuslineSourceEnv] = filepath.Join(claudeConfigDir, claudodexStatuslineSourceName)
-	env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = strconv.FormatInt(requiredContextWindow, 10)
+	if autoCompactWindow, ok := requiredModelAutoCompactWindow(codexModels, modelCfg); ok {
+		env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = strconv.FormatInt(autoCompactWindow, 10)
+	} else {
+		delete(env, "CLAUDE_CODE_AUTO_COMPACT_WINDOW")
+	}
 	env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = strconv.FormatInt(requiredContextWindow, 10)
 	applyModelOverrideEnv(env, codexModels, modelCfg)
 	applyRemoteControlBridgeEnv(env)
@@ -182,8 +190,8 @@ func codexAntModel(alias, label, model string, contextWindow int64) antModelOver
 		Description:         "Routes to " + modelconfig.StripLongContext(model),
 		ContextWindow:       contextWindow,
 		DefaultEffortLevel:  "max",
-		DefaultMaxTokens:    64_000,
-		UpperMaxTokensLimit: 128_000,
+		DefaultMaxTokens:    claudeDefaultMaxOutputTokens,
+		UpperMaxTokensLimit: claudeUpperMaxTokensLimit,
 	}
 }
 
@@ -195,18 +203,11 @@ func modelContextWindow(models []codex.ModelInfo, slug string) int64 {
 }
 
 func catalogContextWindow(models []codex.ModelInfo, slug string) (int64, bool) {
-	for _, model := range models {
-		if !strings.EqualFold(strings.TrimSpace(model.Slug), slug) {
-			continue
-		}
-		if model.ContextWindow > 0 {
-			return model.ContextWindow, true
-		}
-		if model.MaxContextWindow > 0 {
-			return model.MaxContextWindow, true
-		}
+	model, ok := catalogModel(models, slug)
+	if !ok {
+		return 0, false
 	}
-	return 0, false
+	return modelInfoContextWindow(model)
 }
 
 func requiredModelContextWindow(models []codex.ModelInfo, modelCfg modelconfig.Config) int64 {
@@ -221,6 +222,59 @@ func requiredModelContextWindow(models []codex.ModelInfo, modelCfg modelconfig.C
 		}
 	}
 	return min
+}
+
+func requiredModelAutoCompactWindow(models []codex.ModelInfo, modelCfg modelconfig.Config) (int64, bool) {
+	var min int64
+	for _, slug := range modelCfg.RequiredModels() {
+		model, ok := catalogModel(models, slug)
+		if !ok {
+			return 0, false
+		}
+		contextWindow, ok := modelInfoContextWindow(model)
+		percent := model.EffectiveContextWindowPercent
+		if percent == 0 {
+			percent = codexDefaultEffectiveContextWindowPercent
+		}
+		if !ok || percent < 0 || percent > 100 {
+			return 0, false
+		}
+
+		// Split the calculation to avoid overflowing on untrusted catalog values.
+		effectiveContextWindow := (contextWindow/100)*percent + (contextWindow%100)*percent/100
+		if model.AutoCompactTokenLimit < 0 {
+			return 0, false
+		}
+		if model.AutoCompactTokenLimit > 0 && model.AutoCompactTokenLimit < effectiveContextWindow {
+			effectiveContextWindow = model.AutoCompactTokenLimit
+		}
+		if effectiveContextWindow <= 0 {
+			return 0, false
+		}
+		if min == 0 || effectiveContextWindow < min {
+			min = effectiveContextWindow
+		}
+	}
+	return min, min > 0
+}
+
+func catalogModel(models []codex.ModelInfo, slug string) (codex.ModelInfo, bool) {
+	for _, model := range models {
+		if strings.EqualFold(strings.TrimSpace(model.Slug), slug) {
+			return model, true
+		}
+	}
+	return codex.ModelInfo{}, false
+}
+
+func modelInfoContextWindow(model codex.ModelInfo) (int64, bool) {
+	if model.ContextWindow > 0 {
+		return model.ContextWindow, true
+	}
+	if model.MaxContextWindow > 0 {
+		return model.MaxContextWindow, true
+	}
+	return 0, false
 }
 
 func mergeGrowthBookOverride(env map[string]string, key string, value any) {

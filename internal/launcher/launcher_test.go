@@ -117,7 +117,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		if got := r.URL.Query().Get("client_version"); got != "1.2.3" {
 			t.Fatalf("client_version = %q", got)
 		}
-		_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-5.6-sol","context_window":272000},{"slug":"gpt-5.6-terra","context_window":300000},{"slug":"gpt-5.6-luna","context_window":400000}]}`)
+		_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-5.6-sol","context_window":272000,"effective_context_window_percent":95},{"slug":"gpt-5.6-terra","context_window":300000,"effective_context_window_percent":90},{"slug":"gpt-5.6-luna","context_window":400000,"effective_context_window_percent":80}]}`)
 	}))
 	defer upstream.Close()
 
@@ -163,7 +163,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		"max_context:",
 		"claudodex_context_window:272000",
 		"claudodex_statusline_source:" + filepath.Join(home, ".claudodex", "claude-config", claudodexStatuslineSourceName),
-		"auto_compact_window:272000",
+		"auto_compact_window:258400",
 		"context_tokens:272000",
 		"model_capabilities:yes",
 		`"alias":"opus"`,
