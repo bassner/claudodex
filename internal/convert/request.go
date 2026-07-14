@@ -94,6 +94,9 @@ Ordinary Claude Code Agent tool workers stop automatically when they complete, f
 
 Persistent team teammates created through TeamCreate are different: they may remain alive and idle between tasks. When the team is finished, follow Claude Code's team shutdown protocol for teammates that are still live. Do not narrate routine agent lifecycle management or shutdown actions to the user unless it materially affects the task or the user asks about it.`
 
+const ordinaryClaudeCodeSubagentInstructions = `Ordinary Claude Code Agent worker task-list isolation:
+You are an ordinary delegated Agent worker, not the coordinator or a persistent team teammate. Claude Code's TaskCreate, TaskUpdate, TaskList, and TaskGet tools operate on a task list shared with the coordinator. Do not use those shared task-list tools to plan, track, or reorganize your delegated work unless the delegating prompt explicitly asks you to coordinate through that shared task list. This does not restrict TodoWrite, whose todo state is local to your agent. Complete the delegated task and report the result through your normal agent response.`
+
 func (e BadRequestError) Error() string {
 	return e.Message
 }
@@ -126,7 +129,9 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 	routeSessionID := strings.TrimSpace(opts.SessionID)
 	parentThreadID := ""
 	subagent := ""
-	if routeSessionID != "" && isClaudeCodeSubagentInstructions(instructions) {
+	isSubagent := isClaudeCodeSubagentInstructions(instructions)
+	isTeamTeammate := isClaudeCodeTeamTeammate(instructions, input)
+	if routeSessionID != "" && isSubagent {
 		parentThreadID = routeSessionID
 		routeSessionID = deriveSubagentSessionID(routeSessionID, instructions, input)
 		subagent = "collab_spawn"
@@ -134,7 +139,7 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 	effort := MapReasoningEffortWithConfig(codexModel, req.OutputConfig.Effort, req.Thinking.BudgetTokens, models)
 	out := codex.Request{
 		Model:             codexModel,
-		Instructions:      withClaudeCodeCompatibilityInstructions(instructions),
+		Instructions:      withClaudeCodeCompatibilityInstructions(instructions, isSubagent && !isTeamTeammate),
 		Input:             input,
 		Tools:             convertTools(req.Tools),
 		ToolChoice:        convertToolChoice(req.ToolChoice, len(req.Tools) > 0),
@@ -164,17 +169,35 @@ func mapServiceTier(speed string) string {
 	return ""
 }
 
-func withClaudeCodeCompatibilityInstructions(instructions string) string {
+func withClaudeCodeCompatibilityInstructions(instructions string, ordinarySubagent bool) string {
 	instructions = strings.TrimSpace(instructions)
-	if instructions == "" {
-		return claudeCodeCompatibilityInstructions
+	compatibilityInstructions := claudeCodeCompatibilityInstructions
+	if ordinarySubagent {
+		compatibilityInstructions += "\n\n" + ordinaryClaudeCodeSubagentInstructions
 	}
-	return instructions + "\n\n" + claudeCodeCompatibilityInstructions
+	if instructions == "" {
+		return compatibilityInstructions
+	}
+	return instructions + "\n\n" + compatibilityInstructions
 }
 
 func isClaudeCodeSubagentInstructions(instructions string) bool {
 	normalized := strings.ToLower(instructions)
-	return strings.Contains(normalized, "you are an agent for claude code")
+	return strings.Contains(normalized, "you are an agent for claude code") ||
+		strings.Contains(normalized, "agent threads always have their cwd reset between bash calls")
+}
+
+func isClaudeCodeTeamTeammate(instructions string, input []codex.InputItem) bool {
+	texts := append([]string{instructions}, inputTextForRouting(input)...)
+	for _, text := range texts {
+		normalized := strings.ToLower(text)
+		if strings.Contains(normalized, "# agent teammate communication") ||
+			strings.Contains(normalized, "you are a teammate in team") ||
+			strings.Contains(normalized, "you are running as an agent in a team") {
+			return true
+		}
+	}
+	return false
 }
 
 func deriveSubagentSessionID(parentSessionID string, instructions string, input []codex.InputItem) string {

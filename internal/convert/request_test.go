@@ -155,6 +155,78 @@ func TestAnthropicToCodexDerivesCodexSubagentRoute(t *testing.T) {
 	if got.Request.PromptCacheKey != got.RouteSessionID {
 		t.Fatalf("prompt_cache_key = %q, route = %q", got.Request.PromptCacheKey, got.RouteSessionID)
 	}
+	if !strings.Contains(got.Request.Instructions, "Ordinary Claude Code Agent worker task-list isolation:") {
+		t.Fatalf("ordinary subagent task-list guidance missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "Do not use those shared task-list tools to plan, track, or reorganize your delegated work") {
+		t.Fatalf("ordinary subagent shared task-list restriction missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "This does not restrict TodoWrite, whose todo state is local to your agent") {
+		t.Fatalf("ordinary subagent TodoWrite distinction missing: %q", got.Request.Instructions)
+	}
+}
+
+func TestAnthropicToCodexDoesNotRestrictTeamTeammateTaskList(t *testing.T) {
+	var req AnthropicRequest
+	if err := json.Unmarshal([]byte(`{
+		"model":"claude-opus-4-6",
+		"system":"You are an agent for Claude Code, Anthropic's official CLI for Claude.\n\n# Agent Teammate Communication\n\nIMPORTANT: You are running as an agent in a team.",
+		"messages":[{"role":"user","content":"<system-reminder>\n# Team Coordination\nYou are a teammate in team \"backend\".\n</system-reminder>\nClaim the next shared task."}]
+	}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := AnthropicToCodex(req, ConvertOptions{SessionID: "parent-session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Subagent != "collab_spawn" {
+		t.Fatalf("teammate subagent route = %q", got.Subagent)
+	}
+	if strings.Contains(got.Request.Instructions, "Ordinary Claude Code Agent worker task-list isolation:") {
+		t.Fatalf("ordinary subagent task-list restriction applied to team teammate: %q", got.Request.Instructions)
+	}
+}
+
+func TestAnthropicToCodexDetectsCustomSubagentEnvironmentGuidance(t *testing.T) {
+	var req AnthropicRequest
+	if err := json.Unmarshal([]byte(`{
+		"model":"claude-opus-4-6",
+		"system":"Review the requested code only.\n\nNotes:\n- Agent threads always have their cwd reset between bash calls, as a result please only use absolute file paths.",
+		"messages":[{"role":"user","content":"Inspect the parser."}]
+	}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := AnthropicToCodex(req, ConvertOptions{SessionID: "parent-session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Subagent != "collab_spawn" || got.ParentThreadID != "parent-session" {
+		t.Fatalf("custom subagent route metadata = parent %q subagent %q", got.ParentThreadID, got.Subagent)
+	}
+	if !strings.Contains(got.Request.Instructions, "Ordinary Claude Code Agent worker task-list isolation:") {
+		t.Fatalf("custom subagent task-list guidance missing: %q", got.Request.Instructions)
+	}
+}
+
+func TestAnthropicToCodexDoesNotAddSubagentTaskListGuidanceToMainSession(t *testing.T) {
+	var req AnthropicRequest
+	if err := json.Unmarshal([]byte(`{
+		"model":"claude-opus-4-6",
+		"system":"You are Claude Code, Anthropic's official CLI for Claude.",
+		"messages":[{"role":"user","content":"Maintain the task list."}]
+	}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := AnthropicToCodex(req, ConvertOptions{SessionID: "main-session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Subagent != "" || got.ParentThreadID != "" {
+		t.Fatalf("main session misclassified = parent %q subagent %q", got.ParentThreadID, got.Subagent)
+	}
+	if strings.Contains(got.Request.Instructions, "Ordinary Claude Code Agent worker task-list isolation:") {
+		t.Fatalf("ordinary subagent task-list restriction applied to main session: %q", got.Request.Instructions)
+	}
 }
 
 func TestAnthropicToCodexUsesClaudeAgentIDForStableSubagentRoute(t *testing.T) {
