@@ -81,3 +81,21 @@ func TestExplicitModelArgFindsOnlyPrimaryModel(t *testing.T) {
 		t.Fatalf("explicitModelArg = %q, %v", got, ok)
 	}
 }
+
+func TestDisableClaudeChromeAddsFlagAndRemovesEnableFlag(t *testing.T) {
+	got := DisableClaudeChrome([]string{"--model", "opus", "--chrome", "--no-chrome", "--no-chrome"})
+	want := []string{"--model", "opus", "--no-chrome"}
+	if len(got) != len(want) {
+		t.Fatalf("DisableClaudeChrome() = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("DisableClaudeChrome() = %#v, want %#v", got, want)
+		}
+	}
+
+	got = DisableClaudeChrome([]string{"-p", "hello"})
+	if len(got) != 3 || got[0] != "--no-chrome" {
+		t.Fatalf("DisableClaudeChrome() = %#v, want prepended --no-chrome", got)
+	}
+}

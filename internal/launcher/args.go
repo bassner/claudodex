@@ -53,6 +53,27 @@ func RewriteClaudeModelArgsWithConfig(args []string, models modelconfig.Config) 
 	return out
 }
 
+func DisableClaudeChrome(args []string) []string {
+	out := make([]string, 0, len(args)+1)
+	hasNoChrome := false
+	for _, arg := range args {
+		switch arg {
+		case "--chrome":
+			continue
+		case "--no-chrome":
+			if hasNoChrome {
+				continue
+			}
+			hasNoChrome = true
+		}
+		out = append(out, arg)
+	}
+	if hasNoChrome {
+		return out
+	}
+	return append([]string{"--no-chrome"}, out...)
+}
+
 func explicitModelArg(args []string) (string, bool) {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {

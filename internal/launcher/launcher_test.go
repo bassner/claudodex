@@ -136,8 +136,8 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 	}
 	capture := string(data)
 	for _, want := range []string{
-		"args:4:--effort:max",
-		"args_all:[--effort][max][--model][gpt-5.6-terra[1m]]",
+		"args:5:--no-chrome:--effort",
+		"args_all:[--no-chrome][--effort][max][--model][gpt-5.6-terra[1m]]",
 		"auth_token:",
 		"api_key:",
 		"claude_config:" + filepath.Join(home, ".claudodex", "claude-config"),

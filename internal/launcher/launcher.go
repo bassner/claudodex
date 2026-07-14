@@ -149,6 +149,7 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 		_ = configMirror.Close()
 		return fmt.Errorf("prepare Claude Code statusline compatibility: %w", err)
 	}
+	childArgs = DisableClaudeChrome(childArgs)
 	if apiCAPath != "" {
 		caPath = apiCAPath
 	}
