@@ -240,20 +240,10 @@ func requiredModelAutoCompactWindow(models []codex.ModelInfo, modelCfg modelconf
 			return 0, false
 		}
 
-		// Claude Code rejects a request locally when its estimated input plus the
-		// model's advertised default output budget exceeds contextWindow. Keep
-		// auto-compaction below both Codex's live effective-input limit and that
-		// Claude-side preflight boundary. Without the output reservation, Claude
-		// can emit "Prompt is too long" before auto-compaction gets a chance to run.
-		//
-		// Split the percentage calculation to avoid overflowing on untrusted
-		// catalog values. The context itself remains entirely catalog-driven.
-		effectiveInputLimit := (contextWindow/100)*percent + (contextWindow%100)*percent/100
-		claudePreflightLimit := contextWindow - claudeDefaultMaxOutputTokens
-		if claudePreflightLimit <= 0 {
-			return 0, false
-		}
-		effectiveContextWindow := min(effectiveInputLimit, claudePreflightLimit)
+		// Split the calculation to avoid overflowing on untrusted catalog values.
+		// Claude Code applies its own summary-output reservation and compaction
+		// trigger buffer to this live Codex effective-input window.
+		effectiveContextWindow := (contextWindow/100)*percent + (contextWindow%100)*percent/100
 		if model.AutoCompactTokenLimit < 0 {
 			return 0, false
 		}

@@ -76,7 +76,7 @@ func TestBuildClaudeEnv(t *testing.T) {
 		"ANTHROPIC_SMALL_FAST_MODEL":               "gpt-5.6-luna",
 		"CLAUDODEX_CONTEXT_WINDOW":                 "272000",
 		"CLAUDODEX_STATUSLINE_SOURCE":              filepath.Join("/tmp/claudodex-claude", claudodexStatuslineSourceName),
-		"CLAUDE_CODE_AUTO_COMPACT_WINDOW":          "208000",
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW":          "258400",
 		"CLAUDE_CODE_MAX_CONTEXT_TOKENS":           "272000",
 		"CLAUDE_CODE_FORCE_FULL_LOGO":              "1",
 		"CLAUDE_CODE_DISABLE_AGENT_VIEW":           "1",
@@ -143,7 +143,7 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 				{Slug: "custom-sonnet", ContextWindow: 250_000, EffectiveContextWindowPercent: 100},
 				{Slug: "custom-haiku", ContextWindow: 400_000, EffectiveContextWindowPercent: 50},
 			},
-			want: 186_000,
+			want: 200_000,
 			ok:   true,
 		},
 		{
@@ -163,7 +163,7 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 				{Slug: "custom-sonnet", MaxContextWindow: 400_000, EffectiveContextWindowPercent: 95},
 				{Slug: "custom-haiku", MaxContextWindow: 500_000, EffectiveContextWindowPercent: 95},
 			},
-			want: 236_000,
+			want: 285_000,
 			ok:   true,
 		},
 		{
@@ -190,7 +190,7 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 				{Slug: "custom-sonnet", ContextWindow: 300_000},
 				{Slug: "custom-haiku", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 			},
-			want: 236_000,
+			want: 285_000,
 			ok:   true,
 		},
 		{
@@ -218,12 +218,14 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 			},
 		},
 		{
-			name: "context too small for advertised default output budget",
+			name: "small live context remains catalog driven",
 			models: []codex.ModelInfo{
 				{Slug: "custom-opus", ContextWindow: 64_000, EffectiveContextWindowPercent: 95},
 				{Slug: "custom-sonnet", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 				{Slug: "custom-haiku", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 			},
+			want: 60_800,
+			ok:   true,
 		},
 	}
 
