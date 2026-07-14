@@ -150,13 +150,13 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 		}
 	}
 	if claudeVersion == "2.1.209" {
-		const oldPrompt = "What should Claude do instead?"
-		const newPrompt = "What should Codex do instead?"
-		if !bytes.Contains(data, []byte(newPrompt)) {
-			t.Fatalf("patched installed Claude missing %q for version=%s sha=%s", newPrompt, claudeVersion, sourceSHA)
-		}
-		if bytes.Contains(data, []byte(oldPrompt)) {
-			t.Fatalf("patched installed Claude retained %q for version=%s sha=%s", oldPrompt, claudeVersion, sourceSHA)
+		for _, replacement := range claude209UIBrandingReplacements {
+			if bytes.Contains(data, []byte(replacement.old)) {
+				t.Fatalf("patched installed Claude retained %q for version=%s sha=%s", replacement.old, claudeVersion, sourceSHA)
+			}
+			if !bytes.Contains(data, []byte(replacement.replacement)) {
+				t.Fatalf("patched installed Claude missing %q for version=%s sha=%s", replacement.replacement, claudeVersion, sourceSHA)
+			}
 		}
 	}
 }

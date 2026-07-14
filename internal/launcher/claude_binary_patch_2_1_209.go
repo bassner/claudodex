@@ -14,7 +14,87 @@ var claudeUIPatch_2_1_209 = claudeUIPatchSpec{
 	Apply:   applyClaudeUIPatches_2_1_209,
 }
 
+type claude209UIBrandingReplacement struct {
+	old           string
+	replacement   string
+	expectedCount int
+}
+
+var claude209UIBrandingReplacements = []claude209UIBrandingReplacement{
+	{`Welcome to Claude Code for `, `Welcome to Claudodex for `, 2},
+	{`Welcome to Claude Code`, `Welcome to Claudodex`, 10},
+	{`No, and tell Claude what to do differently `, `No, and tell Codex what to do differently `, 4},
+	{`and tell Claude what to do differently`, `and tell Codex what to do differently`, 12},
+	{`and tell Claude what to do next`, `and tell Codex what to do next`, 6},
+	{`Claude has context of `, `Codex has context of `, 2},
+	{`To add hooks, edit settings.json directly or ask Claude`, `To add hooks, edit settings.json directly or ask Codex`, 4},
+	{`To modify or remove this hook, edit settings.json directly or ask Claude to help.`, `To modify or remove this hook, edit settings.json directly or ask Codex to help.`, 2},
+	{`Fix with Claude`, `Fix with Codex`, 3},
+	{`Claude ended this conversation. Start a new session (or /clear) to continue.`, `Codex ended this conversation. Start a new session (or /clear) to continue.`, 12},
+	{`Claude ended this conversation. Start a new session to continue.`, `Codex ended this conversation. Start a new session to continue.`, 2},
+	{`Claude Code needs your input`, `Claudodex needs your input`, 4},
+	{`[Image data detected and sent to Claude]`, `[Image data detected and sent to Codex]`, 4},
+	{`Push when Claude decides`, `Push when Codex decides`, 5},
+	{`was stopped by Claude`, `was stopped by Codex`, 2},
+	{`get pinged when Claude finishes \xB7 enable push notifications in`, `get pinged when Codex finishes \xB7 enable push notifications in`, 1},
+	{`Tell Claude what to change`, `Tell Codex what to change`, 2},
+	{`Teach Claude your rules`, `Teach Codex your rules`, 2},
+	{`Claude can make mistakes.`, `Codex can make mistakes.`, 2},
+	{`You're responsible for Claude's actions and should always`, `You're responsible for Codex's actions and should always`, 2},
+	{`Sorry, Claude encountered an error`, `Sorry, Codex encountered an error`, 2},
+	{`You can grant Claude access to additional directories without changing your current working directory.`, `You can grant Codex access to additional directories without changing your current working directory.`, 2},
+	{`You can hit Enter while Claude is working to queue a follow-up or steer it mid-turn \u2014 no need to wait for it to finish.`, `You can hit Enter while Codex is working to queue a follow-up or steer it mid-turn \u2014 no need to wait for it to finish.`, 1},
+	{`Working on a plan or design doc? Ask Claude to publish it as an artifact \u2014 a polished web page you can open in your browser.`, `Working on a plan or design doc? Ask Codex to publish it as an artifact \u2014 a polished web page you can open in your browser.`, 1},
+	{`Setting a 200K auto-compact window keeps sessions trimmed automatically \u2014 Claude summarizes earlier so each turn stays cheaper without manual /compact.`, `Claudodex derives its auto-compact window from live Codex model metadata.`, 1},
+	{`Use /btw to ask a quick side question without interrupting Claude's current work`, `Use /btw to ask a quick side question without interrupting Codex's current work`, 2},
+	{`Start with small features or bug fixes, tell Claude to propose a plan, and verify its suggested edits`, `Start with small features or bug fixes, tell Codex to propose a plan, and verify its suggested edits`, 2},
+	{`Use git worktrees to run multiple Claude sessions in parallel.`, `Use git worktrees to run Claudodex sessions in parallel.`, 2},
+	{`This conversation is already open in another running Claude session \u2014 use that one, or close it and try again`, `This conversation is open in another running Claudodex session \u2014 use that one, or close it and try again`, 1},
+	{`Generate a report analyzing your Claude Code sessions`, `Generate a report analyzing your Claudodex sessions`, 4},
+	{`This changes how Claude Code communicates with you`, `This changes how Claudodex communicates with you`, 2},
+	{`Use Claude Code's terminal setup?`, `Use Claudodex's terminal setup?`, 2},
+	{`Show Claude Code status including version, model, account, API connectivity, and tool statuses`, `Show Claudodex status including version, model, account, API connectivity, and tool statuses`, 2},
+	{`Set up Claude Code's status line UI`, `Set up Claudodex's status line UI`, 2},
+	{`What should Claude do instead?`, `What should Codex do instead?`, 2},
+	{`Claude is now exploring and designing an implementation approach.`, `Codex is now exploring and designing an implementation approach.`, 2},
+	{`Set the AI model for Claude Code`, `Set the AI model for Claudodex`, 4},
+	{`WARNING: Claude Code running in Bypass Permissions mode`, `WARNING: Claudodex running in Bypass Permissions mode`, 2},
+	{`In Bypass Permissions mode, Claude Code will not ask for your approval before running potentially dangerous commands.`, `In Bypass Permissions mode, Claudodex will not ask for your approval before running potentially dangerous commands.`, 2},
+	{`No, exit Claude Code`, `No, exit Claudodex`, 2},
+	{`Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model.`, `Switch between Codex-backed models. Your pick becomes the default for new sessions. For direct model names, use --model.`, 2},
+	{`Check the Claude Code changelog for updates`, `Bugs:\ngithub.com/bassner/claudodex/issues`, 3},
+	{`Claude Max`, `Codex Plan`, 4},
+	{`Hit Enter to queue up additional messages while Claude is working.`, `Hit Enter to queue up additional messages while Codex is working.`, 2},
+	{`Send messages to Claude while it works to steer Claude in real-time`, `Send messages to Codex while it works to steer Codex in real-time`, 2},
+	{`Claude will think before responding`, `Codex will think before responding`, 2},
+	{`Claude will respond without extended thinking`, `Codex will respond without extended thinking`, 2},
+	{`In plan mode, Claude will:`, `In plan mode, Codex will:`, 2},
+	{`Claude has written up a plan. Would you like to review it as an artifact first?`, `Codex has written up a plan. Would you like to review it as an artifact first?`, 2},
+	{`Claude has written up a plan and is ready to execute. Would you like to proceed?`, `Codex has written up a plan and is ready to execute. Would you like to proceed?`, 2},
+	{`Claude wants to exit plan mode`, `Codex wants to exit plan mode`, 2},
+	{`Claude needs your input`, `Codex needs your input`, 2},
+	{`Claude is waiting for your input`, `Codex is waiting for your input`, 2},
+	{`Claude wants to search the web for: `, `Codex wants to search the web for: `, 2},
+	{`Claude wants to fetch content from `, `Codex wants to fetch content from `, 4},
+	{`Claude needs your permission`, `Codex needs your permission`, 2},
+	{`Approving lets Claude write to ANY file in this project without another prompt for up to 4 hours (new and changed file contents are not shown for approval). Deletes and CLAUDE.md/.claude paths still ask every time.`, `Approving lets Codex write to ANY file in this project without another prompt for up to 4 hours (new and changed file contents are not shown for approval). Deletes and CLAUDE.md/.claude paths still ask every time.`, 2},
+	{`Approving lets Claude write to ANY file in the project "`, `Approving lets Codex write to ANY file in the project "`, 2},
+	{`Claude wants to use your browser`, `Codex wants to use your browser`, 4},
+	{`Claude wants to guide you through `, `Codex wants to guide you through `, 2},
+	{`Claude is using your computer `, `Codex is using your computer `, 4},
+	{`Claude has ended this chat.`, `Codex has ended this chat.`, 2},
+	{`Claude recalled a memory:`, `Codex recalled a memory:`, 2},
+	{`How is Claude doing this session? (optional)`, `How is Codex doing this session? (optional)`, 2},
+	{`How was Claude's recollection?`, `How was Codex's recollection?`, 2},
+	{`Claude can spawn copies of itself to work in parallel.`, `Codex can spawn copies of itself to work in parallel.`, 2},
+	{`A different way to work with Claude:`, `A different way to work with Codex:`, 2},
+	{`Claude completes coding tasks efficiently and provides concise responses`, `Codex completes coding tasks efficiently and provides concise responses`, 2},
+}
+
 func applyClaudeUIPatches_2_1_209(data []byte, claudodexVersion, claudeVersion string, modelCfg modelconfig.Config) bool {
+	if !validateClaude209UIBrandingReplacements(data, claude209UIBrandingReplacements) {
+		return false
+	}
 	versionPatched := patchLogoDisplayDataFunction_2_1_209(data, claudodexVersion, claudeVersion)
 	whatsNewPatched := patchWhatsNewFeedFunction_2_1_209(data)
 	usagePatched := patchUsageFetchFunction_2_1_209(data)
@@ -27,23 +107,42 @@ func applyClaudeUIPatches_2_1_209(data []byte, claudodexVersion, claudeVersion s
 	resumeHintsPatched := patchResumeCommandHints_2_1_196(data)
 	compactProgressPatched := patchCompactProgressCurve_2_1_209(data)
 	remoteControlPatched := patchRemoteControlRuntimeFunctions_2_1_209(data)
-	askUserPromptPatched := patchAskUserPrompt_2_1_209(data)
+	brandingPatched := applyClaude209UIBrandingReplacements(data, claude209UIBrandingReplacements)
 
-	changed := versionPatched || whatsNewPatched || usagePatched || modelOptionsPatched || modelExtraOptionsPatched || modelSelectionPatched || fastModePatched || fastModePricingPatched || contextWarningHintPatched || resumeHintsPatched || compactProgressPatched || remoteControlPatched || askUserPromptPatched
+	changed := versionPatched || whatsNewPatched || usagePatched || modelOptionsPatched || modelExtraOptionsPatched || modelSelectionPatched || fastModePatched || fastModePricingPatched || contextWarningHintPatched || resumeHintsPatched || compactProgressPatched || remoteControlPatched || brandingPatched
+	// The 2.1.209 table is authoritative for overlapping UI strings. This shared
+	// legacy pass only handles remaining fixed replacements inherited from 2.1.208.
 	changed = applyClaudeUIFixedReplacements_2_1_208(data, modelCfg) || changed
 
-	if !versionPatched || !whatsNewPatched || !usagePatched || !modelOptionsPatched || !modelExtraOptionsPatched || !modelSelectionPatched || !fastModePatched || !fastModePricingPatched || !contextWarningHintPatched || !resumeHintsPatched || !compactProgressPatched || !remoteControlPatched || !askUserPromptPatched {
+	if !versionPatched || !whatsNewPatched || !usagePatched || !modelOptionsPatched || !modelExtraOptionsPatched || !modelSelectionPatched || !fastModePatched || !fastModePricingPatched || !contextWarningHintPatched || !resumeHintsPatched || !compactProgressPatched || !remoteControlPatched || !brandingPatched {
 		return false
 	}
 	return changed
 }
 
-func patchAskUserPrompt_2_1_209(data []byte) bool {
-	oldPrompt := []byte("What should Claude do instead?")
-	if bytes.Count(data, oldPrompt) != 2 {
-		return false
+func validateClaude209UIBrandingReplacements(data []byte, replacements []claude209UIBrandingReplacement) bool {
+	for _, replacement := range replacements {
+		if replacement.old == "" || replacement.replacement == "" || replacement.expectedCount < 1 || len(replacement.replacement) > len(replacement.old) {
+			return false
+		}
+		if bytes.Count(data, []byte(replacement.old)) != replacement.expectedCount {
+			return false
+		}
 	}
-	return replaceAllFixed(data, string(oldPrompt), "What should Codex do instead?") && !bytes.Contains(data, oldPrompt)
+	return true
+}
+
+func applyClaude209UIBrandingReplacements(data []byte, replacements []claude209UIBrandingReplacement) bool {
+	changed := false
+	for _, replacement := range replacements {
+		changed = replaceAllFixed(data, replacement.old, replacement.replacement) || changed
+	}
+	for _, replacement := range replacements {
+		if bytes.Contains(data, []byte(replacement.old)) || !bytes.Contains(data, []byte(replacement.replacement)) {
+			return false
+		}
+	}
+	return changed
 }
 
 func patchLogoDisplayDataFunction_2_1_209(data []byte, claudodexVersion, claudeVersion string) bool {

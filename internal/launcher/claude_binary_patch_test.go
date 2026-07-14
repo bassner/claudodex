@@ -823,25 +823,98 @@ func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 	}
 }
 
-func TestClaude209AskUserPromptUsesCodexBranding(t *testing.T) {
-	const oldPrompt = "What should Claude do instead?"
-	const newPrompt = "What should Codex do instead?"
-	data := []byte(oldPrompt + "\n" + oldPrompt)
+func TestClaude209UIBrandingReplacements(t *testing.T) {
+	for _, replacement := range claude209UIBrandingReplacements {
+		replacement := replacement
+		t.Run(replacement.old, func(t *testing.T) {
+			data := []byte(strings.Repeat(replacement.old+"\x00", replacement.expectedCount))
+			originalLength := len(data)
+			if !validateClaude209UIBrandingReplacements(data, []claude209UIBrandingReplacement{replacement}) {
+				t.Fatal("valid exact-count replacement failed validation")
+			}
+			if !applyClaude209UIBrandingReplacements(data, []claude209UIBrandingReplacement{replacement}) {
+				t.Fatal("valid exact-count replacement was not applied")
+			}
+			if len(data) != originalLength {
+				t.Fatalf("patched length = %d, want %d", len(data), originalLength)
+			}
+			if bytes.Contains(data, []byte(replacement.old)) {
+				t.Fatalf("patched data retained old literal %q", replacement.old)
+			}
+			if !bytes.Contains(data, []byte(replacement.replacement)) {
+				t.Fatalf("patched data missing replacement %q", replacement.replacement)
+			}
+		})
+	}
+}
 
-	if !patchAskUserPrompt_2_1_209(data) {
-		t.Fatal("patchAskUserPrompt_2_1_209 reported no changes")
+func TestClaude209UIBrandingReplacementsApplyTogether(t *testing.T) {
+	var data []byte
+	for _, replacement := range claude209UIBrandingReplacements {
+		remaining := replacement.expectedCount - bytes.Count(data, []byte(replacement.old))
+		if remaining < 0 {
+			t.Fatalf("earlier fixtures overproduced %q by %d occurrences", replacement.old, -remaining)
+		}
+		data = append(data, []byte(strings.Repeat(replacement.old+"\x00", remaining))...)
 	}
-	if bytes.Contains(data, []byte(oldPrompt)) {
-		t.Fatalf("patched prompt retained Claude branding: %q", data)
+	originalLength := len(data)
+	if !validateClaude209UIBrandingReplacements(data, claude209UIBrandingReplacements) {
+		t.Fatal("complete exact-count replacement table failed validation")
 	}
-	if got := bytes.Count(data, []byte(newPrompt)); got != 2 {
-		t.Fatalf("patched prompt count = %d, want 2: %q", got, data)
+	if !applyClaude209UIBrandingReplacements(data, claude209UIBrandingReplacements) {
+		t.Fatal("complete exact-count replacement table was not applied")
 	}
-	if patchAskUserPrompt_2_1_209([]byte("unrelated prompt")) {
-		t.Fatal("patchAskUserPrompt_2_1_209 matched data without the required prompt")
+	if len(data) != originalLength {
+		t.Fatalf("patched length = %d, want %d", len(data), originalLength)
 	}
-	if patchAskUserPrompt_2_1_209([]byte(oldPrompt)) {
-		t.Fatal("patchAskUserPrompt_2_1_209 accepted a partial one-anchor match")
+	for _, replacement := range claude209UIBrandingReplacements {
+		if bytes.Contains(data, []byte(replacement.old)) {
+			t.Fatalf("patched data retained old literal %q", replacement.old)
+		}
+		if !bytes.Contains(data, []byte(replacement.replacement)) {
+			t.Fatalf("patched data missing replacement %q", replacement.replacement)
+		}
+	}
+}
+
+func TestClaude209UIBrandingReplacementCountsFailClosed(t *testing.T) {
+	for _, replacement := range claude209UIBrandingReplacements {
+		replacement := replacement
+		t.Run(replacement.old, func(t *testing.T) {
+			tests := []struct {
+				name  string
+				count int
+			}{
+				{name: "missing", count: 0},
+				{name: "extra", count: replacement.expectedCount + 1},
+			}
+			if replacement.expectedCount > 1 {
+				tests = append(tests, struct {
+					name  string
+					count int
+				}{name: "partial", count: replacement.expectedCount - 1})
+			}
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					data := []byte(strings.Repeat(replacement.old+"\x00", tt.count))
+					original := append([]byte(nil), data...)
+					if validateClaude209UIBrandingReplacements(data, []claude209UIBrandingReplacement{replacement}) {
+						t.Fatalf("count %d unexpectedly passed validation", tt.count)
+					}
+					if !bytes.Equal(data, original) {
+						t.Fatal("failed validation mutated input")
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestClaude209UIBrandingRejectsNonFixedLengthReplacement(t *testing.T) {
+	replacement := claude209UIBrandingReplacement{old: "Claude", replacement: "Claudodex", expectedCount: 1}
+	data := []byte(replacement.old)
+	if validateClaude209UIBrandingReplacements(data, []claude209UIBrandingReplacement{replacement}) {
+		t.Fatal("replacement longer than its exact binary slot passed validation")
 	}
 }
 
