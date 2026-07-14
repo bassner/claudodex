@@ -1,6 +1,10 @@
 package launcher
 
-import "github.com/bassner/claudodex/internal/modelconfig"
+import (
+	"bytes"
+
+	"github.com/bassner/claudodex/internal/modelconfig"
+)
 
 var claudeUIPatch_2_1_209 = claudeUIPatchSpec{
 	Version: "2.1.209",
@@ -23,14 +27,23 @@ func applyClaudeUIPatches_2_1_209(data []byte, claudodexVersion, claudeVersion s
 	resumeHintsPatched := patchResumeCommandHints_2_1_196(data)
 	compactProgressPatched := patchCompactProgressCurve_2_1_209(data)
 	remoteControlPatched := patchRemoteControlRuntimeFunctions_2_1_209(data)
+	askUserPromptPatched := patchAskUserPrompt_2_1_209(data)
 
-	changed := versionPatched || whatsNewPatched || usagePatched || modelOptionsPatched || modelExtraOptionsPatched || modelSelectionPatched || fastModePatched || fastModePricingPatched || contextWarningHintPatched || resumeHintsPatched || compactProgressPatched || remoteControlPatched
+	changed := versionPatched || whatsNewPatched || usagePatched || modelOptionsPatched || modelExtraOptionsPatched || modelSelectionPatched || fastModePatched || fastModePricingPatched || contextWarningHintPatched || resumeHintsPatched || compactProgressPatched || remoteControlPatched || askUserPromptPatched
 	changed = applyClaudeUIFixedReplacements_2_1_208(data, modelCfg) || changed
 
-	if !versionPatched || !whatsNewPatched || !usagePatched || !modelOptionsPatched || !modelExtraOptionsPatched || !modelSelectionPatched || !fastModePatched || !fastModePricingPatched || !contextWarningHintPatched || !resumeHintsPatched || !compactProgressPatched || !remoteControlPatched {
+	if !versionPatched || !whatsNewPatched || !usagePatched || !modelOptionsPatched || !modelExtraOptionsPatched || !modelSelectionPatched || !fastModePatched || !fastModePricingPatched || !contextWarningHintPatched || !resumeHintsPatched || !compactProgressPatched || !remoteControlPatched || !askUserPromptPatched {
 		return false
 	}
 	return changed
+}
+
+func patchAskUserPrompt_2_1_209(data []byte) bool {
+	oldPrompt := []byte("What should Claude do instead?")
+	if bytes.Count(data, oldPrompt) != 2 {
+		return false
+	}
+	return replaceAllFixed(data, string(oldPrompt), "What should Codex do instead?") && !bytes.Contains(data, oldPrompt)
 }
 
 func patchLogoDisplayDataFunction_2_1_209(data []byte, claudodexVersion, claudeVersion string) bool {

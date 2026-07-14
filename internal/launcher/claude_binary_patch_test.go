@@ -823,6 +823,28 @@ func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 	}
 }
 
+func TestClaude209AskUserPromptUsesCodexBranding(t *testing.T) {
+	const oldPrompt = "What should Claude do instead?"
+	const newPrompt = "What should Codex do instead?"
+	data := []byte(oldPrompt + "\n" + oldPrompt)
+
+	if !patchAskUserPrompt_2_1_209(data) {
+		t.Fatal("patchAskUserPrompt_2_1_209 reported no changes")
+	}
+	if bytes.Contains(data, []byte(oldPrompt)) {
+		t.Fatalf("patched prompt retained Claude branding: %q", data)
+	}
+	if got := bytes.Count(data, []byte(newPrompt)); got != 2 {
+		t.Fatalf("patched prompt count = %d, want 2: %q", got, data)
+	}
+	if patchAskUserPrompt_2_1_209([]byte("unrelated prompt")) {
+		t.Fatal("patchAskUserPrompt_2_1_209 matched data without the required prompt")
+	}
+	if patchAskUserPrompt_2_1_209([]byte(oldPrompt)) {
+		t.Fatal("patchAskUserPrompt_2_1_209 accepted a partial one-anchor match")
+	}
+}
+
 func TestClaude207ModelPickerContainsExactlyThreeCodexTiers(t *testing.T) {
 	data := []byte(`function Beh(e=!1){` + strings.Repeat(" ", 2400) + `function XSe(e){}`)
 	if !patchModelPickerOptions_2_1_207(data) {
