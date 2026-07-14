@@ -225,7 +225,7 @@ func requiredModelContextWindow(models []codex.ModelInfo, modelCfg modelconfig.C
 }
 
 func requiredModelAutoCompactWindow(models []codex.ModelInfo, modelCfg modelconfig.Config) (int64, bool) {
-	var min int64
+	var minWindow int64
 	for _, slug := range modelCfg.RequiredModels() {
 		model, ok := catalogModel(models, slug)
 		if !ok {
@@ -240,8 +240,20 @@ func requiredModelAutoCompactWindow(models []codex.ModelInfo, modelCfg modelconf
 			return 0, false
 		}
 
-		// Split the calculation to avoid overflowing on untrusted catalog values.
-		effectiveContextWindow := (contextWindow/100)*percent + (contextWindow%100)*percent/100
+		// Claude Code rejects a request locally when its estimated input plus the
+		// model's advertised default output budget exceeds contextWindow. Keep
+		// auto-compaction below both Codex's live effective-input limit and that
+		// Claude-side preflight boundary. Without the output reservation, Claude
+		// can emit "Prompt is too long" before auto-compaction gets a chance to run.
+		//
+		// Split the percentage calculation to avoid overflowing on untrusted
+		// catalog values. The context itself remains entirely catalog-driven.
+		effectiveInputLimit := (contextWindow/100)*percent + (contextWindow%100)*percent/100
+		claudePreflightLimit := contextWindow - claudeDefaultMaxOutputTokens
+		if claudePreflightLimit <= 0 {
+			return 0, false
+		}
+		effectiveContextWindow := min(effectiveInputLimit, claudePreflightLimit)
 		if model.AutoCompactTokenLimit < 0 {
 			return 0, false
 		}
@@ -251,11 +263,11 @@ func requiredModelAutoCompactWindow(models []codex.ModelInfo, modelCfg modelconf
 		if effectiveContextWindow <= 0 {
 			return 0, false
 		}
-		if min == 0 || effectiveContextWindow < min {
-			min = effectiveContextWindow
+		if minWindow == 0 || effectiveContextWindow < minWindow {
+			minWindow = effectiveContextWindow
 		}
 	}
-	return min, min > 0
+	return minWindow, minWindow > 0
 }
 
 func catalogModel(models []codex.ModelInfo, slug string) (codex.ModelInfo, bool) {
