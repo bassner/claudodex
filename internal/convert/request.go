@@ -14,6 +14,7 @@ import (
 
 type AnthropicRequest struct {
 	Model        string             `json:"model"`
+	MaxTokens    int                `json:"max_tokens"`
 	System       json.RawMessage    `json:"system"`
 	Messages     []AnthropicMessage `json:"messages"`
 	Tools        []AnthropicTool    `json:"tools"`

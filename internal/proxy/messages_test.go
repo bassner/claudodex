@@ -18,6 +18,20 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+func TestAnthropicMessageIDIsUniquePerProxyRequest(t *testing.T) {
+	first := anthropicMessageID(map[string]any{"request_id": "123-1"})
+	second := anthropicMessageID(map[string]any{"request_id": "123-2"})
+	if first != "msg_claudodex_123_1" {
+		t.Fatalf("first message ID = %q", first)
+	}
+	if second != "msg_claudodex_123_2" {
+		t.Fatalf("second message ID = %q", second)
+	}
+	if first == second {
+		t.Fatal("separate proxy requests must not reuse an Anthropic message ID")
+	}
+}
+
 func TestMessagesStreamsCodexResponseAndBuildsUpstreamRequest(t *testing.T) {
 	home := t.TempDir()
 	saveTestAuth(t, home, "access-1")

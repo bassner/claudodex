@@ -70,17 +70,22 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	upstreamRequest := result.Request
 	traceID := s.nextTraceID()
 	traceBase := map[string]any{
-		"request_id":       traceID,
-		"session_id":       sessionID,
-		"thread_id":        route.ThreadID,
-		"parent_thread_id": route.ParentThreadID,
-		"subagent":         route.Subagent,
-		"chain_key":        chainKey,
-		"model":            result.Request.Model,
-		"original_model":   result.OriginalModel,
-		"stream":           result.Stream,
-		"body_bytes":       len(body),
-		"full_input_items": len(fullRequest.Input),
+		"request_id":                 traceID,
+		"session_id":                 sessionID,
+		"thread_id":                  route.ThreadID,
+		"parent_thread_id":           route.ParentThreadID,
+		"subagent":                   route.Subagent,
+		"chain_key":                  chainKey,
+		"model":                      result.Request.Model,
+		"original_model":             result.OriginalModel,
+		"stream":                     result.Stream,
+		"body_bytes":                 len(body),
+		"full_input_items":           len(fullRequest.Input),
+		"anthropic_messages":         len(anthropicReq.Messages),
+		"anthropic_max_tokens":       anthropicReq.MaxTokens,
+		"anthropic_system_bytes":     len(anthropicReq.System),
+		"claude_auto_compact_window": os.Getenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW"),
+		"claude_max_context_tokens":  os.Getenv("CLAUDE_CODE_MAX_CONTEXT_TOKENS"),
 	}
 	usedImplicitResume := false
 	resumeReason := "not_attempted"
@@ -479,7 +484,7 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 		}
 		return writeEvent(event)
 	}
-	reducer := convert.NewStreamReducerWithOptions("", model, convert.StreamReducerOptions{
+	reducer := convert.NewStreamReducerWithOptions(anthropicMessageID(traceBase), model, convert.StreamReducerOptions{
 		ToolSchemas:         toolSchemas,
 		FallbackInputTokens: fallbackInputTokens,
 	})
@@ -590,13 +595,22 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 		}))
 	}
 	s.trace("stream.completed", mergeTraceFields(traceBase, map[string]any{
-		"elapsed_ms":            traceDurationMS(streamStarted),
-		"events":                eventCount,
-		"tool_arg_delta_events": toolArgDeltaCount,
-		"tool_arg_delta_bytes":  toolArgDeltaBytes,
+		"elapsed_ms":                           traceDurationMS(streamStarted),
+		"events":                               eventCount,
+		"tool_arg_delta_events":                toolArgDeltaCount,
+		"tool_arg_delta_bytes":                 toolArgDeltaBytes,
+		"reported_input_tokens":                reducer.Usage().InputTokens,
+		"reported_cache_creation_input_tokens": reducer.Usage().CacheCreationInputTokens,
+		"reported_cache_read_input_tokens":     reducer.Usage().CacheReadInputTokens,
+		"reported_total_input_tokens":          usageTotalInputTokens(reducer.Usage()),
+		"reported_output_tokens":               reducer.Usage().OutputTokens,
 	}))
 	s.recordResponseChain(chainKey, fullRequest, trace)
 	return nil
+}
+
+func usageTotalInputTokens(usage convert.Usage) int {
+	return usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens
 }
 
 func (s *Server) writeNonStreamingMessage(w http.ResponseWriter, body io.Reader, model string) {
@@ -604,7 +618,7 @@ func (s *Server) writeNonStreamingMessage(w http.ResponseWriter, body io.Reader,
 }
 
 func (s *Server) writeNonStreamingMessageWithSchemas(w http.ResponseWriter, body io.Reader, model string, toolSchemas map[string]map[string]any, fallbackInputTokens int, chainKey string, fullRequest codex.Request, traceBase map[string]any) error {
-	reducer := convert.NewStreamReducerWithOptions("", model, convert.StreamReducerOptions{
+	reducer := convert.NewStreamReducerWithOptions(anthropicMessageID(traceBase), model, convert.StreamReducerOptions{
 		ToolSchemas:         toolSchemas,
 		FallbackInputTokens: fallbackInputTokens,
 	})
@@ -698,6 +712,15 @@ func (s *Server) writeNonStreamingMessageWithSchemas(w http.ResponseWriter, body
 	}
 	writeJSON(w, http.StatusOK, message)
 	return nil
+}
+
+func anthropicMessageID(traceBase map[string]any) string {
+	traceID, _ := traceBase["request_id"].(string)
+	traceID = strings.TrimSpace(traceID)
+	if traceID == "" {
+		return ""
+	}
+	return "msg_claudodex_" + strings.NewReplacer("-", "_", ".", "_").Replace(traceID)
 }
 
 func streamErrorEvent(message string) convert.AnthropicSSE {

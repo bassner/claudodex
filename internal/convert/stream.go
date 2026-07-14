@@ -90,6 +90,10 @@ func (r *StreamReducer) Done() bool {
 	return r.done
 }
 
+func (r *StreamReducer) Usage() Usage {
+	return r.usage
+}
+
 func (r *StreamReducer) Failed() bool {
 	return r.failed
 }
