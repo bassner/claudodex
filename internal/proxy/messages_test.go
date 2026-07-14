@@ -283,6 +283,12 @@ func TestMessagesUsesWebSocketPreviousResponseForToolContinuation(t *testing.T) 
 	if item["type"] != "function_call_output" || item["call_id"] != "call_1" {
 		t.Fatalf("incremental input item = %#v", item)
 	}
+	usage := messageDeltaUsage(t, sse)
+	fullRequestEstimate := estimateTokenCountFromBytes([]byte(second), false)
+	gotInput := usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens
+	if gotInput < fullRequestEstimate {
+		t.Fatalf("reported resumed input = %d, want at least full request estimate %d", gotInput, fullRequestEstimate)
+	}
 }
 
 func TestMessagesRetriesFullRequestWhenWebSocketPreviousResponseIsMissing(t *testing.T) {

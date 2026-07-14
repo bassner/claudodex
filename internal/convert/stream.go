@@ -607,10 +607,7 @@ func usageFromMap(usage map[string]any) Usage {
 }
 
 func (r *StreamReducer) usageForFinish(event map[string]any) Usage {
-	usage := usageFromEvent(event)
-	if usageInputTokens(usage) == 0 && r.fallbackInputTokens > 0 {
-		usage.InputTokens = r.fallbackInputTokens
-	}
+	usage := usageWithInputFloor(usageFromEvent(event), r.fallbackInputTokens)
 	if r.visibleBlocks > 0 && usage.OutputTokens == 0 {
 		usage.OutputTokens = estimateVisibleOutputTokens(r.outputChars, r.visibleBlocks)
 	}
@@ -618,10 +615,7 @@ func (r *StreamReducer) usageForFinish(event map[string]any) Usage {
 }
 
 func (r *StreamReducer) usageForStart(event map[string]any) Usage {
-	usage := usageFromEvent(event)
-	if usageInputTokens(usage) == 0 && r.fallbackInputTokens > 0 {
-		usage.InputTokens = r.fallbackInputTokens
-	}
+	usage := usageWithInputFloor(usageFromEvent(event), r.fallbackInputTokens)
 	// Claude Code observes message_start usage before message_delta arrives.
 	// Keep output at zero here so per-content-block progress tracking does not
 	// count the same completion tokens once per streamed block.
@@ -631,6 +625,13 @@ func (r *StreamReducer) usageForStart(event map[string]any) Usage {
 
 func usageInputTokens(usage Usage) int {
 	return usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens
+}
+
+func usageWithInputFloor(usage Usage, floor int) Usage {
+	if missing := floor - usageInputTokens(usage); missing > 0 {
+		usage.InputTokens += missing
+	}
+	return usage
 }
 
 func estimateVisibleOutputTokens(chars, visibleBlocks int) int {

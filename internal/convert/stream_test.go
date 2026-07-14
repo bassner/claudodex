@@ -128,6 +128,67 @@ func TestStreamReducerAddsFallbackInputUsageToMessageStart(t *testing.T) {
 	}
 }
 
+func TestStreamReducerUsesFullRequestEstimateAsInputFloor(t *testing.T) {
+	tests := []struct {
+		name           string
+		fallback       int
+		input          int
+		cacheRead      int
+		wantInput      int
+		wantTotalInput int
+	}{
+		{
+			name:           "resumed input below full request",
+			fallback:       61_962,
+			input:          1_000,
+			wantInput:      61_962,
+			wantTotalInput: 61_962,
+		},
+		{
+			name:           "cache accounting is preserved while filling the gap",
+			fallback:       258_400,
+			input:          35_614,
+			cacheRead:      185_344,
+			wantInput:      73_056,
+			wantTotalInput: 258_400,
+		},
+		{
+			name:           "upstream total above floor is unchanged",
+			fallback:       100_000,
+			input:          90_000,
+			cacheRead:      30_000,
+			wantInput:      90_000,
+			wantTotalInput: 120_000,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			event := map[string]any{
+				"response": map[string]any{
+					"usage": map[string]any{
+						"input_tokens":            test.input,
+						"cache_read_input_tokens": test.cacheRead,
+						"output_tokens":           7,
+					},
+				},
+			}
+			reducer := NewStreamReducerWithOptions("msg_1", "claude-opus-4-6", StreamReducerOptions{
+				FallbackInputTokens: test.fallback,
+			})
+
+			for phase, usage := range map[string]Usage{
+				"start":  reducer.usageForStart(event),
+				"finish": reducer.usageForFinish(event),
+			} {
+				if usage.InputTokens != test.wantInput || usage.CacheReadInputTokens != test.cacheRead || usageInputTokens(usage) != test.wantTotalInput {
+					t.Fatalf("%s usage = %#v, want input=%d cache_read=%d total=%d", phase, usage, test.wantInput, test.cacheRead, test.wantTotalInput)
+				}
+			}
+		})
+	}
+}
+
 func TestStreamReducerSupplementsOutputOnlyUsage(t *testing.T) {
 	reducer := NewStreamReducerWithOptions("msg_1", "claude-opus-4-6", StreamReducerOptions{
 		FallbackInputTokens: 456,

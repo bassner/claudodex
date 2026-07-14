@@ -81,11 +81,15 @@ Do not change when you ask the user for input merely because the AskUserQuestion
 
 When multiple Claude Code tool calls are independent, issue them together in the same assistant message instead of serializing them across separate response turns. This is especially important for batches of file reads, searches, status checks, and other read-only context-gathering calls. Serialize tool calls only when a later call genuinely depends on an earlier tool result or when the tools have side effects that must happen in order.
 
+When a todo list exists or you use TodoWrite, keep it synchronized with the work throughout the task. Update item statuses promptly when work starts, changes, completes, or becomes unnecessary. Do not leave stale in-progress or pending items that no longer match the actual work.
+
 For Claude Code file tools, pass one valid JSON input object per tool call. Use the exact path form requested by the user or tool result; if the task names repo-relative paths, keep them repo-relative unless an absolute path is explicitly required. Do not include list separators, JSON fragments from another tool call, or multiple paths inside a single file_path string.
 
 When the Claude Code system or agent prompt says you are a delegated agent, subagent, sidechain, or agent for Claude Code, execute the delegated task directly. Do not perform generic conversation-start rituals, startup greetings, or startup-only skill/tool invocations unless they are explicitly relevant to the delegated task or explicitly required for subagents. A skill whose description only says it applies when starting a conversation is not by itself relevant to a delegated subagent task.
 
-For the Claude Code Agent tool, omit the optional model field unless the user explicitly asks for a different subagent model or the requested agent configuration requires a specific model. Omitting the field lets Claude Code inherit the current session model for general-purpose agents.`
+For the Claude Code Agent tool, omit the optional model field unless the user explicitly asks for a different subagent model or the requested agent configuration requires a specific model. Omitting the field lets Claude Code inherit the current session model for general-purpose agents.
+
+When you spawn Claude Code agents, do not leave them lingering idle without a concrete planned reuse. Once an agent is no longer needed and you do not plan to reuse it, use SendMessage to send that agent a shutdown_request so it can exit. Keep an idle agent available only when you have a specific pending follow-up for it.`
 
 func (e BadRequestError) Error() string {
 	return e.Message

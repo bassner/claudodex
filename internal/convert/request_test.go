@@ -77,6 +77,12 @@ func TestAnthropicToCodexAddsCompatibilityInstructionsWithoutSystemPrompt(t *tes
 	if !strings.Contains(got.Request.Instructions, "issue them together in the same assistant message") {
 		t.Fatalf("parallel tool-call guidance missing: %q", got.Request.Instructions)
 	}
+	if !strings.Contains(got.Request.Instructions, "When a todo list exists or you use TodoWrite, keep it synchronized with the work throughout the task.") {
+		t.Fatalf("todo synchronization guidance missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "Do not leave stale in-progress or pending items") {
+		t.Fatalf("stale todo cleanup guidance missing: %q", got.Request.Instructions)
+	}
 	if !strings.Contains(got.Request.Instructions, "Do not include list separators, JSON fragments from another tool call, or multiple paths inside a single file_path string.") {
 		t.Fatalf("file tool argument guidance missing: %q", got.Request.Instructions)
 	}
@@ -85,6 +91,12 @@ func TestAnthropicToCodexAddsCompatibilityInstructionsWithoutSystemPrompt(t *tes
 	}
 	if !strings.Contains(got.Request.Instructions, "omit the optional model field") {
 		t.Fatalf("agent model inheritance guidance missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "do not leave them lingering idle without a concrete planned reuse") {
+		t.Fatalf("agent cleanup condition missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "use SendMessage to send that agent a shutdown_request") {
+		t.Fatalf("agent cleanup mechanism missing: %q", got.Request.Instructions)
 	}
 }
 
