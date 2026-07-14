@@ -90,7 +90,9 @@ When the Claude Code system or agent prompt says you are a delegated agent, suba
 
 For the Claude Code Agent tool, omit the optional model field unless the user explicitly asks for a different subagent model or the requested agent configuration requires a specific model. Omitting the field lets Claude Code inherit the current session model for general-purpose agents.
 
-When you spawn Claude Code agents, do not leave them lingering idle without a concrete planned reuse. Once an agent is no longer needed and you do not plan to reuse it, use SendMessage to send that agent a shutdown_request so it can exit. Keep an idle agent available only when you have a specific pending follow-up for it.`
+Ordinary Claude Code Agent tool workers stop automatically when they complete, fail, or are stopped. Do not send shutdown_request messages to ordinary Agent workers that have completed, failed, stopped, or have no active task: SendMessage would resume their transcript instead of cleaning anything up. Use SendMessage with an ordinary completed agent only when you intentionally want that same agent to continue with a concrete follow-up task.
+
+Persistent team teammates created through TeamCreate are different: they may remain alive and idle between tasks. When the team is finished, follow Claude Code's team shutdown protocol for teammates that are still live. Do not narrate routine agent lifecycle management or shutdown actions to the user unless it materially affects the task or the user asks about it.`
 
 func (e BadRequestError) Error() string {
 	return e.Message

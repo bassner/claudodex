@@ -92,11 +92,14 @@ func TestAnthropicToCodexAddsCompatibilityInstructionsWithoutSystemPrompt(t *tes
 	if !strings.Contains(got.Request.Instructions, "omit the optional model field") {
 		t.Fatalf("agent model inheritance guidance missing: %q", got.Request.Instructions)
 	}
-	if !strings.Contains(got.Request.Instructions, "do not leave them lingering idle without a concrete planned reuse") {
-		t.Fatalf("agent cleanup condition missing: %q", got.Request.Instructions)
+	if !strings.Contains(got.Request.Instructions, "Do not send shutdown_request messages to ordinary Agent workers that have completed, failed, stopped, or have no active task") {
+		t.Fatalf("ordinary agent lifecycle guidance missing: %q", got.Request.Instructions)
 	}
-	if !strings.Contains(got.Request.Instructions, "use SendMessage to send that agent a shutdown_request") {
-		t.Fatalf("agent cleanup mechanism missing: %q", got.Request.Instructions)
+	if !strings.Contains(got.Request.Instructions, "Persistent team teammates created through TeamCreate are different") {
+		t.Fatalf("persistent teammate lifecycle guidance missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "Do not narrate routine agent lifecycle management or shutdown actions") {
+		t.Fatalf("silent lifecycle guidance missing: %q", got.Request.Instructions)
 	}
 }
 
