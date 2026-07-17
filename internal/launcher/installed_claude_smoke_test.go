@@ -155,6 +155,8 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 		brandingReplacements = claude209UIBrandingReplacements
 	case "2.1.211":
 		brandingReplacements = claude211UIBrandingReplacements
+	case "2.1.212":
+		brandingReplacements = claude212UIBrandingReplacements
 	}
 	for _, replacement := range brandingReplacements {
 		if bytes.Contains(data, []byte(replacement.old)) {

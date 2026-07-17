@@ -21,7 +21,7 @@ import (
 
 const (
 	claudodexPatchedClaudeDirName = "patched-claude"
-	claudodexPatchSchemaVersion   = "claude-ui-patch-v52"
+	claudodexPatchSchemaVersion   = "claude-ui-patch-v53"
 )
 
 var (
@@ -40,6 +40,7 @@ type claudeUIPatchSpec struct {
 }
 
 var claudeUIPatches = []claudeUIPatchSpec{
+	claudeUIPatch_2_1_212,
 	claudeUIPatch_2_1_211,
 	claudeUIPatch_2_1_209,
 	claudeUIPatch_2_1_208,
@@ -208,7 +209,7 @@ func detectClaudeVersion(ctx context.Context, claudePath string) string {
 			return base
 		}
 	}
-	versionCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	versionCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	output, err := exec.CommandContext(versionCtx, claudePath, "--version").Output()
 	if err != nil {
