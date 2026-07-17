@@ -700,7 +700,15 @@ claude `,
 }
 
 func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
-	patch := findClaudeUIPatch("2.1.209", "59d2de7f49db2f75d5c33bbb46a6b8f288ad24d40b61e30602a502bb7ddc380c")
+	patch := findClaudeUIPatch("2.1.211", "5a728a76198b6eca7f3c7cdbff43bab44b77b48c2108f7a3107d889773382629")
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		if patch == nil {
+			t.Fatal("expected local verified 2.1.211 darwin/arm64 patch to match")
+		}
+	} else if patch != nil {
+		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+	patch = findClaudeUIPatch("2.1.209", "59d2de7f49db2f75d5c33bbb46a6b8f288ad24d40b61e30602a502bb7ddc380c")
 	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
 		if patch == nil {
 			t.Fatal("expected local verified 2.1.209 darwin/arm64 patch to match")
@@ -818,6 +826,9 @@ func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 	if got := findClaudeUIPatch("2.1.209", "051c7f28871b158132ac03a6140f2f2ab4046b18ecc4f7a91a2ac4d54774551e"); got != nil {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
+	if got := findClaudeUIPatch("2.1.211", "59d2de7f49db2f75d5c33bbb46a6b8f288ad24d40b61e30602a502bb7ddc380c"); got != nil {
+		t.Fatalf("patch matched unsupported sha: %#v", got)
+	}
 	if got := findClaudeUIPatch("2.1.153", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); got != nil {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
@@ -845,6 +856,22 @@ func TestClaude209UIBrandingReplacements(t *testing.T) {
 				t.Fatalf("patched data missing replacement %q", replacement.replacement)
 			}
 		})
+	}
+}
+
+func TestClaude211UIBrandingReplacements(t *testing.T) {
+	for _, replacement := range claude211UIBrandingReplacements {
+		data := []byte(strings.Repeat(replacement.old+"\x00", replacement.expectedCount))
+		originalLength := len(data)
+		if !validateClaude209UIBrandingReplacements(data, []claude209UIBrandingReplacement{replacement}) {
+			t.Fatalf("valid exact-count replacement failed validation: %q", replacement.old)
+		}
+		if !applyClaude209UIBrandingReplacements(data, []claude209UIBrandingReplacement{replacement}) {
+			t.Fatalf("valid exact-count replacement was not applied: %q", replacement.old)
+		}
+		if len(data) != originalLength {
+			t.Fatalf("patched length = %d, want %d for %q", len(data), originalLength, replacement.old)
+		}
 	}
 }
 

@@ -149,14 +149,19 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 			t.Fatalf("patched installed Claude missing %q for version=%s sha=%s", want, claudeVersion, sourceSHA)
 		}
 	}
-	if claudeVersion == "2.1.209" {
-		for _, replacement := range claude209UIBrandingReplacements {
-			if bytes.Contains(data, []byte(replacement.old)) {
-				t.Fatalf("patched installed Claude retained %q for version=%s sha=%s", replacement.old, claudeVersion, sourceSHA)
-			}
-			if !bytes.Contains(data, []byte(replacement.replacement)) {
-				t.Fatalf("patched installed Claude missing %q for version=%s sha=%s", replacement.replacement, claudeVersion, sourceSHA)
-			}
+	var brandingReplacements []claude209UIBrandingReplacement
+	switch claudeVersion {
+	case "2.1.209":
+		brandingReplacements = claude209UIBrandingReplacements
+	case "2.1.211":
+		brandingReplacements = claude211UIBrandingReplacements
+	}
+	for _, replacement := range brandingReplacements {
+		if bytes.Contains(data, []byte(replacement.old)) {
+			t.Fatalf("patched installed Claude retained %q for version=%s sha=%s", replacement.old, claudeVersion, sourceSHA)
+		}
+		if !bytes.Contains(data, []byte(replacement.replacement)) {
+			t.Fatalf("patched installed Claude missing %q for version=%s sha=%s", replacement.replacement, claudeVersion, sourceSHA)
 		}
 	}
 }

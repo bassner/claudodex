@@ -611,15 +611,18 @@ func convertOutputFormat(raw json.RawMessage) *codex.TextConfig {
 		if strings.TrimSpace(name) == "" {
 			name = "claudodex_response"
 		}
-		strict := true
+		// Claude output schemas may intentionally leave properties optional.
+		// Preserve an omitted strict flag: Codex defaults it to false, while
+		// forcing true requires every property to appear in required.
+		var strict *bool
 		if provided, ok := obj["strict"].(bool); ok {
-			strict = provided
+			strict = &provided
 		}
 		return &codex.TextConfig{Format: &codex.TextFormat{
 			Type:   "json_schema",
 			Name:   name,
 			Schema: cloneMap(schema),
-			Strict: &strict,
+			Strict: strict,
 		}}
 	case "json_object":
 		return &codex.TextConfig{Format: &codex.TextFormat{Type: "json_object"}}

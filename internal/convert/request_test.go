@@ -2,6 +2,7 @@ package convert
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -358,11 +359,69 @@ func TestAnthropicToCodexMapsStructuredOutputFormat(t *testing.T) {
 		t.Fatalf("text format missing: %#v", got.Request.Text)
 	}
 	format := got.Request.Text.Format
-	if format.Type != "json_schema" || format.Name != "claudodex_response" || format.Strict == nil || *format.Strict != true {
+	if format.Type != "json_schema" || format.Name != "claudodex_response" || format.Strict != nil {
 		t.Fatalf("format = %#v", format)
 	}
 	if format.Schema["type"] != "object" {
 		t.Fatalf("schema = %#v", format.Schema)
+	}
+}
+
+func TestAnthropicToCodexPreservesOptionalStructuredOutputProperties(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-haiku-4-5",
+		"output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"ok":{"type":"boolean"},"reason":{"type":"string"},"impossible":{"type":"boolean"}},"required":["ok","reason"],"additionalProperties":false}}},
+		"messages":[{"role":"user","content":"evaluate the hook"}]
+	}`)
+	var req AnthropicRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := AnthropicToCodex(req, ConvertOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	format := got.Request.Text.Format
+	if format.Strict != nil {
+		t.Fatalf("unspecified strict flag was invented: %#v", format.Strict)
+	}
+	required, ok := format.Schema["required"].([]any)
+	if !ok || len(required) != 2 || required[0] != "ok" || required[1] != "reason" {
+		t.Fatalf("required = %#v", format.Schema["required"])
+	}
+	properties, ok := format.Schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties = %#v", format.Schema["properties"])
+	}
+	if _, ok := properties["impossible"]; !ok {
+		t.Fatalf("optional impossible property was removed: %#v", properties)
+	}
+	encoded, err := json.Marshal(got.Request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), `"strict"`) {
+		t.Fatalf("unspecified strict flag serialized: %s", encoded)
+	}
+}
+
+func TestAnthropicToCodexPreservesExplicitStructuredOutputStrictFlag(t *testing.T) {
+	for _, strict := range []bool{false, true} {
+		body := fmt.Sprintf(`{
+			"output_config":{"format":{"type":"json_schema","strict":%t,"schema":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"]}}},
+			"messages":[{"role":"user","content":"hello"}]
+		}`, strict)
+		var req AnthropicRequest
+		if err := json.Unmarshal([]byte(body), &req); err != nil {
+			t.Fatal(err)
+		}
+		got, err := AnthropicToCodex(req, ConvertOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Request.Text.Format.Strict == nil || *got.Request.Text.Format.Strict != strict {
+			t.Fatalf("strict %t mapped to %#v", strict, got.Request.Text.Format.Strict)
+		}
 	}
 }
 

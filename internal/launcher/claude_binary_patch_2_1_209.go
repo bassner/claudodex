@@ -21,6 +21,7 @@ type claude209UIBrandingReplacement struct {
 }
 
 var claude209UIBrandingReplacements = []claude209UIBrandingReplacement{
+	{`https://status.claude.com`, `https://status.openai.com`, 2},
 	{`Welcome to Claude Code for `, `Welcome to Claudodex for `, 2},
 	{`Welcome to Claude Code`, `Welcome to Claudodex`, 10},
 	{`No, and tell Claude what to do differently `, `No, and tell Codex what to do differently `, 4},
