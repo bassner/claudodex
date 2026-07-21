@@ -5,13 +5,13 @@ event: response.reasoning_summary_text.delta
 data: {"type":"response.reasoning_summary_text.delta","delta":"hidden"}
 
 event: response.output_item.added
-data: {"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"msg_item"}}
+data: {"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"msg_item","phase":"commentary"}}
 
 event: response.output_text.delta
 data: {"type":"response.output_text.delta","delta":"hello"}
 
 event: response.output_item.done
-data: {"type":"response.output_item.done","output_index":1,"item":{"type":"message","id":"msg_item","content":[{"type":"output_text","text":"hello"}]}}
+data: {"type":"response.output_item.done","output_index":1,"item":{"type":"message","id":"msg_item","phase":"commentary","content":[{"type":"output_text","text":"hello"}]}}
 
 event: response.output_item.added
 data: {"type":"response.output_item.added","output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_read","name":"read_file"}}
@@ -27,4 +27,3 @@ data: {"type":"response.output_item.done","output_index":2,"item":{"type":"funct
 
 event: response.completed
 data: {"type":"response.completed","response":{"stop_reason":"tool_calls","usage":{"input_tokens":20,"input_tokens_details":{"cached_tokens":5},"output_tokens":7}}}
-

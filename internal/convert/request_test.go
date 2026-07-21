@@ -40,6 +40,18 @@ func TestAnthropicToCodexStripsBillingAndMapsMaxEffort(t *testing.T) {
 	if !strings.Contains(got.Request.Instructions, "Treat the follow-up after tool results as a continuation of the same request") {
 		t.Fatalf("compatibility instructions missing: %q", got.Request.Instructions)
 	}
+	if !strings.Contains(got.Request.Instructions, "share intermediate user-visible updates in the commentary channel, and return the terminal response in the final channel") {
+		t.Fatalf("commentary channel guidance missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "start with a brief message in the commentary channel explaining what you are about to do") {
+		t.Fatalf("pre-tool commentary guidance missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "Do not issue the first tool call for a user turn until you have emitted at least one non-empty commentary message") {
+		t.Fatalf("first-tool commentary guard missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "never send updates merely because time has elapsed") {
+		t.Fatalf("commentary cadence guard missing: %q", got.Request.Instructions)
+	}
 	if !strings.Contains(got.Request.Instructions, "the follow-up after tool results must not greet again or restart the conversation") {
 		t.Fatalf("same-turn greeting guard missing: %q", got.Request.Instructions)
 	}
