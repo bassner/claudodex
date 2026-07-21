@@ -47,8 +47,9 @@ type OutputConfig struct {
 }
 
 type ConvertOptions struct {
-	SessionID string
-	Models    modelconfig.Config
+	SessionID   string
+	Models      modelconfig.Config
+	CodexModels []codex.ModelInfo
 }
 
 type Result struct {
@@ -139,6 +140,10 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		subagent = "collab_spawn"
 	}
 	effort := MapReasoningEffortWithConfig(codexModel, req.OutputConfig.Effort, req.Thinking.BudgetTokens, models)
+	reasoning := &codex.Reasoning{Effort: string(effort)}
+	if requestsThinking(req.Thinking) && supportsReasoningSummaries(opts.CodexModels, codexModel) {
+		reasoning.Summary = "detailed"
+	}
 	out := codex.Request{
 		Model:             codexModel,
 		Instructions:      withClaudeCodeCompatibilityInstructions(instructions, isSubagent && !isTeamTeammate),
@@ -148,8 +153,9 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		ParallelToolCalls: true,
 		Store:             false,
 		Stream:            true,
+		Include:           []string{"reasoning.encrypted_content"},
 		ServiceTier:       mapServiceTier(req.Speed),
-		Reasoning:         &codex.Reasoning{Effort: string(effort)},
+		Reasoning:         reasoning,
 		Text:              convertOutputFormat(req.OutputConfig.Format),
 		PromptCacheKey:    routeSessionID,
 	}
@@ -162,6 +168,24 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		ParentThreadID: parentThreadID,
 		Subagent:       subagent,
 	}, nil
+}
+
+func requestsThinking(thinking AnthropicThinking) bool {
+	switch strings.ToLower(strings.TrimSpace(thinking.Type)) {
+	case "adaptive", "enabled":
+		return true
+	default:
+		return thinking.BudgetTokens > 0
+	}
+}
+
+func supportsReasoningSummaries(models []codex.ModelInfo, slug string) bool {
+	for _, model := range models {
+		if strings.EqualFold(strings.TrimSpace(model.Slug), strings.TrimSpace(slug)) {
+			return model.SupportsReasoningSummaries
+		}
+	}
+	return false
 }
 
 func mapServiceTier(speed string) string {

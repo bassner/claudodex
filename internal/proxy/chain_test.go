@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/bassner/claudodex/internal/codex"
@@ -116,4 +117,68 @@ func TestImplicitResumeAllowsToolSetChangesAndTrimsAfterRecordedCalls(t *testing
 	if len(current.Input) != 1 || current.Input[0].Type != "function_call_output" || current.Input[0].CallID != "call_glob" {
 		t.Fatalf("incremental input = %#v", current.Input)
 	}
+}
+
+func TestStatelessReplayPreservesEncryptedReasoningPhaseAndOrder(t *testing.T) {
+	server := New(Config{})
+	previous := codex.Request{
+		Model:   "gpt-5.6-terra",
+		Input:   []codex.InputItem{{Type: "message", Role: "user", Content: []codex.ContentPart{{Type: "input_text", Text: "inspect"}}}},
+		Include: []string{"reasoning.encrypted_content"},
+		Stream:  true,
+		Store:   false,
+	}
+	var reasoning codex.InputItem
+	if err := json.Unmarshal([]byte(`{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"display only"}],"encrypted_content":"opaque-reasoning"}`), &reasoning); err != nil {
+		t.Fatal(err)
+	}
+	var commentary codex.InputItem
+	if err := json.Unmarshal([]byte(`{"id":"msg_1","type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Checking."}]}`), &commentary); err != nil {
+		t.Fatal(err)
+	}
+	call := codex.InputItem{Type: "function_call", CallID: "call_1", Name: "Bash", Arguments: `{"command":"pwd"}`}
+	server.recordResponseChain("main-session", previous, responseTrace{
+		ResponseID: "resp_1",
+		Output:     []codex.InputItem{reasoning, commentary, call},
+	})
+
+	current := previous
+	current.Input = append(append([]codex.InputItem(nil), previous.Input...),
+		codex.InputItem{Type: "message", Role: "assistant", Content: []codex.ContentPart{{Type: "output_text", Text: "Checking."}}},
+		call,
+		codex.InputItem{Type: "function_call_output", CallID: "call_1", Output: "/repo"},
+	)
+	used, reason, _, _ := server.applyStatelessReplayDetailed("main-session", &current)
+	if !used || reason != "applied" {
+		t.Fatalf("stateless replay = %v reason %q", used, reason)
+	}
+	if len(current.Input) != 5 {
+		t.Fatalf("replayed input = %#v", current.Input)
+	}
+	for index, wantType := range []string{"message", "reasoning", "message", "function_call", "function_call_output"} {
+		if current.Input[index].Type != wantType {
+			t.Fatalf("input[%d].type = %q, want %q", index, current.Input[index].Type, wantType)
+		}
+	}
+	encoded, err := json.Marshal(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsAll(string(encoded), `"encrypted_content":"opaque-reasoning"`, `"phase":"commentary"`) {
+		t.Fatalf("replay lost opaque reasoning or phase: %s", encoded)
+	}
+	if strings.Contains(string(encoded), openAIReasoningSummarySignatureForTest) {
+		t.Fatalf("synthetic Claude thinking signature leaked into OpenAI replay: %s", encoded)
+	}
+}
+
+const openAIReasoningSummarySignatureForTest = "claudodex_openai_reasoning_summary"
+
+func containsAll(value string, wants ...string) bool {
+	for _, want := range wants {
+		if !strings.Contains(value, want) {
+			return false
+		}
+	}
+	return true
 }

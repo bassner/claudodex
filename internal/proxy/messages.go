@@ -51,8 +51,9 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	sessionID := sessionIDFromRequest(r)
 	result, err := convert.AnthropicToCodex(anthropicReq, convert.ConvertOptions{
-		SessionID: sessionID,
-		Models:    s.cfg.ModelConfig,
+		SessionID:   sessionID,
+		Models:      s.cfg.ModelConfig,
+		CodexModels: s.cfg.Models,
 	})
 	if err != nil {
 		var bad convert.BadRequestError
@@ -87,14 +88,28 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		"claude_auto_compact_window": os.Getenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW"),
 		"claude_max_context_tokens":  os.Getenv("CLAUDE_CODE_MAX_CONTEXT_TOKENS"),
 	}
+	replayedStateless, replayReason, replayTrimItems, replayInputItems := s.applyStatelessReplayDetailed(chainKey, &fullRequest)
 	usedImplicitResume := false
 	resumeReason := "not_attempted"
 	resumePrefixItems := 0
 	resumeInputItems := len(upstreamRequest.Input)
-	if strings.TrimSpace(route.Subagent) != "" || s.hasWebSocket(chainKey) {
+	// A previous_response_id is safe for store:false only while continuing the
+	// same live WebSocket conversation. Across ordinary HTTP requests, replay
+	// the complete response item sequence, including encrypted reasoning.
+	if s.hasWebSocket(chainKey) {
 		usedImplicitResume, resumeReason, resumePrefixItems, resumeInputItems = s.applyImplicitResumeDetailed(chainKey, &upstreamRequest)
+	} else {
+		resumeReason = "no_live_websocket"
+	}
+	if !usedImplicitResume {
+		upstreamRequest = fullRequest
+		resumeInputItems = len(upstreamRequest.Input)
 	}
 	traceBase = mergeTraceFields(traceBase, map[string]any{
+		"stateless_replay":     replayedStateless,
+		"replay_reason":        replayReason,
+		"replay_trim_items":    replayTrimItems,
+		"replay_input_items":   replayInputItems,
 		"implicit_resume":      usedImplicitResume,
 		"resume_reason":        resumeReason,
 		"resume_prefix_items":  resumePrefixItems,

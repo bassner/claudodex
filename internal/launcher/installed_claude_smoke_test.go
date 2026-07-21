@@ -36,7 +36,7 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 	var captured map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/codex/models" {
-			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-5.6-sol","context_window":372000},{"slug":"gpt-5.6-terra","context_window":372000},{"slug":"gpt-5.6-luna","context_window":372000}]}`)
+			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-5.6-sol","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-5.6-terra","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-5.6-luna","context_window":372000,"supports_reasoning_summaries":true}]}`)
 			return
 		}
 		if r.URL.Path != "/codex/responses" {
@@ -56,6 +56,18 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 		_, _ = w.Write([]byte(strings.Join([]string{
 			`event: response.created`,
 			`data: {"type":"response.created","response":{"id":"resp_smoke"}}`,
+			``,
+			`event: response.reasoning_summary_part.added`,
+			`data: {"type":"response.reasoning_summary_part.added","item_id":"reasoning_smoke","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":""}}`,
+			``,
+			`event: response.reasoning_summary_text.delta`,
+			`data: {"type":"response.reasoning_summary_text.delta","item_id":"reasoning_smoke","output_index":0,"summary_index":0,"delta":"OpenAI summary smoke"}`,
+			``,
+			`event: response.reasoning_summary_part.added`,
+			`data: {"type":"response.reasoning_summary_part.added","item_id":"reasoning_smoke","output_index":0,"summary_index":1,"part":{"type":"summary_text","text":""}}`,
+			``,
+			`event: response.reasoning_summary_text.delta`,
+			`data: {"type":"response.reasoning_summary_text.delta","item_id":"reasoning_smoke","output_index":0,"summary_index":1,"delta":"Second summary paragraph"}`,
 			``,
 			`event: response.output_item.added`,
 			`data: {"type":"response.output_item.added","item":{"type":"message","id":"item_smoke"}}`,
@@ -84,6 +96,9 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 		"--model", "claude-sonnet-4-6",
 		"--dangerously-skip-permissions",
 		"--max-turns", "1",
+		"--output-format", "stream-json",
+		"--verbose",
+		"--include-partial-messages",
 	}, Config{
 		Version:      "smoke",
 		Stdin:        strings.NewReader(""),
@@ -101,6 +116,9 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 	if !strings.Contains(stdout.String(), "ok") {
 		t.Fatalf("stdout did not include model output\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
 	}
+	if !strings.Contains(stdout.String(), `"type":"thinking"`) || !strings.Contains(stdout.String(), `OpenAI summary smoke\n\nSecond summary paragraph`) {
+		t.Fatalf("installed Claude did not accept and expose the native thinking block\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
 	if strings.Contains(stderr.String(), "no verified UI patch") || strings.Contains(stderr.String(), "unpatched Claude Code UI") {
 		t.Fatalf("installed Claude launched without its verified UI patch\nstderr:\n%s", stderr.String())
 	}
@@ -108,6 +126,7 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 		t.Fatalf("upstream model = %#v, want gpt-5.6-terra; request=%#v", captured["model"], captured)
 	}
 	assertCapturedReasoningEffort(t, captured, "max")
+	assertCapturedReasoningSummary(t, captured, "detailed")
 	instructions, _ := captured["instructions"].(string)
 	if !strings.Contains(instructions, "the follow-up after tool results must not greet again or restart the conversation") {
 		t.Fatalf("installed Claude request is missing Claudodex same-turn greeting guard; instructions=%q request=%#v", instructions, captured)
@@ -419,5 +438,13 @@ func assertCapturedReasoningEffort(t *testing.T, captured map[string]any, want s
 	reasoning, _ := captured["reasoning"].(map[string]any)
 	if reasoning["effort"] != want {
 		t.Fatalf("reasoning.effort = %#v, want %q; request=%#v", reasoning["effort"], want, captured)
+	}
+}
+
+func assertCapturedReasoningSummary(t *testing.T, captured map[string]any, want string) {
+	t.Helper()
+	reasoning, _ := captured["reasoning"].(map[string]any)
+	if reasoning["summary"] != want {
+		t.Fatalf("reasoning.summary = %#v, want %q; request=%#v", reasoning["summary"], want, captured)
 	}
 }

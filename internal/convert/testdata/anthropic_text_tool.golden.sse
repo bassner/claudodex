@@ -2,29 +2,40 @@ event: message_start
 data: {"message":{"content":[],"id":"resp_golden","model":"claude-sonnet-4-6","role":"assistant","stop_reason":null,"stop_sequence":null,"type":"message","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}},"type":"message_start"}
 
 event: content_block_start
-data: {"content_block":{"text":"","type":"text"},"index":0,"type":"content_block_start"}
+data: {"content_block":{"signature":"","thinking":"","type":"thinking"},"index":0,"type":"content_block_start"}
 
 event: content_block_delta
-data: {"delta":{"text":"hello","type":"text_delta"},"index":0,"type":"content_block_delta"}
+data: {"delta":{"thinking":"hidden","type":"thinking_delta"},"index":0,"type":"content_block_delta"}
+
+event: content_block_delta
+data: {"delta":{"signature":"claudodex_openai_reasoning_summary","type":"signature_delta"},"index":0,"type":"content_block_delta"}
 
 event: content_block_stop
 data: {"index":0,"type":"content_block_stop"}
 
 event: content_block_start
-data: {"content_block":{"id":"call_read","input":{},"name":"read_file","type":"tool_use"},"index":1,"type":"content_block_start"}
+data: {"content_block":{"text":"","type":"text"},"index":1,"type":"content_block_start"}
 
 event: content_block_delta
-data: {"delta":{"partial_json":"{\"path\"","type":"input_json_delta"},"index":1,"type":"content_block_delta"}
-
-event: content_block_delta
-data: {"delta":{"partial_json":":\"README.md\"}","type":"input_json_delta"},"index":1,"type":"content_block_delta"}
+data: {"delta":{"text":"hello","type":"text_delta"},"index":1,"type":"content_block_delta"}
 
 event: content_block_stop
 data: {"index":1,"type":"content_block_stop"}
+
+event: content_block_start
+data: {"content_block":{"id":"call_read","input":{},"name":"read_file","type":"tool_use"},"index":2,"type":"content_block_start"}
+
+event: content_block_delta
+data: {"delta":{"partial_json":"{\"path\"","type":"input_json_delta"},"index":2,"type":"content_block_delta"}
+
+event: content_block_delta
+data: {"delta":{"partial_json":":\"README.md\"}","type":"input_json_delta"},"index":2,"type":"content_block_delta"}
+
+event: content_block_stop
+data: {"index":2,"type":"content_block_stop"}
 
 event: message_delta
 data: {"delta":{"stop_reason":"tool_use","stop_sequence":null},"type":"message_delta","usage":{"input_tokens":15,"cache_creation_input_tokens":0,"cache_read_input_tokens":5,"output_tokens":7}}
 
 event: message_stop
 data: {"type":"message_stop"}
-

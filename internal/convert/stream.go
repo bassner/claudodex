@@ -33,6 +33,12 @@ type StreamReducer struct {
 	textActive          bool
 	textIndex           int
 	textSawDelta        bool
+	thinkingActive      bool
+	thinkingIndex       int
+	thinkingSawDelta    bool
+	thinkingSawSummary  bool
+	thinkingSummaryPart int
+	thinkingEndsBold    bool
 	visibleBlocks       int
 	outputChars         int
 	toolByOutput        map[int]*toolStreamState
@@ -80,6 +86,8 @@ func NewStreamReducerWithOptions(messageID, model string, opts StreamReducerOpti
 		toolSchemas:         cloneToolSchemas(opts.ToolSchemas),
 		fallbackInputTokens: opts.FallbackInputTokens,
 		textIndex:           -1,
+		thinkingIndex:       -1,
+		thinkingSummaryPart: -1,
 		toolByOutput:        map[int]*toolStreamState{},
 		toolByItemID:        map[string]*toolStreamState{},
 		toolByCallID:        map[string]*toolStreamState{},
@@ -146,13 +154,31 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 		item, _ := event["item"].(map[string]any)
 		switch itemType(item) {
 		case "message", "output_text":
+			events = append(events, r.stopThinkingBlock()...)
 			events = append(events, r.ensureTextBlock()...)
 		case "function_call", "output_tool_call":
+			events = append(events, r.stopThinkingBlock()...)
 			events = append(events, r.ensureToolBlock(event, item)...)
+		}
+	case "response.reasoning_summary_text.delta":
+		delta := stringField(event["delta"])
+		if delta != "" {
+			events = append(events, r.appendThinkingSummary(delta, intField(event["summary_index"], 0))...)
+			r.thinkingSawDelta = true
+		}
+	case "response.reasoning_summary_part.added":
+		events = append(events, r.startThinkingSummaryPart(intField(event["summary_index"], 0))...)
+	case "response.reasoning_summary_text.done":
+		if !r.thinkingSawDelta {
+			text := stringField(event["text"])
+			if text != "" {
+				events = append(events, r.appendThinkingSummary(text, intField(event["summary_index"], 0))...)
+			}
 		}
 	case "response.output_text.delta":
 		text := stringField(event["delta"])
 		if text != "" {
+			events = append(events, r.stopThinkingBlock()...)
 			events = append(events, r.ensureTextBlock()...)
 			events = append(events, contentBlockDelta(r.textIndex, map[string]any{
 				"type": "text_delta",
@@ -164,6 +190,7 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 	case "response.output_text.done":
 		events = append(events, r.stopTextBlock()...)
 	case "response.function_call_arguments.delta":
+		events = append(events, r.stopThinkingBlock()...)
 		state := r.toolStateForEvent(event)
 		events = append(events, r.startToolState(state)...)
 		delta := stringField(event["delta"])
@@ -180,6 +207,7 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 			}
 		}
 	case "response.function_call_arguments.done":
+		events = append(events, r.stopThinkingBlock()...)
 		state := r.toolStateForEvent(event)
 		events = append(events, r.startToolState(state)...)
 		if args := stringField(event["arguments"]); args != "" && !state.sawDelta {
@@ -197,9 +225,15 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 	case "response.output_item.done":
 		item, _ := event["item"].(map[string]any)
 		switch itemType(item) {
+		case "reasoning":
+			if !r.thinkingSawSummary {
+				events = append(events, r.appendReasoningItemSummary(item)...)
+			}
 		case "message", "output_text":
+			events = append(events, r.stopThinkingBlock()...)
 			events = append(events, r.finishMessageItem(item)...)
 		case "function_call", "output_tool_call":
+			events = append(events, r.stopThinkingBlock()...)
 			state := r.toolStateForItem(event, item)
 			events = append(events, r.startToolState(state)...)
 			if args := stringField(item["arguments"]); args != "" && !state.sawDelta {
@@ -278,6 +312,98 @@ func (r *StreamReducer) ensureTextBlock() []AnthropicSSE {
 			"content_block": map[string]any{"type": "text", "text": ""},
 		},
 	}}
+}
+
+const openAIReasoningSummarySignature = "claudodex_openai_reasoning_summary"
+
+func (r *StreamReducer) appendThinkingSummary(text string, summaryPart int) []AnthropicSSE {
+	if text == "" || r.textActive || r.toolBlocks > 0 || r.visibleBlocks > 0 {
+		return nil
+	}
+	var events []AnthropicSSE
+	if !r.thinkingActive {
+		r.thinkingIndex = r.nextIndex
+		r.nextIndex++
+		r.thinkingActive = true
+		r.thinkingSummaryPart = summaryPart
+		events = append(events, AnthropicSSE{
+			Event: "content_block_start",
+			Data: map[string]any{
+				"type":  "content_block_start",
+				"index": r.thinkingIndex,
+				"content_block": map[string]any{
+					"type":      "thinking",
+					"thinking":  "",
+					"signature": "",
+				},
+			},
+		})
+	} else if summaryPart > r.thinkingSummaryPart {
+		text = "\n\n" + text
+		r.thinkingSummaryPart = summaryPart
+	}
+	text = r.formatThinkingSummaryDelta(text)
+	events = append(events, contentBlockDelta(r.thinkingIndex, map[string]any{
+		"type":     "thinking_delta",
+		"thinking": text,
+	}))
+	r.thinkingSawSummary = true
+	r.outputChars += len(text)
+	return events
+}
+
+func (r *StreamReducer) formatThinkingSummaryDelta(text string) string {
+	if r.thinkingEndsBold && strings.HasPrefix(text, "**") {
+		text = "\n\n" + text
+	}
+	text = strings.ReplaceAll(text, "****", "**\n\n**")
+	r.thinkingEndsBold = strings.HasSuffix(strings.TrimSpace(text), "**")
+	return text
+}
+
+func (r *StreamReducer) startThinkingSummaryPart(summaryPart int) []AnthropicSSE {
+	if !r.thinkingActive || summaryPart <= r.thinkingSummaryPart {
+		return nil
+	}
+	r.thinkingSummaryPart = summaryPart
+	r.thinkingEndsBold = false
+	r.outputChars += 2
+	return []AnthropicSSE{contentBlockDelta(r.thinkingIndex, map[string]any{
+		"type":     "thinking_delta",
+		"thinking": "\n\n",
+	})}
+}
+
+func (r *StreamReducer) appendReasoningItemSummary(item map[string]any) []AnthropicSSE {
+	var events []AnthropicSSE
+	summary, _ := item["summary"].([]any)
+	for index, raw := range summary {
+		part, _ := raw.(map[string]any)
+		if text := stringField(part["text"]); text != "" {
+			events = append(events, r.appendThinkingSummary(text, index)...)
+		}
+	}
+	return events
+}
+
+func (r *StreamReducer) stopThinkingBlock() []AnthropicSSE {
+	if !r.thinkingActive {
+		return nil
+	}
+	index := r.thinkingIndex
+	r.thinkingActive = false
+	r.thinkingIndex = -1
+	r.visibleBlocks++
+	return []AnthropicSSE{
+		contentBlockDelta(index, map[string]any{
+			"type":      "signature_delta",
+			"signature": openAIReasoningSummarySignature,
+		}),
+		{
+			Event: "content_block_stop",
+			Data:  map[string]any{"type": "content_block_stop", "index": index},
+		},
+	}
 }
 
 func (r *StreamReducer) stopTextBlock() []AnthropicSSE {
@@ -472,7 +598,8 @@ func (r *StreamReducer) finalToolArgs(state *toolStreamState) string {
 }
 
 func (r *StreamReducer) finish(event map[string]any, forcedStop string) []AnthropicSSE {
-	events := r.stopTextBlock()
+	events := r.stopThinkingBlock()
+	events = append(events, r.stopTextBlock()...)
 	states := make([]*toolStreamState, 0, len(r.toolByOutput))
 	for _, state := range r.toolByOutput {
 		states = append(states, state)
@@ -816,11 +943,12 @@ func intField(value any, fallback int) int {
 }
 
 type assembledBlock struct {
-	Type string
-	Text strings.Builder
-	ID   string
-	Name string
-	Args strings.Builder
+	Type      string
+	Text      strings.Builder
+	Signature strings.Builder
+	ID        string
+	Name      string
+	Args      strings.Builder
 }
 
 func AssembleMessage(events []AnthropicSSE, messageID, model string) (map[string]any, *AnthropicSSE) {
@@ -846,6 +974,9 @@ func AssembleMessage(events []AnthropicSSE, messageID, model string) (map[string
 			contentBlock, _ := event.Data["content_block"].(map[string]any)
 			typ, _ := contentBlock["type"].(string)
 			block := &assembledBlock{Type: typ}
+			if typ == "thinking" {
+				block.Signature.WriteString(stringField(contentBlock["signature"]))
+			}
 			if typ == "tool_use" {
 				block.ID, _ = contentBlock["id"].(string)
 				block.Name, _ = contentBlock["name"].(string)
@@ -860,6 +991,9 @@ func AssembleMessage(events []AnthropicSSE, messageID, model string) (map[string
 			switch blocks[index].Type {
 			case "text":
 				blocks[index].Text.WriteString(stringField(delta["text"]))
+			case "thinking":
+				blocks[index].Text.WriteString(stringField(delta["thinking"]))
+				blocks[index].Signature.WriteString(stringField(delta["signature"]))
 			case "tool_use":
 				blocks[index].Args.WriteString(stringField(delta["partial_json"]))
 			}
@@ -877,6 +1011,12 @@ func AssembleMessage(events []AnthropicSSE, messageID, model string) (map[string
 		switch block.Type {
 		case "text":
 			content = append(content, map[string]any{"type": "text", "text": block.Text.String()})
+		case "thinking":
+			content = append(content, map[string]any{
+				"type":      "thinking",
+				"thinking":  block.Text.String(),
+				"signature": block.Signature.String(),
+			})
 		case "tool_use":
 			var input map[string]any
 			if err := json.Unmarshal([]byte(block.Args.String()), &input); err != nil || input == nil {

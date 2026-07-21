@@ -72,6 +72,59 @@ func TestAnthropicToCodexStripsBillingAndMapsMaxEffort(t *testing.T) {
 	}
 }
 
+func TestAnthropicToCodexRequestsSupportedReasoningSummaryForClaudeThinking(t *testing.T) {
+	var req AnthropicRequest
+	if err := json.Unmarshal([]byte(`{
+		"model":"claude-sonnet-4-6",
+		"thinking":{"type":"adaptive"},
+		"messages":[{"role":"user","content":"hello"}]
+	}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := AnthropicToCodex(req, ConvertOptions{CodexModels: []codex.ModelInfo{{
+		Slug:                       "gpt-5.6-terra",
+		SupportsReasoningSummaries: true,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Request.Reasoning == nil || got.Request.Reasoning.Summary != "detailed" {
+		t.Fatalf("reasoning = %#v, want summary detailed", got.Request.Reasoning)
+	}
+	if len(got.Request.Include) != 1 || got.Request.Include[0] != "reasoning.encrypted_content" {
+		t.Fatalf("include = %#v, want encrypted reasoning", got.Request.Include)
+	}
+}
+
+func TestAnthropicToCodexDoesNotRequestUnsupportedOrUnrequestedReasoningSummary(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		thinking string
+		supports bool
+	}{
+		{name: "thinking disabled", thinking: `{"type":"disabled"}`, supports: true},
+		{name: "model unsupported", thinking: `{"type":"adaptive"}`, supports: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var req AnthropicRequest
+			body := fmt.Sprintf(`{"model":"claude-sonnet-4-6","thinking":%s,"messages":[{"role":"user","content":"hello"}]}`, test.thinking)
+			if err := json.Unmarshal([]byte(body), &req); err != nil {
+				t.Fatal(err)
+			}
+			got, err := AnthropicToCodex(req, ConvertOptions{CodexModels: []codex.ModelInfo{{
+				Slug:                       "gpt-5.6-terra",
+				SupportsReasoningSummaries: test.supports,
+			}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Request.Reasoning == nil || got.Request.Reasoning.Summary != "" {
+				t.Fatalf("reasoning = %#v, want no summary", got.Request.Reasoning)
+			}
+		})
+	}
+}
+
 func TestAnthropicToCodexAddsCompatibilityInstructionsWithoutSystemPrompt(t *testing.T) {
 	var req AnthropicRequest
 	if err := json.Unmarshal([]byte(`{"messages":[{"role":"user","content":"hello"}]}`), &req); err != nil {

@@ -10,12 +10,12 @@ import (
 	"github.com/bassner/claudodex/internal/codex"
 )
 
-func TestStreamReducerStreamsTextAndIgnoresReasoning(t *testing.T) {
+func TestStreamReducerStreamsReasoningSummaryAsThinking(t *testing.T) {
 	reducer := NewStreamReducer("msg_1", "claude-sonnet-4-6")
 	var events []AnthropicSSE
 	for _, raw := range []string{
 		`{"type":"response.created","response":{"id":"resp_1"}}`,
-		`{"type":"response.reasoning_summary_text.delta","delta":"hidden"}`,
+		`{"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":"summary"}`,
 		`{"type":"response.output_item.added","item":{"type":"message","id":"msg"}}`,
 		`{"type":"response.output_text.delta","delta":"hel"}`,
 		`{"type":"response.output_text.delta","delta":"lo"}`,
@@ -33,20 +33,119 @@ func TestStreamReducerStreamsTextAndIgnoresReasoning(t *testing.T) {
 		t.Fatalf("unexpected error event: %#v", errEvent)
 	}
 	content := message["content"].([]map[string]any)
-	if len(content) != 1 || content[0]["text"] != "hello" {
+	if len(content) != 2 || content[0]["type"] != "thinking" || content[0]["thinking"] != "summary" || content[0]["signature"] != openAIReasoningSummarySignature || content[1]["text"] != "hello" {
 		t.Fatalf("content = %#v", content)
 	}
 	usage := message["usage"].(Usage)
 	if usage.InputTokens != 7 || usage.CacheReadInputTokens != 3 || usage.OutputTokens != 2 {
 		t.Fatalf("usage = %#v", usage)
 	}
-	for _, event := range events {
-		if event.Event == "content_block_start" {
-			block := event.Data["content_block"].(map[string]any)
-			if block["type"] == "thinking" {
-				t.Fatalf("reasoning leaked as thinking block: %#v", event)
-			}
+}
+
+func TestStreamReducerSeparatesAnnouncedReasoningSummaryParts(t *testing.T) {
+	reducer := NewStreamReducer("msg_1", "claude-sonnet-4-6")
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.created","response":{"id":"resp_1"}}`,
+		`{"type":"response.reasoning_summary_part.added","summary_index":0}`,
+		`{"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":"Planning installer security"}`,
+		`{"type":"response.reasoning_summary_part.added","summary_index":1}`,
+		`{"type":"response.reasoning_summary_text.delta","summary_index":1,"delta":"Evaluating filesystem protections"}`,
+		`{"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"answer"}]}}`,
+		`{"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2}}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
 		}
+		events = append(events, next...)
+	}
+	message, errEvent := AssembleMessage(events, "", "claude-sonnet-4-6")
+	if errEvent != nil {
+		t.Fatalf("unexpected error event: %#v", errEvent)
+	}
+	content := message["content"].([]map[string]any)
+	want := "Planning installer security\n\nEvaluating filesystem protections"
+	if len(content) != 2 || content[0]["thinking"] != want || content[1]["text"] != "answer" {
+		t.Fatalf("content = %#v, want thinking %q", content, want)
+	}
+}
+
+func TestStreamReducerSeparatesAdjacentBoldReasoningSections(t *testing.T) {
+	reducer := NewStreamReducer("msg_1", "claude-sonnet-4-6")
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.created","response":{"id":"resp_1"}}`,
+		`{"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":"**First section**"}`,
+		`{"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":"**Second section****Third section**"}`,
+		`{"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"answer"}]}}`,
+		`{"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2}}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	message, errEvent := AssembleMessage(events, "", "claude-sonnet-4-6")
+	if errEvent != nil {
+		t.Fatalf("unexpected error event: %#v", errEvent)
+	}
+	content := message["content"].([]map[string]any)
+	want := "**First section**\n\n**Second section**\n\n**Third section**"
+	if len(content) != 2 || content[0]["thinking"] != want {
+		t.Fatalf("content = %#v, want thinking %q", content, want)
+	}
+}
+
+func TestStreamReducerUsesCompletedReasoningItemWhenSummaryEventsAreAbsent(t *testing.T) {
+	reducer := NewStreamReducer("msg_1", "claude-sonnet-4-6")
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.created","response":{"id":"resp_1"}}`,
+		`{"type":"response.output_item.done","item":{"type":"reasoning","summary":[{"type":"summary_text","text":"first"},{"type":"summary_text","text":"second"}]}}`,
+		`{"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"answer"}]}}`,
+		`{"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2}}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	message, errEvent := AssembleMessage(events, "", "claude-sonnet-4-6")
+	if errEvent != nil {
+		t.Fatalf("unexpected error event: %#v", errEvent)
+	}
+	content := message["content"].([]map[string]any)
+	if len(content) != 2 || content[0]["thinking"] != "first\n\nsecond" || content[1]["text"] != "answer" {
+		t.Fatalf("content = %#v", content)
+	}
+}
+
+func TestStreamReducerDoesNotDuplicateReasoningSummaryDoneFromCompletedItem(t *testing.T) {
+	reducer := NewStreamReducer("msg_1", "claude-sonnet-4-6")
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.created","response":{"id":"resp_1"}}`,
+		`{"type":"response.reasoning_summary_text.done","item_id":"reasoning_1","summary_index":0,"text":"summary"}`,
+		`{"type":"response.output_item.done","item":{"type":"reasoning","summary":[{"type":"summary_text","text":"summary"}]}}`,
+		`{"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"answer"}]}}`,
+		`{"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2}}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	message, errEvent := AssembleMessage(events, "", "claude-sonnet-4-6")
+	if errEvent != nil {
+		t.Fatalf("unexpected error event: %#v", errEvent)
+	}
+	content := message["content"].([]map[string]any)
+	if len(content) != 2 || content[0]["thinking"] != "summary" || content[1]["text"] != "answer" {
+		t.Fatalf("content = %#v", content)
 	}
 }
 
@@ -516,7 +615,7 @@ func TestStreamReducerGoldenCodexSSEToAnthropicSSE(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := strings.ReplaceAll(string(wantBytes), "\r\n", "\n")
+	want := strings.TrimRight(strings.ReplaceAll(string(wantBytes), "\r\n", "\n"), "\n") + "\n\n"
 	if got != want {
 		t.Fatalf("golden mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}

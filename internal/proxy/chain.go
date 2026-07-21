@@ -3,6 +3,7 @@ package proxy
 import (
 	"encoding/json"
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/bassner/claudodex/internal/codex"
@@ -25,6 +26,36 @@ type responseTrace struct {
 func (s *Server) applyImplicitResume(chainKey string, request *codex.Request) bool {
 	used, _, _, _ := s.applyImplicitResumeDetailed(chainKey, request)
 	return used
+}
+
+func (s *Server) applyStatelessReplayDetailed(chainKey string, request *codex.Request) (bool, string, int, int) {
+	chainKey = strings.TrimSpace(chainKey)
+	if chainKey == "" || request == nil {
+		return false, "missing_chain_key", 0, 0
+	}
+	s.chainsMu.Lock()
+	chain, ok := s.chains[chainKey]
+	s.chainsMu.Unlock()
+	if !ok {
+		return false, "missing_chain", 0, len(request.Input)
+	}
+	if !resumeCompatible(chain.Request, *request) {
+		return false, "request_options_changed", len(chain.Request.Input) + len(chain.Output), len(request.Input)
+	}
+	trimFrom, ok := trimAfterRecordedOutput(request.Input, chain.Output)
+	if !ok {
+		return false, "output_prefix_mismatch", len(chain.Request.Input) + len(chain.Output), len(request.Input)
+	}
+	if trimFrom >= len(request.Input) {
+		return false, "no_new_input", trimFrom, len(request.Input)
+	}
+	replayed := make([]codex.InputItem, 0, len(chain.Request.Input)+len(chain.Output)+len(request.Input)-trimFrom)
+	replayed = append(replayed, chain.Request.Input...)
+	replayed = append(replayed, chain.Output...)
+	replayed = append(replayed, request.Input[trimFrom:]...)
+	request.PreviousResponseID = ""
+	request.Input = replayed
+	return true, "applied", trimFrom, len(replayed)
 }
 
 func (s *Server) applyImplicitResumeDetailed(chainKey string, request *codex.Request) (bool, string, int, int) {
@@ -86,7 +117,7 @@ func (s *Server) recordResponseChain(chainKey string, request codex.Request, tra
 	s.chains[chainKey] = responseChain{
 		Request:    request,
 		ResponseID: strings.TrimSpace(trace.ResponseID),
-		Output:     append([]codex.InputItem(nil), trace.Output...),
+		Output:     trace.outputInOrder(),
 	}
 	s.chainsMu.Unlock()
 }
@@ -111,12 +142,20 @@ func trimAfterRecordedOutput(input []codex.InputItem, output []codex.InputItem) 
 	lastOutputPos := -1
 	found := false
 	for _, item := range output {
-		if item.Type != "function_call" || strings.TrimSpace(item.CallID) == "" {
+		var pos int
+		switch item.Type {
+		case "function_call":
+			if strings.TrimSpace(item.CallID) == "" {
+				continue
+			}
+			pos = lastMatchingFunctionCall(input, item)
+		case "message":
+			pos = lastMatchingMessage(input, item)
+		default:
 			continue
 		}
-		pos := lastMatchingFunctionCall(input, item)
 		if pos < 0 {
-			return 0, false
+			continue
 		}
 		if pos > lastOutputPos {
 			lastOutputPos = pos
@@ -127,6 +166,19 @@ func trimAfterRecordedOutput(input []codex.InputItem, output []codex.InputItem) 
 		return 0, false
 	}
 	return lastOutputPos + 1, true
+}
+
+func lastMatchingMessage(input []codex.InputItem, want codex.InputItem) int {
+	for i := len(input) - 1; i >= 0; i-- {
+		item := input[i]
+		if item.Type != "message" || item.Role != want.Role {
+			continue
+		}
+		if reflect.DeepEqual(item.Content, want.Content) {
+			return i
+		}
+	}
+	return -1
 }
 
 func lastMatchingFunctionCall(input []codex.InputItem, want codex.InputItem) int {
@@ -183,10 +235,37 @@ func (t *responseTrace) observe(event codex.SSEEvent) {
 		if strings.TrimSpace(payload.Response.ID) != "" {
 			t.ResponseID = strings.TrimSpace(payload.Response.ID)
 		}
-		if len(t.Output) == 0 && len(payload.Response.Output) > 0 {
-			t.Output = append(t.Output, payload.Response.Output...)
+		for outputIndex, item := range payload.Response.Output {
+			t.upsertOutputItem(outputIndex, item)
 		}
 	}
+}
+
+func (t *responseTrace) outputInOrder() []codex.InputItem {
+	if len(t.Output) == 0 {
+		return nil
+	}
+	indices := make([]int, 0, len(t.itemByIndex))
+	for index := range t.itemByIndex {
+		indices = append(indices, index)
+	}
+	sort.Ints(indices)
+	ordered := make([]codex.InputItem, 0, len(t.Output))
+	used := make(map[int]struct{}, len(indices))
+	for _, index := range indices {
+		pos := t.itemByIndex[index]
+		if pos < 0 || pos >= len(t.Output) {
+			continue
+		}
+		ordered = append(ordered, t.Output[pos])
+		used[pos] = struct{}{}
+	}
+	for pos, item := range t.Output {
+		if _, ok := used[pos]; !ok {
+			ordered = append(ordered, item)
+		}
+	}
+	return ordered
 }
 
 func (t *responseTrace) observeFunctionCallArguments(data json.RawMessage) {
@@ -253,6 +332,9 @@ func (t *responseTrace) upsertOutputItem(outputIndex int, item codex.InputItem) 
 }
 
 func mergeOutputItem(previous codex.InputItem, next codex.InputItem) codex.InputItem {
+	if len(next.Raw) > 0 {
+		previous.Raw = next.Raw
+	}
 	if strings.TrimSpace(next.Type) != "" {
 		previous.Type = next.Type
 	}

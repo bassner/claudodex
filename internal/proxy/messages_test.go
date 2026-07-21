@@ -138,6 +138,138 @@ func TestMessagesStreamsCodexResponseAndBuildsUpstreamRequest(t *testing.T) {
 	}
 }
 
+func TestMessagesHTTPToolContinuationReplaysEncryptedReasoningLosslessly(t *testing.T) {
+	t.Setenv("CLAUDODEX_DISABLE_CODEX_WEBSOCKET", "1")
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	var requests atomic.Int32
+	var secondRequest map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestNumber := requests.Add(1)
+		var captured map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("content-type", "text/event-stream")
+		if requestNumber == 1 {
+			_, _ = w.Write([]byte(strings.Join([]string{
+				`event: response.created`,
+				`data: {"type":"response.created","response":{"id":"resp_state_1"}}`,
+				``,
+				`event: response.output_item.done`,
+				`data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"**Inspecting state**"}],"encrypted_content":"opaque-reasoning-state","provider_extension":{"keep":true}}}`,
+				``,
+				`event: response.output_item.done`,
+				`data: {"type":"response.output_item.done","output_index":1,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Checking."}]}}`,
+				``,
+				`event: response.output_item.done`,
+				`data: {"type":"response.output_item.done","output_index":2,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"Read","arguments":"{\"file_path\":\"a.go\"}"}}`,
+				``,
+				`event: response.completed`,
+				`data: {"type":"response.completed","response":{"id":"resp_state_1","usage":{"input_tokens":10,"output_tokens":2}}}`,
+				``,
+				``,
+			}, "\n")))
+			return
+		}
+		secondRequest = captured
+		_, _ = w.Write([]byte(strings.Join([]string{
+			`event: response.created`,
+			`data: {"type":"response.created","response":{"id":"resp_state_2"}}`,
+			``,
+			`event: response.output_item.done`,
+			`data: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg_2","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done"}]}}`,
+			``,
+			`event: response.completed`,
+			`data: {"type":"response.completed","response":{"id":"resp_state_2","usage":{"input_tokens":12,"output_tokens":1}}}`,
+			``,
+			``,
+		}, "\n")))
+	}))
+	defer upstream.Close()
+
+	server := New(Config{
+		Home:         home,
+		CodexBaseURL: upstream.URL,
+		HTTPClient:   upstream.Client(),
+		AuthPresent:  true,
+		Models:       []codex.ModelInfo{{Slug: "gpt-5.6-terra", SupportsReasoningSummaries: true}},
+	})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	first := `{"model":"claude-sonnet-4-6","thinking":{"type":"adaptive"},"stream":true,"messages":[{"role":"user","content":"read a.go"}],"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}}}}]}`
+	request, err := http.NewRequest(http.MethodPost, "http://"+addr+"/v1/messages", strings.NewReader(first))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("content-type", "application/json")
+	request.Header.Set("x-claude-code-session-id", "state-session")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstSSE := readAllString(t, response)
+	_ = response.Body.Close()
+	if !strings.Contains(firstSSE, `"thinking":"**Inspecting state**"`) {
+		t.Fatalf("first response did not expose summary thinking:\n%s", firstSSE)
+	}
+
+	second := `{"model":"claude-sonnet-4-6","thinking":{"type":"adaptive"},"stream":true,"messages":[{"role":"user","content":"read a.go"},{"role":"assistant","content":[{"type":"thinking","thinking":"**Inspecting state**","signature":"claudodex_openai_reasoning_summary"},{"type":"text","text":"Checking."},{"type":"tool_use","id":"call_1","name":"Read","input":{"file_path":"a.go"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"file contents"}]}],"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}}}}]}`
+	request, err = http.NewRequest(http.MethodPost, "http://"+addr+"/v1/messages", strings.NewReader(second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("content-type", "application/json")
+	request.Header.Set("x-claude-code-session-id", "state-session")
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSSE := readAllString(t, response)
+	_ = response.Body.Close()
+	if !strings.Contains(secondSSE, `"text":"done"`) {
+		t.Fatalf("second response missing final text:\n%s", secondSSE)
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("upstream requests = %d, want 2", requests.Load())
+	}
+	if secondRequest["previous_response_id"] != nil {
+		t.Fatalf("stateless HTTP replay unexpectedly used previous_response_id: %#v", secondRequest)
+	}
+	input, _ := secondRequest["input"].([]any)
+	if len(input) != 5 {
+		t.Fatalf("replayed input = %#v", input)
+	}
+	for index, wantType := range []string{"message", "reasoning", "message", "function_call", "function_call_output"} {
+		item, _ := input[index].(map[string]any)
+		if item["type"] != wantType {
+			t.Fatalf("input[%d] = %#v, want type %q", index, item, wantType)
+		}
+	}
+	reasoning := input[1].(map[string]any)
+	if reasoning["encrypted_content"] != "opaque-reasoning-state" {
+		t.Fatalf("encrypted reasoning was not replayed: %#v", reasoning)
+	}
+	if reasoning["provider_extension"].(map[string]any)["keep"] != true {
+		t.Fatalf("unknown reasoning fields were not replayed: %#v", reasoning)
+	}
+	commentary := input[2].(map[string]any)
+	if commentary["phase"] != "commentary" {
+		t.Fatalf("assistant phase was not replayed: %#v", commentary)
+	}
+	encoded, err := json.Marshal(secondRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "claudodex_openai_reasoning_summary") {
+		t.Fatalf("synthetic Claude thinking leaked upstream: %s", encoded)
+	}
+}
+
 func TestMessagesRoutesClaudeCodeSubagentAsCodexChildThread(t *testing.T) {
 	t.Setenv("CLAUDODEX_DISABLE_CODEX_WEBSOCKET", "1")
 	home := t.TempDir()

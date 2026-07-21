@@ -14,6 +14,7 @@ type Request struct {
 	ParallelToolCalls  bool              `json:"parallel_tool_calls"`
 	Store              bool              `json:"store"`
 	Stream             bool              `json:"stream"`
+	Include            []string          `json:"include,omitempty"`
 	ServiceTier        string            `json:"service_tier,omitempty"`
 	Reasoning          *Reasoning        `json:"reasoning,omitempty"`
 	Text               *TextConfig       `json:"text,omitempty"`
@@ -22,7 +23,8 @@ type Request struct {
 }
 
 type Reasoning struct {
-	Effort string `json:"effort"`
+	Effort  string `json:"effort"`
+	Summary string `json:"summary,omitempty"`
 }
 
 type TextConfig struct {
@@ -37,13 +39,80 @@ type TextFormat struct {
 }
 
 type InputItem struct {
-	Type      string        `json:"type"`
-	Role      string        `json:"role,omitempty"`
-	Content   []ContentPart `json:"content,omitempty"`
-	CallID    string        `json:"call_id,omitempty"`
-	Name      string        `json:"name,omitempty"`
-	Arguments string        `json:"arguments,omitempty"`
-	Output    any           `json:"output,omitempty"`
+	Type      string                     `json:"type"`
+	Role      string                     `json:"role,omitempty"`
+	Content   []ContentPart              `json:"content,omitempty"`
+	CallID    string                     `json:"call_id,omitempty"`
+	Name      string                     `json:"name,omitempty"`
+	Arguments string                     `json:"arguments,omitempty"`
+	Output    any                        `json:"output,omitempty"`
+	Raw       map[string]json.RawMessage `json:"-"`
+}
+
+func (i *InputItem) UnmarshalJSON(data []byte) error {
+	type wire struct {
+		Type      string        `json:"type"`
+		Role      string        `json:"role,omitempty"`
+		Content   []ContentPart `json:"content,omitempty"`
+		CallID    string        `json:"call_id,omitempty"`
+		Name      string        `json:"name,omitempty"`
+		Arguments string        `json:"arguments,omitempty"`
+		Output    any           `json:"output,omitempty"`
+	}
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*i = InputItem{
+		Type:      decoded.Type,
+		Role:      decoded.Role,
+		Content:   decoded.Content,
+		CallID:    decoded.CallID,
+		Name:      decoded.Name,
+		Arguments: decoded.Arguments,
+		Output:    decoded.Output,
+		Raw:       raw,
+	}
+	return nil
+}
+
+func (i InputItem) MarshalJSON() ([]byte, error) {
+	if len(i.Raw) > 0 {
+		raw := make(map[string]json.RawMessage, len(i.Raw)+1)
+		for key, value := range i.Raw {
+			raw[key] = append(json.RawMessage(nil), value...)
+		}
+		if i.Arguments != "" {
+			encoded, err := json.Marshal(i.Arguments)
+			if err != nil {
+				return nil, err
+			}
+			raw["arguments"] = encoded
+		}
+		return json.Marshal(raw)
+	}
+	type wire struct {
+		Type      string        `json:"type"`
+		Role      string        `json:"role,omitempty"`
+		Content   []ContentPart `json:"content,omitempty"`
+		CallID    string        `json:"call_id,omitempty"`
+		Name      string        `json:"name,omitempty"`
+		Arguments string        `json:"arguments,omitempty"`
+		Output    any           `json:"output,omitempty"`
+	}
+	return json.Marshal(wire{
+		Type:      i.Type,
+		Role:      i.Role,
+		Content:   i.Content,
+		CallID:    i.CallID,
+		Name:      i.Name,
+		Arguments: i.Arguments,
+		Output:    i.Output,
+	})
 }
 
 type ContentPart struct {

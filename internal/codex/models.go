@@ -25,6 +25,7 @@ type ModelInfo struct {
 	MaxContextWindow              int64  `json:"max_context_window,omitempty"`
 	AutoCompactTokenLimit         int64  `json:"auto_compact_token_limit,omitempty"`
 	EffectiveContextWindowPercent int64  `json:"effective_context_window_percent,omitempty"`
+	SupportsReasoningSummaries    bool   `json:"supports_reasoning_summaries,omitempty"`
 	SupportedInAPI                bool   `json:"supported_in_api"`
 	Visibility                    string `json:"visibility"`
 }
