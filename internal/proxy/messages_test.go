@@ -214,8 +214,8 @@ func TestMessagesHTTPToolContinuationReplaysEncryptedReasoningLosslessly(t *test
 	}
 	firstSSE := readAllString(t, response)
 	_ = response.Body.Close()
-	if !strings.Contains(firstSSE, `"thinking":"**Inspecting state**"`) {
-		t.Fatalf("first response did not expose summary thinking:\n%s", firstSSE)
+	if got := thinkingTextFromSSE(t, firstSSE); got != "**Inspecting state**" {
+		t.Fatalf("first response thinking = %q, want %q:\n%s", got, "**Inspecting state**", firstSSE)
 	}
 
 	second := `{"model":"claude-sonnet-4-6","thinking":{"type":"adaptive"},"stream":true,"messages":[{"role":"user","content":"read a.go"},{"role":"assistant","content":[{"type":"thinking","thinking":"**Inspecting state**","signature":"claudodex_openai_reasoning_summary"},{"type":"text","text":"Checking."},{"type":"tool_use","id":"call_1","name":"Read","input":{"file_path":"a.go"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"file contents"}]}],"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}}}}]}`
@@ -1792,6 +1792,27 @@ func readAllString(t *testing.T, resp *http.Response) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func thinkingTextFromSSE(t *testing.T, sse string) string {
+	t.Helper()
+	var thinking strings.Builder
+	for _, line := range strings.Split(sse, "\n") {
+		data, ok := strings.CutPrefix(line, "data: ")
+		if !ok {
+			continue
+		}
+		var event map[string]any
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			t.Fatalf("decode SSE data %q: %v", data, err)
+		}
+		delta, _ := event["delta"].(map[string]any)
+		if delta["type"] == "thinking_delta" {
+			text, _ := delta["thinking"].(string)
+			thinking.WriteString(text)
+		}
+	}
+	return thinking.String()
 }
 
 func writeWSJSON(t *testing.T, conn *websocket.Conn, value any) {

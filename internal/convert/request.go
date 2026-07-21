@@ -142,7 +142,7 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 	effort := MapReasoningEffortWithConfig(codexModel, req.OutputConfig.Effort, req.Thinking.BudgetTokens, models)
 	reasoning := &codex.Reasoning{Effort: string(effort)}
 	if requestsThinking(req.Thinking) && supportsReasoningSummaries(opts.CodexModels, codexModel) {
-		reasoning.Summary = "detailed"
+		reasoning.Summary = "auto"
 	}
 	out := codex.Request{
 		Model:             codexModel,

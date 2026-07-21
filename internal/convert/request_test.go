@@ -88,8 +88,8 @@ func TestAnthropicToCodexRequestsSupportedReasoningSummaryForClaudeThinking(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Request.Reasoning == nil || got.Request.Reasoning.Summary != "detailed" {
-		t.Fatalf("reasoning = %#v, want summary detailed", got.Request.Reasoning)
+	if got.Request.Reasoning == nil || got.Request.Reasoning.Summary != "auto" {
+		t.Fatalf("reasoning = %#v, want summary auto", got.Request.Reasoning)
 	}
 	if len(got.Request.Include) != 1 || got.Request.Include[0] != "reasoning.encrypted_content" {
 		t.Fatalf("include = %#v, want encrypted reasoning", got.Request.Include)

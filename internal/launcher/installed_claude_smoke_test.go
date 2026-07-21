@@ -67,7 +67,7 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 			`data: {"type":"response.reasoning_summary_part.added","item_id":"reasoning_smoke","output_index":0,"summary_index":1,"part":{"type":"summary_text","text":""}}`,
 			``,
 			`event: response.reasoning_summary_text.delta`,
-			`data: {"type":"response.reasoning_summary_text.delta","item_id":"reasoning_smoke","output_index":0,"summary_index":1,"delta":"Second summary paragraph"}`,
+			`data: {"type":"response.reasoning_summary_text.delta","item_id":"reasoning_smoke","output_index":0,"summary_index":1,"delta":"**Second summary section****Third summary section**"}`,
 			``,
 			`event: response.output_item.added`,
 			`data: {"type":"response.output_item.added","item":{"type":"message","id":"item_smoke"}}`,
@@ -116,8 +116,8 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 	if !strings.Contains(stdout.String(), "ok") {
 		t.Fatalf("stdout did not include model output\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), `"type":"thinking"`) || !strings.Contains(stdout.String(), `OpenAI summary smoke\n\nSecond summary paragraph`) {
-		t.Fatalf("installed Claude did not accept and expose the native thinking block\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	if strings.Count(stdout.String(), `"type":"thinking"`) < 3 || !strings.Contains(stdout.String(), `OpenAI summary smoke`) || !strings.Contains(stdout.String(), `**Second summary section**`) || !strings.Contains(stdout.String(), `**Third summary section**`) {
+		t.Fatalf("installed Claude did not accept and expose separate native thinking blocks\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
 	}
 	if strings.Contains(stderr.String(), "no verified UI patch") || strings.Contains(stderr.String(), "unpatched Claude Code UI") {
 		t.Fatalf("installed Claude launched without its verified UI patch\nstderr:\n%s", stderr.String())
@@ -126,7 +126,7 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 		t.Fatalf("upstream model = %#v, want gpt-5.6-terra; request=%#v", captured["model"], captured)
 	}
 	assertCapturedReasoningEffort(t, captured, "max")
-	assertCapturedReasoningSummary(t, captured, "detailed")
+	assertCapturedReasoningSummary(t, captured, "auto")
 	instructions, _ := captured["instructions"].(string)
 	if !strings.Contains(instructions, "the follow-up after tool results must not greet again or restart the conversation") {
 		t.Fatalf("installed Claude request is missing Claudodex same-turn greeting guard; instructions=%q request=%#v", instructions, captured)

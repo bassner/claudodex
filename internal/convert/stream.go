@@ -38,7 +38,8 @@ type StreamReducer struct {
 	thinkingSawDelta    bool
 	thinkingSawSummary  bool
 	thinkingSummaryPart int
-	thinkingEndsBold    bool
+	thinkingPending     string
+	thinkingBlocks      int
 	visibleBlocks       int
 	outputChars         int
 	toolByOutput        map[int]*toolStreamState
@@ -317,32 +318,66 @@ func (r *StreamReducer) ensureTextBlock() []AnthropicSSE {
 const openAIReasoningSummarySignature = "claudodex_openai_reasoning_summary"
 
 func (r *StreamReducer) appendThinkingSummary(text string, summaryPart int) []AnthropicSSE {
-	if text == "" || r.textActive || r.toolBlocks > 0 || r.visibleBlocks > 0 {
+	if text == "" || r.textActive || r.toolBlocks > 0 || r.visibleBlocks > r.thinkingBlocks {
+		return nil
+	}
+	var events []AnthropicSSE
+	if r.thinkingActive && summaryPart > r.thinkingSummaryPart {
+		events = append(events, r.stopThinkingBlock()...)
+	}
+	r.thinkingPending += text
+	events = append(events, r.consumeThinkingSummary(summaryPart, false)...)
+	return events
+}
+
+func (r *StreamReducer) consumeThinkingSummary(summaryPart int, flush bool) []AnthropicSSE {
+	var events []AnthropicSSE
+	for r.thinkingPending != "" {
+		adjacentBold := strings.Index(r.thinkingPending, "****")
+		paragraphTitle := strings.Index(r.thinkingPending, "\n\n**")
+		delimiter := adjacentBold
+		if delimiter < 0 || paragraphTitle >= 0 && paragraphTitle < delimiter {
+			delimiter = paragraphTitle
+		}
+		if delimiter >= 0 {
+			// Keep the closing bold marker or paragraph separator in the
+			// preceding block so concatenating blocks reproduces the source.
+			end := delimiter + 2
+			events = append(events, r.emitThinkingSummaryText(r.thinkingPending[:end], summaryPart)...)
+			r.thinkingPending = r.thinkingPending[end:]
+			events = append(events, r.closeThinkingBlock()...)
+			continue
+		}
+		emitBytes := len(r.thinkingPending)
+		if !flush {
+			emitBytes -= ambiguousThinkingSuffixBytes(r.thinkingPending)
+		}
+		if emitBytes == 0 {
+			break
+		}
+		events = append(events, r.emitThinkingSummaryText(r.thinkingPending[:emitBytes], summaryPart)...)
+		r.thinkingPending = r.thinkingPending[emitBytes:]
+	}
+	return events
+}
+
+func ambiguousThinkingSuffixBytes(text string) int {
+	for _, prefix := range []string{"\n\n*", "***", "\n\n", "**", "\n", "*"} {
+		if strings.HasSuffix(text, prefix) {
+			return len(prefix)
+		}
+	}
+	return 0
+}
+
+func (r *StreamReducer) emitThinkingSummaryText(text string, summaryPart int) []AnthropicSSE {
+	if text == "" {
 		return nil
 	}
 	var events []AnthropicSSE
 	if !r.thinkingActive {
-		r.thinkingIndex = r.nextIndex
-		r.nextIndex++
-		r.thinkingActive = true
-		r.thinkingSummaryPart = summaryPart
-		events = append(events, AnthropicSSE{
-			Event: "content_block_start",
-			Data: map[string]any{
-				"type":  "content_block_start",
-				"index": r.thinkingIndex,
-				"content_block": map[string]any{
-					"type":      "thinking",
-					"thinking":  "",
-					"signature": "",
-				},
-			},
-		})
-	} else if summaryPart > r.thinkingSummaryPart {
-		text = "\n\n" + text
-		r.thinkingSummaryPart = summaryPart
+		events = append(events, r.startThinkingBlock(summaryPart)...)
 	}
-	text = r.formatThinkingSummaryDelta(text)
 	events = append(events, contentBlockDelta(r.thinkingIndex, map[string]any{
 		"type":     "thinking_delta",
 		"thinking": text,
@@ -352,26 +387,32 @@ func (r *StreamReducer) appendThinkingSummary(text string, summaryPart int) []An
 	return events
 }
 
-func (r *StreamReducer) formatThinkingSummaryDelta(text string) string {
-	if r.thinkingEndsBold && strings.HasPrefix(text, "**") {
-		text = "\n\n" + text
-	}
-	text = strings.ReplaceAll(text, "****", "**\n\n**")
-	r.thinkingEndsBold = strings.HasSuffix(strings.TrimSpace(text), "**")
-	return text
+func (r *StreamReducer) startThinkingBlock(summaryPart int) []AnthropicSSE {
+	r.thinkingIndex = r.nextIndex
+	r.nextIndex++
+	r.thinkingActive = true
+	r.thinkingSummaryPart = summaryPart
+	return []AnthropicSSE{{
+		Event: "content_block_start",
+		Data: map[string]any{
+			"type":  "content_block_start",
+			"index": r.thinkingIndex,
+			"content_block": map[string]any{
+				"type":      "thinking",
+				"thinking":  "",
+				"signature": "",
+			},
+		},
+	}}
 }
 
 func (r *StreamReducer) startThinkingSummaryPart(summaryPart int) []AnthropicSSE {
-	if !r.thinkingActive || summaryPart <= r.thinkingSummaryPart {
+	if summaryPart <= r.thinkingSummaryPart {
 		return nil
 	}
+	events := r.stopThinkingBlock()
 	r.thinkingSummaryPart = summaryPart
-	r.thinkingEndsBold = false
-	r.outputChars += 2
-	return []AnthropicSSE{contentBlockDelta(r.thinkingIndex, map[string]any{
-		"type":     "thinking_delta",
-		"thinking": "\n\n",
-	})}
+	return events
 }
 
 func (r *StreamReducer) appendReasoningItemSummary(item map[string]any) []AnthropicSSE {
@@ -387,6 +428,11 @@ func (r *StreamReducer) appendReasoningItemSummary(item map[string]any) []Anthro
 }
 
 func (r *StreamReducer) stopThinkingBlock() []AnthropicSSE {
+	events := r.consumeThinkingSummary(r.thinkingSummaryPart, true)
+	return append(events, r.closeThinkingBlock()...)
+}
+
+func (r *StreamReducer) closeThinkingBlock() []AnthropicSSE {
 	if !r.thinkingActive {
 		return nil
 	}
@@ -394,6 +440,7 @@ func (r *StreamReducer) stopThinkingBlock() []AnthropicSSE {
 	r.thinkingActive = false
 	r.thinkingIndex = -1
 	r.visibleBlocks++
+	r.thinkingBlocks++
 	return []AnthropicSSE{
 		contentBlockDelta(index, map[string]any{
 			"type":      "signature_delta",

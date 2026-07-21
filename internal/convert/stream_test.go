@@ -65,9 +65,8 @@ func TestStreamReducerSeparatesAnnouncedReasoningSummaryParts(t *testing.T) {
 		t.Fatalf("unexpected error event: %#v", errEvent)
 	}
 	content := message["content"].([]map[string]any)
-	want := "Planning installer security\n\nEvaluating filesystem protections"
-	if len(content) != 2 || content[0]["thinking"] != want || content[1]["text"] != "answer" {
-		t.Fatalf("content = %#v, want thinking %q", content, want)
+	if len(content) != 3 || content[0]["thinking"] != "Planning installer security" || content[1]["thinking"] != "Evaluating filesystem protections" || content[2]["text"] != "answer" {
+		t.Fatalf("content = %#v, want two thinking blocks followed by text", content)
 	}
 }
 
@@ -92,9 +91,72 @@ func TestStreamReducerSeparatesAdjacentBoldReasoningSections(t *testing.T) {
 		t.Fatalf("unexpected error event: %#v", errEvent)
 	}
 	content := message["content"].([]map[string]any)
-	want := "**First section**\n\n**Second section**\n\n**Third section**"
-	if len(content) != 2 || content[0]["thinking"] != want {
-		t.Fatalf("content = %#v, want thinking %q", content, want)
+	if len(content) != 4 || content[0]["thinking"] != "**First section**" || content[1]["thinking"] != "**Second section**" || content[2]["thinking"] != "**Third section**" || content[3]["text"] != "answer" {
+		t.Fatalf("content = %#v, want three thinking blocks followed by text", content)
+	}
+}
+
+func TestStreamReducerSeparatesTitledSectionsWithinOneSummaryPart(t *testing.T) {
+	reducer := NewStreamReducer("msg_1", "claude-sonnet-4-6")
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.created","response":{"id":"resp_1"}}`,
+		`{"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":"**First section**\n\nDetails for the first section.\n\n**Second section**\n\nDetails for the second section."}`,
+		`{"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"answer"}]}}`,
+		`{"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2}}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	message, errEvent := AssembleMessage(events, "", "claude-sonnet-4-6")
+	if errEvent != nil {
+		t.Fatalf("unexpected error event: %#v", errEvent)
+	}
+	content := message["content"].([]map[string]any)
+	if len(content) != 3 || content[0]["thinking"] != "**First section**\n\nDetails for the first section.\n\n" || content[1]["thinking"] != "**Second section**\n\nDetails for the second section." || content[2]["text"] != "answer" {
+		t.Fatalf("content = %#v, want titled sections in separate thinking blocks", content)
+	}
+}
+
+func TestStreamReducerSeparatesReasoningSectionsAtEveryDeltaBoundary(t *testing.T) {
+	for _, summary := range []string{
+		"**First section****Second section**",
+		"**First section**\n\n**Second section**",
+	} {
+		for split := 1; split < len(summary); split++ {
+			t.Run(fmt.Sprintf("%q/byte_%d", summary, split), func(t *testing.T) {
+				reducer := NewStreamReducer("msg_1", "claude-sonnet-4-6")
+				var events []AnthropicSSE
+				for _, raw := range []string{
+					`{"type":"response.created","response":{"id":"resp_1"}}`,
+					fmt.Sprintf(`{"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":%q}`, summary[:split]),
+					fmt.Sprintf(`{"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":%q}`, summary[split:]),
+					`{"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"answer"}]}}`,
+					`{"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2}}}`,
+				} {
+					next, err := reducer.Reduce(json.RawMessage(raw))
+					if err != nil {
+						t.Fatal(err)
+					}
+					events = append(events, next...)
+				}
+				message, errEvent := AssembleMessage(events, "", "claude-sonnet-4-6")
+				if errEvent != nil {
+					t.Fatalf("unexpected error event: %#v", errEvent)
+				}
+				content := message["content"].([]map[string]any)
+				if len(content) != 3 {
+					t.Fatalf("content = %#v, want two thinking blocks followed by text", content)
+				}
+				got := content[0]["thinking"].(string) + content[1]["thinking"].(string)
+				if got != summary || content[2]["text"] != "answer" {
+					t.Fatalf("content = %#v, reconstructed summary %q, want %q", content, got, summary)
+				}
+			})
+		}
 	}
 }
 
@@ -118,7 +180,7 @@ func TestStreamReducerUsesCompletedReasoningItemWhenSummaryEventsAreAbsent(t *te
 		t.Fatalf("unexpected error event: %#v", errEvent)
 	}
 	content := message["content"].([]map[string]any)
-	if len(content) != 2 || content[0]["thinking"] != "first\n\nsecond" || content[1]["text"] != "answer" {
+	if len(content) != 3 || content[0]["thinking"] != "first" || content[1]["thinking"] != "second" || content[2]["text"] != "answer" {
 		t.Fatalf("content = %#v", content)
 	}
 }

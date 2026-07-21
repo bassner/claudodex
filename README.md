@@ -53,6 +53,10 @@ Why not call it `claudex`? Because that name is already used in multiple places.
   definitions are sent through the Codex-compatible request path.
 - Fetches live Codex model metadata for context windows, model capabilities, and
   auto-compact limits.
+- Shows OpenAI reasoning summaries through Claude Code's native thinking UI,
+  with each titled summary section kept as a separate thinking entry.
+- Preserves encrypted OpenAI reasoning items for lossless stateless tool-call
+  continuations while keeping Responses API storage disabled.
 - Keeps Claude Code settings shared with normal Claude Code while keeping
   Claudodex auth isolated.
 - Sets Claude privacy flags by default:
