@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -100,6 +101,9 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 	if !strings.Contains(stdout.String(), "ok") {
 		t.Fatalf("stdout did not include model output\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
 	}
+	if strings.Contains(stderr.String(), "no verified UI patch") || strings.Contains(stderr.String(), "unpatched Claude Code UI") {
+		t.Fatalf("installed Claude launched without its verified UI patch\nstderr:\n%s", stderr.String())
+	}
 	if captured["model"] != "gpt-5.6-terra" {
 		t.Fatalf("upstream model = %#v, want gpt-5.6-terra; request=%#v", captured["model"], captured)
 	}
@@ -149,6 +153,54 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 			t.Fatalf("patched installed Claude missing %q for version=%s sha=%s", want, claudeVersion, sourceSHA)
 		}
 	}
+	if claudeVersion == "2.1.216" {
+		pickerStart := bytes.Index(data, []byte("function CDX216("))
+		if pickerStart < 0 {
+			t.Fatal("patched installed Claude missing 2.1.216 model picker normalizer")
+		}
+		pickerEndRel := bytes.Index(data[pickerStart:], []byte("function tAe("))
+		if pickerEndRel < 0 {
+			t.Fatal("patched installed Claude missing 2.1.216 model picker end marker")
+		}
+		picker := data[pickerStart : pickerStart+pickerEndRel]
+		if tiers := bytes.Count(picker, []byte(`n("`)); tiers != 3 {
+			t.Fatalf("patched installed Claude picker tier count = %d, want 3", tiers)
+		}
+		for _, want := range []string{`n("opus",`, `n("sonnet",`, `n("haiku",`, "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"} {
+			if !bytes.Contains(picker, []byte(want)) {
+				t.Fatalf("patched installed Claude picker missing %q", want)
+			}
+		}
+		for _, forbidden := range []string{"fable", "Fable", "mythos", "Mythos", "ANTHROPIC_DEFAULT_FABLE_MODEL"} {
+			if bytes.Contains(picker, []byte(forbidden)) {
+				t.Fatalf("patched installed Claude picker retained forbidden fourth-tier marker %q", forbidden)
+			}
+		}
+	}
+	versionOutput, err := exec.Command(patched, "--version").CombinedOutput()
+	if err != nil {
+		t.Fatalf("patched installed Claude did not launch: %v\noutput:\n%s", err, versionOutput)
+	}
+	if !bytes.Contains(versionOutput, []byte(claudeVersion)) {
+		t.Fatalf("patched installed Claude version output = %q, want version %s", versionOutput, claudeVersion)
+	}
+	for _, parseFailure := range []string{"Bun", "SyntaxError", "JavaScript parse error"} {
+		if bytes.Contains(versionOutput, []byte(parseFailure)) {
+			t.Fatalf("patched installed Claude reported parse failure %q: %s", parseFailure, versionOutput)
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		if output, err := exec.Command("codesign", "--verify", "--deep", "--strict", "--verbose=2", patched).CombinedOutput(); err != nil {
+			t.Fatalf("patched installed Claude has invalid code signature: %v\noutput:\n%s", err, output)
+		}
+		signatureOutput, err := exec.Command("codesign", "-dvv", patched).CombinedOutput()
+		if err != nil {
+			t.Fatalf("could not inspect patched installed Claude signature: %v\noutput:\n%s", err, signatureOutput)
+		}
+		if !bytes.Contains(signatureOutput, []byte("Signature=adhoc")) {
+			t.Fatalf("patched installed Claude signature is not ad-hoc:\n%s", signatureOutput)
+		}
+	}
 	var brandingReplacements []claude209UIBrandingReplacement
 	switch claudeVersion {
 	case "2.1.209":
@@ -157,6 +209,8 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 		brandingReplacements = claude211UIBrandingReplacements
 	case "2.1.212":
 		brandingReplacements = claude212UIBrandingReplacements
+	case "2.1.216":
+		brandingReplacements = claude216UIBrandingReplacements
 	}
 	for _, replacement := range brandingReplacements {
 		if bytes.Contains(data, []byte(replacement.old)) {

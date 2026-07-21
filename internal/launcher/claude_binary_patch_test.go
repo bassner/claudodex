@@ -700,7 +700,15 @@ claude `,
 }
 
 func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
-	patch := findClaudeUIPatch("2.1.212", "09ecba2ab2df9b6ee5b0695e26f65dea60fb3b6af3d3542ee09f466838d1e574")
+	patch := findClaudeUIPatch("2.1.216", "d01b49210d72ecbe277a2665d104bacccddf2d22185be99446d2929e0edfc48d")
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		if patch == nil {
+			t.Fatal("expected local verified 2.1.216 darwin/arm64 patch to match")
+		}
+	} else if patch != nil {
+		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+	patch = findClaudeUIPatch("2.1.212", "09ecba2ab2df9b6ee5b0695e26f65dea60fb3b6af3d3542ee09f466838d1e574")
 	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
 		if patch == nil {
 			t.Fatal("expected local verified 2.1.212 darwin/arm64 patch to match")
@@ -840,6 +848,9 @@ func TestFindClaudeUIPatchRequiresVersionOSArchAndSHA(t *testing.T) {
 	if got := findClaudeUIPatch("2.1.212", "5a728a76198b6eca7f3c7cdbff43bab44b77b48c2108f7a3107d889773382629"); got != nil {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
+	if got := findClaudeUIPatch("2.1.216", "09ecba2ab2df9b6ee5b0695e26f65dea60fb3b6af3d3542ee09f466838d1e574"); got != nil {
+		t.Fatalf("patch matched unsupported sha: %#v", got)
+	}
 	if got := findClaudeUIPatch("2.1.153", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); got != nil {
 		t.Fatalf("patch matched unsupported sha: %#v", got)
 	}
@@ -888,6 +899,22 @@ func TestClaude211UIBrandingReplacements(t *testing.T) {
 
 func TestClaude212UIBrandingReplacements(t *testing.T) {
 	for _, replacement := range claude212UIBrandingReplacements {
+		data := []byte(strings.Repeat(replacement.old+"\x00", replacement.expectedCount))
+		originalLength := len(data)
+		if !validateClaude209UIBrandingReplacements(data, []claude209UIBrandingReplacement{replacement}) {
+			t.Fatalf("valid exact-count replacement failed validation: %q", replacement.old)
+		}
+		if !applyClaude209UIBrandingReplacements(data, []claude209UIBrandingReplacement{replacement}) {
+			t.Fatalf("valid exact-count replacement was not applied: %q", replacement.old)
+		}
+		if len(data) != originalLength {
+			t.Fatalf("patched length = %d, want %d for %q", len(data), originalLength, replacement.old)
+		}
+	}
+}
+
+func TestClaude216UIBrandingReplacements(t *testing.T) {
+	for _, replacement := range claude216UIBrandingReplacements {
 		data := []byte(strings.Repeat(replacement.old+"\x00", replacement.expectedCount))
 		originalLength := len(data)
 		if !validateClaude209UIBrandingReplacements(data, []claude209UIBrandingReplacement{replacement}) {
@@ -1015,6 +1042,169 @@ func TestClaude212ModelPickerContainsExactlyThreeCodexTiers(t *testing.T) {
 			t.Fatalf("patched picker retained forbidden fourth-tier marker %q:\n%s", forbidden, got)
 		}
 	}
+}
+
+func TestClaude216ModelPickerContainsExactlyThreeCodexTiers(t *testing.T) {
+	data := []byte(`function V9h(e=!1){` + strings.Repeat(" ", 2600) + `function tAe(e){}`)
+	if !patchModelPickerOptions_2_1_216(data) {
+		t.Fatal("patchModelPickerOptions_2_1_216 reported no changes")
+	}
+	got := string(data)
+	for _, want := range []string{
+		`n("opus",`, `??"gpt-5.6-sol"`,
+		`n("sonnet",`, `??"gpt-5.6-terra"`,
+		`n("haiku",`, `??"gpt-5.6-luna"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("patched picker missing %q", want)
+		}
+	}
+	if tiers := strings.Count(got, `n("`); tiers != 3 {
+		t.Fatalf("patched picker tier count = %d, want 3:\n%s", tiers, got)
+	}
+	for _, forbidden := range []string{"fable", "Fable", "mythos", "Mythos", "ANTHROPIC_DEFAULT_FABLE_MODEL"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("patched picker retained forbidden fourth-tier marker %q:\n%s", forbidden, got)
+		}
+	}
+}
+
+func TestApplyClaudeUIPatches216RequiresAndAppliesEveryTransformation(t *testing.T) {
+	transformations := []struct {
+		name  string
+		apply func([]byte) bool
+	}{
+		{"logo", func(data []byte) bool { return patchLogoDisplayDataFunction_2_1_216(data, "0.1.0", "2.1.216") }},
+		{"whats-new", patchWhatsNewFeedFunction_2_1_216},
+		{"usage", patchUsageFetchFunction_2_1_216},
+		{"model-options", patchModelPickerOptions_2_1_216},
+		{"model-extra-options", patchModelPickerExtraOptions_2_1_216},
+		{"model-selection", patchModelPickerSelectionValue_2_1_216},
+		{"fast-mode", patchFastModeRuntimeFunctions_2_1_216},
+		{"fast-mode-pricing", patchFastModePricing_2_1_216},
+		{"context-warning", patchContextWarningHint_2_1_216},
+		{"resume-hints", patchResumeCommandHints_2_1_216},
+		{"compact-progress", patchCompactProgressCurve_2_1_216},
+		{"remote-control", patchRemoteControlRuntimeFunctions_2_1_216},
+		{"branding", func(data []byte) bool {
+			return applyClaude209UIBrandingReplacements(data, claude216UIBrandingReplacements)
+		}},
+	}
+	for _, transformation := range transformations {
+		t.Run("transformation/"+transformation.name, func(t *testing.T) {
+			if !transformation.apply(claude216PatchFixture(t)) {
+				t.Fatalf("required %s transformation did not match complete fixture", transformation.name)
+			}
+		})
+	}
+
+	data := claude216PatchFixture(t)
+	if !applyClaudeUIPatches_2_1_216(data, "0.1.0", "2.1.216", modelconfig.Default()) {
+		t.Fatal("applyClaudeUIPatches_2_1_216 reported no changes for a complete fixture")
+	}
+	got := string(data)
+	for _, want := range []string{
+		`"0.1.0 using Claude Code v2.1.216"`,
+		"Claudodex Info",
+		"Thank you for using Claudodex!",
+		"CLAUDE_LOCAL_OAUTH_API_BASE",
+		`n("opus",`, `??"gpt-5.6-sol"`,
+		`n("sonnet",`, `??"gpt-5.6-terra"`,
+		`n("haiku",`, `??"gpt-5.6-luna"`,
+		`function kT(e){return El()}`,
+		`function z6e(e){return"Codex priority"}`,
+		`function JJo(Huk){return null}`,
+		"Run claudodex --resume to resume a conversation",
+		`Math.max(0,e)/2000`,
+		`function P0(){return!!Z.CLAUDE_BRIDGE_OAUTH_TOKEN}`,
+		"Welcome to Claudodex",
+		"Codex wants to exit plan mode",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("patched fixture missing %q", want)
+		}
+	}
+	if tiers := strings.Count(got, `n("`); tiers != 3 {
+		t.Fatalf("patched picker tier count = %d, want 3", tiers)
+	}
+	for _, forbidden := range []string{`n("fable",`, `n("mythos",`, "ANTHROPIC_DEFAULT_FABLE_MODEL", "Fable 5", "Mythos 5"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("patched fixture retained forbidden fourth-tier marker %q", forbidden)
+		}
+	}
+
+	requiredTargets := []string{
+		"function jgt(){",
+		"function aya(e){",
+		"function NRe(){",
+		"function V9h(e=!1){",
+		"function Y9h(e){",
+		`hZy=VBe===null?j7e:tNi(zBe,VBe)??VBe`,
+		`function El(){if(Tn()!=="firstParty")return!1;return!Z.CLAUDE_CODE_DISABLE_FAST_MODE}`,
+		`function J6(){return"Opus 4.8"}`,
+		`function Zwt(){return"opus"+(iN()?"[1m]":"")}`,
+		`function kT(e){if(!El())return!1;let t=e??m2(),r=mi(t);if(r2(po(r),"fast_mode"))return!0;let n=r.toLowerCase();return n.includes("opus-4-7")||n.includes("opus-4-8")}`,
+		"function z6e(e){return`${$hc(e.inputTokens)}/${$hc(e.outputTokens)} per Mtok`}",
+		"function JJo(Huk){",
+		"\nResume this session with:\nclaude ",
+		"Previous session saved \xB7 resume with: claude --resume ",
+		"Run claude --continue or claude --resume to resume a conversation",
+		"Open `claude agents` to attach to it, or stop it there first to resume here.",
+		"). Use `claude agents` to find and attach to it, or add --fork-session to branch off a copy.",
+		`function Mnp(e){let t=Math.max(0,e)/1000,r=1-Math.exp(-t/90);return Math.min(95,Math.round(r*100))}`,
+		`function P0(){if(VHo())return!0;if(g1t())return!1;return!Mq()&&Fkt()}`,
+		`async function I2s(){if(VHo())return!0;if(g1t())return!1;return Kje()&&!Mq()&&rfr()&&await mq("tengu_ccr_bridge")}`,
+		"async function zHo(){",
+		claude216UIBrandingReplacements[0].old,
+	}
+	for _, target := range requiredTargets {
+		t.Run(target, func(t *testing.T) {
+			fixture := string(claude216PatchFixture(t))
+			broken := []byte(strings.Replace(fixture, target, "MISSING_PATCH_TARGET", 1))
+			if applyClaudeUIPatches_2_1_216(broken, "0.1.0", "2.1.216", modelconfig.Default()) {
+				t.Fatalf("patch succeeded without required target %q", target)
+			}
+		})
+	}
+}
+
+func claude216PatchFixture(t *testing.T) []byte {
+	t.Helper()
+	parts := []string{
+		`function jgt(){` + strings.Repeat(" ", 900) + `function B_a(e,t,r){}`,
+		`function aya(e){let t=e.map((n)=>({text:n})),r="Check the Claude Code changelog for updates";return{title:"What's new",lines:t,footer:t.length>0?"/release-notes for more":void 0,emptyMessage:"Check the Claude Code changelog for updates"}}`,
+		`function NRe(){` + strings.Repeat(" ", 1000) + `var qLg="fixture";`,
+		`function V9h(e=!1){` + strings.Repeat(" ", 2600) + `function tAe(e){}`,
+		`function Y9h(e){` + strings.Repeat(" ", 3600) + `function tNi(e,t){}`,
+		`hZy=VBe===null?j7e:tNi(zBe,VBe)??VBe`,
+		`function El(){if(Tn()!=="firstParty")return!1;return!Z.CLAUDE_CODE_DISABLE_FAST_MODE}`,
+		`function J6(){return"Opus 4.8"}`,
+		`function Zwt(){return"opus"+(iN()?"[1m]":"")}`,
+		`function kT(e){if(!El())return!1;let t=e??m2(),r=mi(t);if(r2(po(r),"fast_mode"))return!0;let n=r.toLowerCase();return n.includes("opus-4-7")||n.includes("opus-4-8")}`,
+		"function z6e(e){return`${$hc(e.inputTokens)}/${$hc(e.outputTokens)} per Mtok`}",
+		`function JJo(Huk){` + strings.Repeat(" ", 1800) + `var d7b="fixture";`,
+		strings.Repeat("\nResume this session with:\nclaude ", 2),
+		"Previous session saved \xB7 resume with: claude --resume ",
+		strings.Repeat("Run claude --continue or claude --resume to resume a conversation\x00", 2),
+		strings.Repeat("Open `claude agents` to attach to it, or stop it there first to resume here.\x00", 2),
+		strings.Repeat("). Use `claude agents` to find and attach to it, or add --fork-session to branch off a copy.\x00", 2),
+		`function Mnp(e){let t=Math.max(0,e)/1000,r=1-Math.exp(-t/90);return Math.min(95,Math.round(r*100))}`,
+		`function P0(){if(VHo())return!0;if(g1t())return!1;return!Mq()&&Fkt()}`,
+		`async function I2s(){if(VHo())return!0;if(g1t())return!1;return Kje()&&!Mq()&&rfr()&&await mq("tengu_ccr_bridge")}`,
+		`async function zHo(){` + strings.Repeat(" ", 3000) + `function Ily(){}`,
+	}
+	data := []byte(strings.Join(parts, "\x00"))
+	for _, replacement := range claude216UIBrandingReplacements {
+		remaining := replacement.expectedCount - bytes.Count(data, []byte(replacement.old))
+		if remaining < 0 {
+			t.Fatalf("functional fixture overproduced %q by %d occurrences", replacement.old, -remaining)
+		}
+		data = append(data, []byte(strings.Repeat(replacement.old+"\x00", remaining))...)
+	}
+	if !validateClaude209UIBrandingReplacements(data, claude216UIBrandingReplacements) {
+		t.Fatal("complete Claude 2.1.216 fixture failed branding-count validation")
+	}
+	return data
 }
 
 func TestApplyClaudeUIPatches212RequiresAndAppliesEveryTransformation(t *testing.T) {
