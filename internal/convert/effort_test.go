@@ -37,3 +37,27 @@ func TestMapReasoningEffort(t *testing.T) {
 		})
 	}
 }
+
+func TestGPT56ClaudeEffortsMatchAdvertisedLevels(t *testing.T) {
+	advertised := map[ReasoningEffort]bool{
+		EffortLow:    true,
+		EffortMedium: true,
+		EffortHigh:   true,
+		EffortXHigh:  true,
+		EffortMax:    true,
+	}
+	for _, model := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"} {
+		for _, claudeEffort := range []string{"low", "medium", "high", "xhigh", "max"} {
+			got := MapReasoningEffort(model, claudeEffort, 0)
+			if !advertised[got] {
+				t.Fatalf("%s effort %s mapped to unadvertised Codex level %q", model, claudeEffort, got)
+			}
+			if string(got) != claudeEffort {
+				t.Fatalf("%s effort %s mapped to %q", model, claudeEffort, got)
+			}
+		}
+		if got := MapReasoningEffort(model, "ultracode", 0); got != EffortMax {
+			t.Fatalf("%s ultracode mapped to %q, want Codex max", model, got)
+		}
+	}
+}

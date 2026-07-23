@@ -167,19 +167,26 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 		"smoke using Claude Code v" + claudeVersion,
 		"Set the AI model for Claudodex",
 		"Codex Plan",
+		"function iFe(){return Z.CLAUDE_BRIDGE_OAUTH_TOKEN}",
 	} {
 		if !bytes.Contains(data, []byte(want)) {
 			t.Fatalf("patched installed Claude missing %q for version=%s sha=%s", want, claudeVersion, sourceSHA)
 		}
 	}
-	if claudeVersion == "2.1.216" {
-		pickerStart := bytes.Index(data, []byte("function CDX216("))
-		if pickerStart < 0 {
-			t.Fatal("patched installed Claude missing 2.1.216 model picker normalizer")
+	if claudeVersion == "2.1.216" || claudeVersion == "2.1.218" {
+		normalizer := "function CDX216("
+		pickerEnd := "function tAe("
+		if claudeVersion == "2.1.218" {
+			normalizer = "function CDX218("
+			pickerEnd = "function vRe("
 		}
-		pickerEndRel := bytes.Index(data[pickerStart:], []byte("function tAe("))
+		pickerStart := bytes.Index(data, []byte(normalizer))
+		if pickerStart < 0 {
+			t.Fatalf("patched installed Claude missing %s model picker normalizer", claudeVersion)
+		}
+		pickerEndRel := bytes.Index(data[pickerStart:], []byte(pickerEnd))
 		if pickerEndRel < 0 {
-			t.Fatal("patched installed Claude missing 2.1.216 model picker end marker")
+			t.Fatalf("patched installed Claude missing %s model picker end marker", claudeVersion)
 		}
 		picker := data[pickerStart : pickerStart+pickerEndRel]
 		if tiers := bytes.Count(picker, []byte(`n("`)); tiers != 3 {
@@ -230,6 +237,8 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 		brandingReplacements = claude212UIBrandingReplacements
 	case "2.1.216":
 		brandingReplacements = claude216UIBrandingReplacements
+	case "2.1.218":
+		brandingReplacements = claude218UIBrandingReplacements
 	}
 	for _, replacement := range brandingReplacements {
 		if bytes.Contains(data, []byte(replacement.old)) {

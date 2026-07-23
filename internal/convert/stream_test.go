@@ -42,6 +42,82 @@ func TestStreamReducerStreamsReasoningSummaryAsThinking(t *testing.T) {
 	}
 }
 
+func TestStreamReducerStreamsEveryIncrementalTextDeltaBeforeDone(t *testing.T) {
+	reducer := NewStreamReducer("msg_incremental", "claude-sonnet-4-6")
+	inputs := []string{
+		`{"type":"response.created","response":{"id":"resp_incremental"}}`,
+		`{"type":"response.output_item.added","item":{"type":"message","id":"msg_item"}}`,
+		`{"type":"response.output_text.delta","delta":"first "}`,
+		`{"type":"response.output_text.delta","delta":"second "}`,
+		`{"type":"response.output_text.delta","delta":"third"}`,
+	}
+	var textDeltas []string
+	for _, input := range inputs {
+		events, err := reducer.Reduce(json.RawMessage(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, event := range events {
+			delta, _ := event.Data["delta"].(map[string]any)
+			if delta["type"] == "text_delta" {
+				textDeltas = append(textDeltas, delta["text"].(string))
+			}
+			if event.Event == "message_delta" || event.Event == "message_stop" {
+				t.Fatalf("incremental text became terminal before response.completed: %#v", event)
+			}
+		}
+	}
+	if got := strings.Join(textDeltas, "|"); got != "first |second |third" {
+		t.Fatalf("incremental text deltas = %q", got)
+	}
+	if reducer.Done() {
+		t.Fatal("reducer completed before terminal upstream event")
+	}
+}
+
+func TestStreamReducerKeepsDelayedSafetyBufferingNonterminal(t *testing.T) {
+	reducer := NewStreamReducer("msg_safety", "claude-sonnet-4-6")
+	inputs := []string{
+		`{"type":"response.in_progress","response":{"id":"resp_safety","status":"in_progress"}}`,
+		`{"type":"response.safety_buffering","status":"in_progress","safety":{"status":"buffering"}}`,
+		`{"type":"response.status","status":"in_progress","message":"delayed safety check"}`,
+	}
+	for _, input := range inputs {
+		events, err := reducer.Reduce(json.RawMessage(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, event := range events {
+			if event.Event == "content_block_start" || event.Event == "content_block_delta" ||
+				event.Event == "content_block_stop" || event.Event == "message_delta" ||
+				event.Event == "message_stop" || event.Event == "error" {
+				t.Fatalf("nonterminal safety metadata became visible or terminal: %#v", event)
+			}
+		}
+		if reducer.Done() || reducer.Failed() {
+			t.Fatalf("nonterminal safety metadata ended request: done=%v failed=%v", reducer.Done(), reducer.Failed())
+		}
+	}
+
+	events, err := reducer.Reduce(json.RawMessage(`{"type":"response.output_text.delta","delta":"safe output"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotText string
+	for _, event := range events {
+		delta, _ := event.Data["delta"].(map[string]any)
+		if delta["type"] == "text_delta" {
+			gotText, _ = delta["text"].(string)
+		}
+	}
+	if gotText != "safe output" {
+		t.Fatalf("post-safety text delta = %q", gotText)
+	}
+	if reducer.Done() {
+		t.Fatal("text delta completed delayed safety response")
+	}
+}
+
 func TestStreamReducerSeparatesAnnouncedReasoningSummaryParts(t *testing.T) {
 	reducer := NewStreamReducer("msg_1", "claude-sonnet-4-6")
 	var events []AnthropicSSE

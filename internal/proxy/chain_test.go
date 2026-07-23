@@ -172,6 +172,43 @@ func TestStatelessReplayPreservesEncryptedReasoningPhaseAndOrder(t *testing.T) {
 	}
 }
 
+func TestImplicitResumeTreatsCompactionAsNewReasoningChain(t *testing.T) {
+	server := New(Config{})
+	previous := codex.Request{
+		Model:  "gpt-5.6-terra",
+		Input:  []codex.InputItem{{Type: "message", Role: "user", Content: []codex.ContentPart{{Type: "input_text", Text: "original request"}}}},
+		Stream: true,
+		Store:  false,
+	}
+	server.recordResponseChain("compacted-session", previous, responseTrace{
+		ResponseID: "resp_pre_compaction",
+		Output: []codex.InputItem{{
+			Type:    "message",
+			Role:    "assistant",
+			Content: []codex.ContentPart{{Type: "output_text", Text: "pre-compaction answer"}},
+		}},
+	})
+
+	current := previous
+	current.Input = []codex.InputItem{{
+		Type:    "message",
+		Role:    "user",
+		Content: []codex.ContentPart{{Type: "input_text", Text: "The conversation was compacted into this new summary."}},
+	}}
+	original := append([]codex.InputItem(nil), current.Input...)
+
+	used, reason, _, _ := server.applyImplicitResumeDetailed("compacted-session", &current)
+	if used || reason != "input_prefix_mismatch" {
+		t.Fatalf("compacted chain resume = %v reason %q", used, reason)
+	}
+	if current.PreviousResponseID != "" {
+		t.Fatalf("compacted chain reused previous_response_id %q", current.PreviousResponseID)
+	}
+	if !inputHasPrefix(current.Input, original) || len(current.Input) != len(original) {
+		t.Fatalf("compacted input was rewritten with pre-compaction state: %#v", current.Input)
+	}
+}
+
 const openAIReasoningSummarySignatureForTest = "claudodex_openai_reasoning_summary"
 
 func containsAll(value string, wants ...string) bool {
