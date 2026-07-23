@@ -17,7 +17,12 @@ import (
 	"github.com/bassner/claudodex/internal/ratelimit"
 )
 
-const maxMessagesBody = 64 << 20
+const (
+	maxMessagesBody                = 64 << 20
+	defaultStreamKeepaliveInterval = 10 * time.Second
+)
+
+const streamKeepaliveIntervalEnv = "CLAUDODEX_STREAM_KEEPALIVE_INTERVAL"
 
 var errPreviousResponseNotFound = errors.New("previous response not found")
 
@@ -66,10 +71,10 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	route := codex.MaterializeRoute(codexRouteForResult(result, sessionID))
-	chainKey := route.ThreadID
+	traceID := s.nextTraceID()
+	chainKey := responseChainKey(route.ThreadID, traceID, result.Request)
 	fullRequest := result.Request
 	upstreamRequest := result.Request
-	traceID := s.nextTraceID()
 	traceBase := map[string]any{
 		"request_id":                 traceID,
 		"session_id":                 sessionID,
@@ -330,7 +335,7 @@ func (s *Server) createCodexResponse(r *http.Request, req codex.Request, route c
 		InstallationID: installationID,
 		FedRAMP:        file.Tokens.ChatGPTAccountIsFedRAMP,
 	}
-	if s.codexWebSocketEnabled() && (strings.TrimSpace(route.Subagent) != "" || strings.TrimSpace(req.PreviousResponseID) != "") {
+	if s.shouldUseCodexWebSocket(req, route) {
 		reused := s.hasWebSocket(route.ThreadID)
 		if conversation := s.websocketConversation(route.ThreadID); conversation != nil {
 			waitForWebSocket := strings.TrimSpace(req.PreviousResponseID) != ""
@@ -404,6 +409,34 @@ func (s *Server) codexWebSocketEnabled() bool {
 	return value != "1" && value != "true" && value != "yes" && value != "on"
 }
 
+func (s *Server) shouldUseCodexWebSocket(req codex.Request, route codex.Route) bool {
+	if !s.codexWebSocketEnabled() {
+		return false
+	}
+	// Claude Code issues tool-less auxiliary requests (for example title
+	// generation and compaction helpers) concurrently under the main session ID.
+	// Keep those one-shot requests off the main turn's persistent conversation.
+	if len(req.Tools) == 0 && strings.TrimSpace(route.Subagent) == "" {
+		return false
+	}
+	force := strings.ToLower(strings.TrimSpace(os.Getenv("CLAUDODEX_FORCE_CODEX_WEBSOCKET")))
+	if force == "1" || force == "true" || force == "yes" || force == "on" {
+		return true
+	}
+	if strings.EqualFold(strings.TrimRight(s.cfg.CodexBaseURL, "/"), strings.TrimRight(codex.DefaultBaseURL, "/")) {
+		return true
+	}
+	return strings.TrimSpace(route.Subagent) != "" || strings.TrimSpace(req.PreviousResponseID) != ""
+}
+
+func responseChainKey(threadID, traceID string, req codex.Request) string {
+	threadID = strings.TrimSpace(threadID)
+	if len(req.Tools) != 0 {
+		return threadID
+	}
+	return threadID + ":aux:" + strings.TrimSpace(traceID)
+}
+
 func shouldRetryStream(r *http.Request, err error, usedImplicitResume bool) bool {
 	if err == nil {
 		return false
@@ -467,6 +500,9 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 	flusher, _ := w.(http.Flusher)
 	wrote := false
 	var pending []convert.AnthropicSSE
+	lastDownstreamEvent := time.Now()
+	keepaliveInterval := streamKeepaliveInterval()
+	keepaliveEvents := 0
 	writeEvent := func(event convert.AnthropicSSE) error {
 		if !wrote {
 			w.WriteHeader(http.StatusOK)
@@ -478,6 +514,7 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 		if flusher != nil {
 			flusher.Flush()
 		}
+		lastDownstreamEvent = time.Now()
 		return nil
 	}
 	flushPending := func() error {
@@ -498,6 +535,22 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 			return err
 		}
 		return writeEvent(event)
+	}
+	writeKeepaliveIfDue := func() error {
+		if keepaliveInterval <= 0 || time.Since(lastDownstreamEvent) < keepaliveInterval {
+			return nil
+		}
+		if err := flushPending(); err != nil {
+			return err
+		}
+		if err := writeEvent(convert.AnthropicSSE{
+			Event: "ping",
+			Data:  map[string]any{"type": "ping"},
+		}); err != nil {
+			return err
+		}
+		keepaliveEvents++
+		return nil
 	}
 	reducer := convert.NewStreamReducerWithOptions(anthropicMessageID(traceBase), model, convert.StreamReducerOptions{
 		ToolSchemas:         toolSchemas,
@@ -549,12 +602,19 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 				return err
 			}
 		}
+		// Schema-backed tool arguments remain buffered until their JSON is complete.
+		// A protocol-level ping lets Claude Code observe that Codex is still active
+		// without exposing an incomplete tool block.
+		if err := writeKeepaliveIfDue(); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
 		s.trace("stream.error", mergeTraceFields(traceBase, map[string]any{
 			"elapsed_ms":            traceDurationMS(streamStarted),
 			"events":                eventCount,
+			"keepalive_events":      keepaliveEvents,
 			"tool_arg_delta_events": toolArgDeltaCount,
 			"tool_arg_delta_bytes":  toolArgDeltaBytes,
 			"wrote":                 wrote,
@@ -612,6 +672,7 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 	s.trace("stream.completed", mergeTraceFields(traceBase, map[string]any{
 		"elapsed_ms":                           traceDurationMS(streamStarted),
 		"events":                               eventCount,
+		"keepalive_events":                     keepaliveEvents,
 		"tool_arg_delta_events":                toolArgDeltaCount,
 		"tool_arg_delta_bytes":                 toolArgDeltaBytes,
 		"reported_input_tokens":                reducer.Usage().InputTokens,
@@ -622,6 +683,18 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 	}))
 	s.recordResponseChain(chainKey, fullRequest, trace)
 	return nil
+}
+
+func streamKeepaliveInterval() time.Duration {
+	value := strings.TrimSpace(os.Getenv(streamKeepaliveIntervalEnv))
+	if value == "" {
+		return defaultStreamKeepaliveInterval
+	}
+	interval, err := time.ParseDuration(value)
+	if err != nil || interval < 0 {
+		return defaultStreamKeepaliveInterval
+	}
+	return interval
 }
 
 func usageTotalInputTokens(usage convert.Usage) int {

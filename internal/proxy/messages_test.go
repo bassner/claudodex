@@ -32,6 +32,18 @@ func TestAnthropicMessageIDIsUniquePerProxyRequest(t *testing.T) {
 	}
 }
 
+func TestResponseChainKeyIsolatesToollessAuxiliaryRequests(t *testing.T) {
+	main := codex.Request{Tools: []codex.Tool{{Name: "Bash"}}}
+	if got := responseChainKey("thread-1", "request-1", main); got != "thread-1" {
+		t.Fatalf("main chain key = %q", got)
+	}
+	firstAux := responseChainKey("thread-1", "request-1", codex.Request{})
+	secondAux := responseChainKey("thread-1", "request-2", codex.Request{})
+	if firstAux == "thread-1" || firstAux == secondAux {
+		t.Fatalf("auxiliary chain keys were not isolated: %q / %q", firstAux, secondAux)
+	}
+}
+
 func TestMessagesStreamsCodexResponseAndBuildsUpstreamRequest(t *testing.T) {
 	home := t.TempDir()
 	saveTestAuth(t, home, "access-1")
@@ -326,7 +338,8 @@ func TestMessagesRoutesClaudeCodeSubagentAsCodexChildThread(t *testing.T) {
 	}
 }
 
-func TestMessagesUsesWebSocketPreviousResponseForToolContinuation(t *testing.T) {
+func TestMessagesUsesWebSocketPreviousResponseForMainTurnSteering(t *testing.T) {
+	t.Setenv("CLAUDODEX_FORCE_CODEX_WEBSOCKET", "1")
 	home := t.TempDir()
 	saveTestAuth(t, home, "access-1")
 	var wsHandshakes atomic.Int32
@@ -381,7 +394,7 @@ func TestMessagesUsesWebSocketPreviousResponseForToolContinuation(t *testing.T) 
 	}
 	defer server.Close()
 
-	system := `"system":"You are an agent for Claude Code, Anthropic's official CLI for Claude. Complete the delegated task.",`
+	system := `"system":"You are Claude Code, Anthropic's official CLI.",`
 	first := `{"model":"claude-opus-4-6",` + system + `"stream":true,"messages":[{"role":"user","content":"read a.go"}],"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}}}}]}`
 	req, err := http.NewRequest(http.MethodPost, "http://"+addr+"/v1/messages", strings.NewReader(first))
 	if err != nil {
@@ -396,7 +409,7 @@ func TestMessagesUsesWebSocketPreviousResponseForToolContinuation(t *testing.T) 
 	_ = readAllString(t, resp)
 	_ = resp.Body.Close()
 
-	second := `{"model":"claude-opus-4-6",` + system + `"stream":true,"messages":[{"role":"user","content":"read a.go"},{"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"Read","input":{"file_path":"a.go"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"file contents"}]}],"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}}}}]}`
+	second := `{"model":"claude-opus-4-6",` + system + `"stream":true,"messages":[{"role":"user","content":"read a.go"},{"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"Read","input":{"file_path":"a.go"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"file contents"},{"type":"text","text":"Stop and answer me now."}]}],"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}}}}]}`
 	req, err = http.NewRequest(http.MethodPost, "http://"+addr+"/v1/messages", strings.NewReader(second))
 	if err != nil {
 		t.Fatal(err)
@@ -422,12 +435,24 @@ func TestMessagesUsesWebSocketPreviousResponseForToolContinuation(t *testing.T) 
 		t.Fatalf("previous_response_id = %#v, request %#v", secondWSRequest["previous_response_id"], secondWSRequest)
 	}
 	input, ok := secondWSRequest["input"].([]any)
-	if !ok || len(input) != 1 {
-		t.Fatalf("websocket input = %#v, want one incremental item", secondWSRequest["input"])
+	if !ok || len(input) != 2 {
+		t.Fatalf("websocket input = %#v, want tool output plus steering", secondWSRequest["input"])
 	}
 	item, _ := input[0].(map[string]any)
 	if item["type"] != "function_call_output" || item["call_id"] != "call_1" {
 		t.Fatalf("incremental input item = %#v", item)
+	}
+	steering, _ := input[1].(map[string]any)
+	if steering["type"] != "message" || steering["role"] != "user" {
+		t.Fatalf("incremental steering item = %#v", steering)
+	}
+	content, _ := steering["content"].([]any)
+	if len(content) != 1 {
+		t.Fatalf("incremental steering content = %#v", steering["content"])
+	}
+	text, _ := content[0].(map[string]any)
+	if text["type"] != "input_text" || text["text"] != "Stop and answer me now." {
+		t.Fatalf("incremental steering text = %#v", text)
 	}
 	usage := messageDeltaUsage(t, sse)
 	fullRequestEstimate := estimateTokenCountFromBytes([]byte(second), false)
@@ -1009,6 +1034,72 @@ func TestMessagesWritesMetadataTraceWithIdleMarker(t *testing.T) {
 	}
 	if strings.Contains(trace, "trace me") {
 		t.Fatalf("trace leaked message content:\n%s", trace)
+	}
+}
+
+func TestMessagesKeepSchemaBackedToolStreamAliveWhileArgumentsAreBuffered(t *testing.T) {
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	tracePath := home + "/trace.jsonl"
+	t.Setenv("CLAUDODEX_PROXY_TRACE", tracePath)
+	t.Setenv(streamKeepaliveIntervalEnv, "5ms")
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		writeUpstreamEvent := func(event, data string) {
+			_, _ = w.Write([]byte("event: " + event + "\ndata: " + data + "\n\n"))
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+
+		writeUpstreamEvent("response.created", `{"type":"response.created","response":{"id":"resp_keepalive"}}`)
+		writeUpstreamEvent("response.output_item.added", `{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_write","name":"Write"}}`)
+		writeUpstreamEvent("response.function_call_arguments.delta", `{"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"file_path\":\"a.go\","}`)
+		time.Sleep(15 * time.Millisecond)
+		writeUpstreamEvent("response.function_call_arguments.delta", `{"type":"response.function_call_arguments.delta","output_index":0,"delta":"\"content\":\"package main\"}"}`)
+		time.Sleep(15 * time.Millisecond)
+		writeUpstreamEvent("response.output_item.done", `{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","call_id":"call_write","name":"Write"}}`)
+		writeUpstreamEvent("response.completed", `{"type":"response.completed","response":{"id":"resp_keepalive","usage":{"input_tokens":1,"output_tokens":8}}}`)
+	}))
+	defer upstream.Close()
+
+	server := New(Config{Home: home, CodexBaseURL: upstream.URL, HTTPClient: upstream.Client(), AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	body := `{"model":"claude-opus-4-6","stream":true,"messages":[{"role":"user","content":"write a.go"}],"tools":[{"name":"Write","input_schema":{"type":"object","required":["file_path","content"],"properties":{"file_path":{"type":"string"},"content":{"type":"string"}}}}]}`
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	sse := readAllString(t, resp)
+	pingAt := strings.Index(sse, "event: ping")
+	toolStartAt := strings.Index(sse, `"type":"tool_use"`)
+	if pingAt < 0 || toolStartAt < 0 || pingAt > toolStartAt {
+		t.Fatalf("keepalive was not emitted before the completed tool block:\n%s", sse)
+	}
+	if got := strings.Count(sse, "event: content_block_delta"); got != 1 {
+		t.Fatalf("tool arguments were not emitted atomically: got %d content deltas\n%s", got, sse)
+	}
+	if !strings.Contains(sse, `\"content\":\"package main\"`) {
+		t.Fatalf("completed tool arguments missing from stream:\n%s", sse)
+	}
+
+	traceData, err := os.ReadFile(tracePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(traceData), `"keepalive_events":1`) {
+		t.Fatalf("trace did not record the keepalive:\n%s", traceData)
 	}
 }
 

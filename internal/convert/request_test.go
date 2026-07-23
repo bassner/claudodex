@@ -149,6 +149,15 @@ func TestAnthropicToCodexAddsCompatibilityInstructionsWithoutSystemPrompt(t *tes
 	if !strings.Contains(got.Request.Instructions, "Do not leave stale in-progress or pending items") {
 		t.Fatalf("stale todo cleanup guidance missing: %q", got.Request.Instructions)
 	}
+	if !strings.Contains(got.Request.Instructions, "Treat that text as live user steering") {
+		t.Fatalf("live user steering guidance missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "supersedes conflicting earlier requests, plans, and todos") {
+		t.Fatalf("user steering precedence guidance missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "Do not silently continue the old trajectory") {
+		t.Fatalf("old trajectory guidance missing: %q", got.Request.Instructions)
+	}
 	if !strings.Contains(got.Request.Instructions, "Do not include list separators, JSON fragments from another tool call, or multiple paths inside a single file_path string.") {
 		t.Fatalf("file tool argument guidance missing: %q", got.Request.Instructions)
 	}
@@ -590,6 +599,41 @@ func TestAnthropicToCodexConvertsToolsImagesAndResults(t *testing.T) {
 	choice, ok := got.Request.ToolChoice.(map[string]string)
 	if !ok || choice["type"] != "function" || choice["name"] != "read_file" {
 		t.Fatalf("tool_choice = %#v", got.Request.ToolChoice)
+	}
+}
+
+func TestAnthropicToCodexKeepsFreshSteeringAfterToolResult(t *testing.T) {
+	body := []byte(`{
+		"messages":[
+			{"role":"assistant","content":[
+				{"type":"tool_use","id":"toolu_steer","name":"shell","input":{"command":"old work"}}
+			]},
+			{"role":"user","content":[
+				{"type":"tool_result","tool_use_id":"toolu_steer","content":"command output"},
+				{"type":"text","text":"Stop that and answer me now."}
+			]}
+		]
+	}`)
+	var req AnthropicRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := AnthropicToCodex(req, ConvertOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Request.Input) != 3 {
+		t.Fatalf("input len = %d, want 3: %#v", len(got.Request.Input), got.Request.Input)
+	}
+	if got.Request.Input[1].Type != "function_call_output" || got.Request.Input[1].Output != "command output" {
+		t.Fatalf("function output = %#v", got.Request.Input[1])
+	}
+	steering := got.Request.Input[2]
+	if steering.Type != "message" || steering.Role != "user" || len(steering.Content) != 1 {
+		t.Fatalf("steering item = %#v", steering)
+	}
+	if steering.Content[0].Type != "input_text" || steering.Content[0].Text != "Stop that and answer me now." {
+		t.Fatalf("steering content = %#v", steering.Content)
 	}
 }
 
