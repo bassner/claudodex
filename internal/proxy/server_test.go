@@ -65,7 +65,7 @@ func TestRoutes(t *testing.T) {
 			t.Fatalf("long-context runtime suffix leaked into visible models response: %#v", body.Data)
 		}
 		switch model.ID {
-		case "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "gpt-5.6-sol":
+		case "claude-opus-5", "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "gpt-5.6-sol":
 			if model.MaxInputTokens != 111000 {
 				t.Fatalf("%s max_input_tokens = %d, want 111000", model.ID, model.MaxInputTokens)
 			}

@@ -6,6 +6,7 @@ func TestConfigMapModelUsesOverrides(t *testing.T) {
 	cfg := Config{Opus: "gpt-opus-next", Sonnet: "gpt-sonnet-next", Haiku: "gpt-haiku-next"}
 	tests := map[string]string{
 		"opus":              "gpt-opus-next",
+		"claude-opus-5":     "gpt-opus-next",
 		"gpt-5.6-sol":       "gpt-opus-next",
 		"claude-sonnet-4-6": "gpt-sonnet-next",
 		"gpt-5.6-terra[1m]": "gpt-sonnet-next",
@@ -17,6 +18,20 @@ func TestConfigMapModelUsesOverrides(t *testing.T) {
 		if got := cfg.MapModel(input); got != want {
 			t.Fatalf("MapModel(%q) = %q, want %q", input, got, want)
 		}
+	}
+}
+
+func TestClaudeAliasSpecsIncludeCurrentOpusDefault(t *testing.T) {
+	specs := ClaudeAliasSpecs(Default())
+	if len(specs) == 0 {
+		t.Fatal("ClaudeAliasSpecs returned no aliases")
+	}
+	first := specs[0]
+	if first.ID != "claude-opus-5" || first.Family != FamilyOpus {
+		t.Fatalf("first Claude alias = %#v, want claude-opus-5 Opus alias", first)
+	}
+	if DefaultClaudeRequestModel != "claude-opus-5" {
+		t.Fatalf("DefaultClaudeRequestModel = %q, want claude-opus-5", DefaultClaudeRequestModel)
 	}
 }
 

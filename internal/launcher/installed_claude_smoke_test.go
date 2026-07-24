@@ -93,7 +93,7 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 	var stderr bytes.Buffer
 	err := (ProcessLauncher{}).Launch(ctx, []string{
 		"-p", "say ok",
-		"--model", "claude-sonnet-4-6",
+		"--model", "claude-opus-5",
 		"--dangerously-skip-permissions",
 		"--max-turns", "1",
 		"--output-format", "stream-json",
@@ -122,8 +122,8 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 	if strings.Contains(stderr.String(), "no verified UI patch") || strings.Contains(stderr.String(), "unpatched Claude Code UI") {
 		t.Fatalf("installed Claude launched without its verified UI patch\nstderr:\n%s", stderr.String())
 	}
-	if captured["model"] != "gpt-5.6-terra" {
-		t.Fatalf("upstream model = %#v, want gpt-5.6-terra; request=%#v", captured["model"], captured)
+	if captured["model"] != "gpt-5.6-sol" {
+		t.Fatalf("upstream model = %#v, want gpt-5.6-sol; request=%#v", captured["model"], captured)
 	}
 	assertCapturedReasoningEffort(t, captured, "max")
 	assertCapturedReasoningSummary(t, captured, "auto")
@@ -161,24 +161,34 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{
+	wants := []string{
 		"Claudodex Info",
 		"Thank you for using Claudodex!",
 		"smoke using Claude Code v" + claudeVersion,
 		"Set the AI model for Claudodex",
 		"Codex Plan",
-		"function iFe(){return Z.CLAUDE_BRIDGE_OAUTH_TOKEN}",
-	} {
+	}
+	switch claudeVersion {
+	case "2.1.218":
+		wants = append(wants, "function iFe(){return Z.CLAUDE_BRIDGE_OAUTH_TOKEN}")
+	case "2.1.219":
+		wants = append(wants, "function q2e(){return Z.CLAUDE_BRIDGE_OAUTH_TOKEN}")
+	}
+	for _, want := range wants {
 		if !bytes.Contains(data, []byte(want)) {
 			t.Fatalf("patched installed Claude missing %q for version=%s sha=%s", want, claudeVersion, sourceSHA)
 		}
 	}
-	if claudeVersion == "2.1.216" || claudeVersion == "2.1.218" {
+	if claudeVersion == "2.1.216" || claudeVersion == "2.1.218" || claudeVersion == "2.1.219" {
 		normalizer := "function CDX216("
 		pickerEnd := "function tAe("
-		if claudeVersion == "2.1.218" {
+		switch claudeVersion {
+		case "2.1.218":
 			normalizer = "function CDX218("
 			pickerEnd = "function vRe("
+		case "2.1.219":
+			normalizer = "function CDX219("
+			pickerEnd = "function Fye("
 		}
 		pickerStart := bytes.Index(data, []byte(normalizer))
 		if pickerStart < 0 {
@@ -239,6 +249,8 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 		brandingReplacements = claude216UIBrandingReplacements
 	case "2.1.218":
 		brandingReplacements = claude218UIBrandingReplacements
+	case "2.1.219":
+		brandingReplacements = claude219UIBrandingReplacements
 	}
 	for _, replacement := range brandingReplacements {
 		if bytes.Contains(data, []byte(replacement.old)) {
@@ -246,6 +258,68 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 		}
 		if !bytes.Contains(data, []byte(replacement.replacement)) {
 			t.Fatalf("patched installed Claude missing %q for version=%s sha=%s", replacement.replacement, claudeVersion, sourceSHA)
+		}
+	}
+}
+
+func TestInstalledClaude219PatchTargets(t *testing.T) {
+	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
+		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
+	}
+	claudePath, err := exec.LookPath("claude")
+	if err != nil {
+		t.Skipf("claude binary not available: %v", err)
+	}
+	if version := detectClaudeVersion(context.Background(), claudePath); version != "2.1.219" {
+		t.Skipf("installed Claude version = %s, want 2.1.219", version)
+	}
+	source, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	transformations := []struct {
+		name  string
+		apply func([]byte) bool
+	}{
+		{"logo", func(data []byte) bool { return patchLogoDisplayDataFunction_2_1_219(data, "test", "2.1.219") }},
+		{"whats-new", patchWhatsNewFeedFunction_2_1_219},
+		{"usage", patchUsageFetchFunction_2_1_219},
+		{"model-options", patchModelPickerOptions_2_1_219},
+		{"model-extra-options", patchModelPickerExtraOptions_2_1_219},
+		{"model-selection", patchModelPickerSelectionValue_2_1_219},
+		{"fast-mode-gate", func(data []byte) bool {
+			return replaceFirstFixed(data, `function El(){if(xn()!=="firstParty")return!1;return!Z.CLAUDE_CODE_DISABLE_FAST_MODE}`, `function El(){return!Z.CLAUDE_CODE_DISABLE_FAST_MODE}`)
+		}},
+		{"fast-mode-name", func(data []byte) bool {
+			return replaceFirstFixed(data, `function pq(){return"Opus 5"}`, `function pq(){return"Codex"}`)
+		}},
+		{"fast-mode-model", func(data []byte) bool {
+			return replaceFirstFixed(data, `function jkt(){return"opus"+(KM()?"[1m]":"")}`, `function jkt(){return"opus"}`)
+		}},
+		{"fast-mode-support", func(data []byte) bool {
+			return replaceFirstFixed(data, `function fE(e){if(!El())return!1;let t=e??ZN(),r=Ei(t);if(HN(lo(r),"fast_mode"))return!0;let n=r.toLowerCase();return n.includes("opus-4-7")||n.includes("opus-4-8")||n.includes("opus-5")}`, `function fE(e){return El()}`)
+		}},
+		{"fast-mode-pricing", patchFastModePricing_2_1_219},
+		{"context-warning", patchContextWarningHint_2_1_219},
+		{"resume-hints", patchResumeCommandHints_2_1_219},
+		{"compact-progress", patchCompactProgressCurve_2_1_219},
+		{"remote-control", patchRemoteControlRuntimeFunctions_2_1_219},
+		{"branding", func(data []byte) bool {
+			return applyClaude209UIBrandingReplacements(data, claude219UIBrandingReplacements)
+		}},
+	}
+	for _, transformation := range transformations {
+		t.Run(transformation.name, func(t *testing.T) {
+			data := append([]byte(nil), source...)
+			if !transformation.apply(data) {
+				t.Fatalf("%s patch target did not match installed Claude 2.1.219", transformation.name)
+			}
+		})
+	}
+	for _, replacement := range claude219UIBrandingReplacements {
+		if got := bytes.Count(source, []byte(replacement.old)); got != replacement.expectedCount {
+			t.Errorf("branding count for %q = %d, want %d", replacement.old, got, replacement.expectedCount)
 		}
 	}
 }

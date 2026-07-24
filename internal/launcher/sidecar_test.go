@@ -252,10 +252,11 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 	cachePath := filepath.Join(cacheDir, claudeModelCapabilitiesFileName)
 	cache := mustReadJSONMap(t, cachePath)
 	models := cache["models"].([]any)
-	if len(models) != 11 {
-		t.Fatalf("models length = %d, want 11: %#v", len(models), models)
+	if len(models) != 12 {
+		t.Fatalf("models length = %d, want 12: %#v", len(models), models)
 	}
 	foundSonnet := false
+	foundOpus5 := false
 	for _, item := range models {
 		model := item.(map[string]any)
 		if strings.Contains(model["id"].(string), "[1m]") {
@@ -267,9 +268,18 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 				t.Fatalf("sonnet capability = %#v", model)
 			}
 		}
+		if model["id"] == "claude-opus-5" {
+			foundOpus5 = true
+			if model["max_input_tokens"] != float64(272000) || model["max_tokens"] != float64(128000) {
+				t.Fatalf("Opus 5 capability = %#v", model)
+			}
+		}
 	}
 	if !foundSonnet {
 		t.Fatalf("claude-sonnet-4-6 capability missing: %#v", models)
+	}
+	if !foundOpus5 {
+		t.Fatalf("claude-opus-5 capability missing: %#v", models)
 	}
 	realCache := mustReadJSONMap(t, filepath.Join(realCacheDir, claudeModelCapabilitiesFileName))
 	if len(realCache["models"].([]any)) != 0 {
@@ -390,6 +400,7 @@ func TestNormalizeClaudeSettingsModelMapsNativeLongContextAliases(t *testing.T) 
 		want  string
 	}{
 		"plain opus":        {model: "opus", want: "opus"},
+		"opus 5":            {model: "claude-opus-5", want: "opus"},
 		"retired fable":     {model: "fable", want: "opus"},
 		"versioned fable":   {model: "claude-fable-5[1m]", want: "opus"},
 		"family opus":       {model: "opus[1m]", want: "opus"},
