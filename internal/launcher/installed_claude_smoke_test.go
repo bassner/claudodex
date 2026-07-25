@@ -173,13 +173,15 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 		wants = append(wants, "function iFe(){return Z.CLAUDE_BRIDGE_OAUTH_TOKEN}")
 	case "2.1.219":
 		wants = append(wants, "function q2e(){return Z.CLAUDE_BRIDGE_OAUTH_TOKEN}")
+	case "2.1.220":
+		wants = append(wants, "function q2e(){return Z.CLAUDE_BRIDGE_OAUTH_TOKEN}")
 	}
 	for _, want := range wants {
 		if !bytes.Contains(data, []byte(want)) {
 			t.Fatalf("patched installed Claude missing %q for version=%s sha=%s", want, claudeVersion, sourceSHA)
 		}
 	}
-	if claudeVersion == "2.1.216" || claudeVersion == "2.1.218" || claudeVersion == "2.1.219" {
+	if claudeVersion == "2.1.216" || claudeVersion == "2.1.218" || claudeVersion == "2.1.219" || claudeVersion == "2.1.220" {
 		normalizer := "function CDX216("
 		pickerEnd := "function tAe("
 		switch claudeVersion {
@@ -188,6 +190,9 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 			pickerEnd = "function vRe("
 		case "2.1.219":
 			normalizer = "function CDX219("
+			pickerEnd = "function Fye("
+		case "2.1.220":
+			normalizer = "function CDX220("
 			pickerEnd = "function Fye("
 		}
 		pickerStart := bytes.Index(data, []byte(normalizer))
@@ -251,6 +256,8 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 		brandingReplacements = claude218UIBrandingReplacements
 	case "2.1.219":
 		brandingReplacements = claude219UIBrandingReplacements
+	case "2.1.220":
+		brandingReplacements = claude220UIBrandingReplacements
 	}
 	for _, replacement := range brandingReplacements {
 		if bytes.Contains(data, []byte(replacement.old)) {
@@ -262,7 +269,7 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude219PatchTargets(t *testing.T) {
+func TestInstalledClaude220PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -270,8 +277,8 @@ func TestInstalledClaude219PatchTargets(t *testing.T) {
 	if err != nil {
 		t.Skipf("claude binary not available: %v", err)
 	}
-	if version := detectClaudeVersion(context.Background(), claudePath); version != "2.1.219" {
-		t.Skipf("installed Claude version = %s, want 2.1.219", version)
+	if version := detectClaudeVersion(context.Background(), claudePath); version != "2.1.220" {
+		t.Skipf("installed Claude version = %s, want 2.1.220", version)
 	}
 	source, err := os.ReadFile(claudePath)
 	if err != nil {
@@ -282,12 +289,12 @@ func TestInstalledClaude219PatchTargets(t *testing.T) {
 		name  string
 		apply func([]byte) bool
 	}{
-		{"logo", func(data []byte) bool { return patchLogoDisplayDataFunction_2_1_219(data, "test", "2.1.219") }},
-		{"whats-new", patchWhatsNewFeedFunction_2_1_219},
-		{"usage", patchUsageFetchFunction_2_1_219},
-		{"model-options", patchModelPickerOptions_2_1_219},
-		{"model-extra-options", patchModelPickerExtraOptions_2_1_219},
-		{"model-selection", patchModelPickerSelectionValue_2_1_219},
+		{"logo", func(data []byte) bool { return patchLogoDisplayDataFunction_2_1_220(data, "test", "2.1.220") }},
+		{"whats-new", patchWhatsNewFeedFunction_2_1_220},
+		{"usage", patchUsageFetchFunction_2_1_220},
+		{"model-options", patchModelPickerOptions_2_1_220},
+		{"model-extra-options", patchModelPickerExtraOptions_2_1_220},
+		{"model-selection", patchModelPickerSelectionValue_2_1_220},
 		{"fast-mode-gate", func(data []byte) bool {
 			return replaceFirstFixed(data, `function El(){if(xn()!=="firstParty")return!1;return!Z.CLAUDE_CODE_DISABLE_FAST_MODE}`, `function El(){return!Z.CLAUDE_CODE_DISABLE_FAST_MODE}`)
 		}},
@@ -295,29 +302,29 @@ func TestInstalledClaude219PatchTargets(t *testing.T) {
 			return replaceFirstFixed(data, `function pq(){return"Opus 5"}`, `function pq(){return"Codex"}`)
 		}},
 		{"fast-mode-model", func(data []byte) bool {
-			return replaceFirstFixed(data, `function jkt(){return"opus"+(KM()?"[1m]":"")}`, `function jkt(){return"opus"}`)
+			return replaceFirstFixed(data, `function jkt(){return"opus"+(YM()?"[1m]":"")}`, `function jkt(){return"opus"}`)
 		}},
 		{"fast-mode-support", func(data []byte) bool {
-			return replaceFirstFixed(data, `function fE(e){if(!El())return!1;let t=e??ZN(),r=Ei(t);if(HN(lo(r),"fast_mode"))return!0;let n=r.toLowerCase();return n.includes("opus-4-7")||n.includes("opus-4-8")||n.includes("opus-5")}`, `function fE(e){return El()}`)
+			return replaceFirstFixed(data, `function fE(e){if(!El())return!1;let t=e??ZN(),r=Ei(t);if(LN(lo(r),"fast_mode"))return!0;let n=r.toLowerCase();return n.includes("opus-4-7")||n.includes("opus-4-8")||n.includes("opus-5")}`, `function fE(e){return El()}`)
 		}},
-		{"fast-mode-pricing", patchFastModePricing_2_1_219},
-		{"context-warning", patchContextWarningHint_2_1_219},
-		{"resume-hints", patchResumeCommandHints_2_1_219},
-		{"compact-progress", patchCompactProgressCurve_2_1_219},
-		{"remote-control", patchRemoteControlRuntimeFunctions_2_1_219},
+		{"fast-mode-pricing", patchFastModePricing_2_1_220},
+		{"context-warning", patchContextWarningHint_2_1_220},
+		{"resume-hints", patchResumeCommandHints_2_1_220},
+		{"compact-progress", patchCompactProgressCurve_2_1_220},
+		{"remote-control", patchRemoteControlRuntimeFunctions_2_1_220},
 		{"branding", func(data []byte) bool {
-			return applyClaude209UIBrandingReplacements(data, claude219UIBrandingReplacements)
+			return applyClaude209UIBrandingReplacements(data, claude220UIBrandingReplacements)
 		}},
 	}
 	for _, transformation := range transformations {
 		t.Run(transformation.name, func(t *testing.T) {
 			data := append([]byte(nil), source...)
 			if !transformation.apply(data) {
-				t.Fatalf("%s patch target did not match installed Claude 2.1.219", transformation.name)
+				t.Fatalf("%s patch target did not match installed Claude 2.1.220", transformation.name)
 			}
 		})
 	}
-	for _, replacement := range claude219UIBrandingReplacements {
+	for _, replacement := range claude220UIBrandingReplacements {
 		if got := bytes.Count(source, []byte(replacement.old)); got != replacement.expectedCount {
 			t.Errorf("branding count for %q = %d, want %d", replacement.old, got, replacement.expectedCount)
 		}
