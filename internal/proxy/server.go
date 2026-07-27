@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bassner/claudodex/internal/codex"
+	"github.com/bassner/claudodex/internal/convert"
 	"github.com/bassner/claudodex/internal/modelconfig"
 )
 
@@ -40,6 +40,7 @@ type Server struct {
 	traceMu        sync.Mutex
 	chainsMu       sync.Mutex
 	chains         map[string]responseChain
+	usage          map[string]convert.Usage
 	wsMu           sync.Mutex
 	ws             map[string]*codex.WebSocketConversation
 }
@@ -55,7 +56,12 @@ func New(cfg Config) *Server {
 		cfg.CodexBaseURL = codex.DefaultBaseURL
 	}
 	cfg.ModelConfig = cfg.ModelConfig.Normalize()
-	return &Server{cfg: cfg, chains: make(map[string]responseChain), ws: make(map[string]*codex.WebSocketConversation)}
+	return &Server{
+		cfg:    cfg,
+		chains: make(map[string]responseChain),
+		usage:  make(map[string]convert.Usage),
+		ws:     make(map[string]*codex.WebSocketConversation),
+	}
 }
 
 func (s *Server) Start(host string, port int) (string, error) {
@@ -221,7 +227,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 		case r.Method == http.MethodGet && path == "/v1/mcp_servers":
 			writeJSON(w, http.StatusOK, map[string]any{"data": []any{}, "has_more": false})
 		case r.Method == http.MethodPost && path == "/v1/messages/count_tokens":
-			writeJSON(w, http.StatusOK, map[string]any{"input_tokens": estimateTokenCount(r)})
+			s.handleCountTokens(w, r)
 		case r.Method == http.MethodPost && path == "/v1/messages/batches":
 			writeAnthropicError(w, http.StatusNotImplemented, "invalid_request_error", "message batches are not supported by Claudodex v1")
 		case r.Method == http.MethodPost && path == "/v1/messages":
@@ -308,74 +314,6 @@ func claudePolicyLimitsResponse() map[string]any {
 		"monitoring_notice": nil,
 		"defaults":          map[string]any{},
 	}
-}
-
-func estimateTokenCount(r *http.Request) int {
-	const maxCountBody = 64 << 20
-	data, err := io.ReadAll(io.LimitReader(r.Body, maxCountBody+1))
-	if err != nil || len(data) == 0 {
-		return 1
-	}
-	truncated := len(data) > maxCountBody
-	if truncated {
-		data = data[:maxCountBody]
-	}
-	return estimateTokenCountFromBytes(data, truncated)
-}
-
-func estimateTokenCountFromBytes(data []byte, truncated bool) int {
-	tokens := (len(data) + 2) / 3 // deliberately conservative JSON chars/token estimate.
-	tokens += estimateImagePadding(data)
-	if truncated {
-		tokens += 1_000_000
-	}
-	if tokens < 1 {
-		return 1
-	}
-	return tokens
-}
-
-func estimateImagePadding(data []byte) int {
-	var value any
-	if err := json.Unmarshal(data, &value); err != nil {
-		return 0
-	}
-	return imagePaddingValue(value)
-}
-
-func imagePaddingValue(value any) int {
-	switch v := value.(type) {
-	case map[string]any:
-		padding := 0
-		if typ, _ := v["type"].(string); isImageType(typ) {
-			padding += 8500
-		}
-		if _, ok := v["image_url"]; ok {
-			padding += 8500
-		}
-		if source, ok := v["source"].(map[string]any); ok {
-			if typ, _ := source["type"].(string); typ == "base64" || typ == "url" {
-				padding += 8500
-			}
-		}
-		for _, child := range v {
-			padding += imagePaddingValue(child)
-		}
-		return padding
-	case []any:
-		padding := 0
-		for _, child := range v {
-			padding += imagePaddingValue(child)
-		}
-		return padding
-	default:
-		return 0
-	}
-}
-
-func isImageType(value string) bool {
-	value = strings.ToLower(value)
-	return value == "image" || value == "input_image"
 }
 
 func routeExists(path string) bool {

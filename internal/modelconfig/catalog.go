@@ -107,6 +107,8 @@ func (c Config) MapModel(model string) string {
 		return c.Sonnet
 	case normalized == DefaultHaikuModel:
 		return c.Haiku
+	case strings.Contains(normalized, "fable"), strings.Contains(normalized, "mythos"):
+		return c.Opus
 	}
 	if family, ok := FamilyForModel(model); ok {
 		return c.Target(family)

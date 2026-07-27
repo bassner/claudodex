@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/bassner/claudodex/internal/codex"
+	"github.com/bassner/claudodex/internal/modelconfig"
 )
 
 func TestStreamReducerStreamsReasoningSummaryAsThinking(t *testing.T) {
@@ -365,7 +366,36 @@ func TestStreamReducerAddsFallbackInputUsageToMessageStart(t *testing.T) {
 	}
 }
 
-func TestStreamReducerUsesFullRequestEstimateAsInputFloor(t *testing.T) {
+func TestStreamReducerKeepsPreviousAuthoritativeUsageUntilCompletion(t *testing.T) {
+	reducer := NewStreamReducerWithOptions("msg_1", "claude-opus-5", StreamReducerOptions{
+		FallbackInputTokens: 80_000,
+		InitialInputUsage: Usage{
+			InputTokens:          32_000,
+			CacheReadInputTokens: 18_000,
+			OutputTokens:         500,
+		},
+	})
+
+	start := reducer.usageForStart(map[string]any{})
+	if start.InputTokens != 32_000 || start.CacheReadInputTokens != 18_000 || start.OutputTokens != 0 {
+		t.Fatalf("start usage = %#v, want previous authoritative 50k input with zero output", start)
+	}
+
+	finish := reducer.usageForFinish(map[string]any{
+		"response": map[string]any{
+			"usage": map[string]any{
+				"input_tokens":            33_000,
+				"cache_read_input_tokens": 18_000,
+				"output_tokens":           600,
+			},
+		},
+	})
+	if finish.InputTokens != 33_000 || finish.CacheReadInputTokens != 18_000 || finish.OutputTokens != 600 {
+		t.Fatalf("finish usage = %#v, want new authoritative 51k input", finish)
+	}
+}
+
+func TestStreamReducerTreatsUpstreamInputUsageAsAuthoritative(t *testing.T) {
 	tests := []struct {
 		name           string
 		fallback       int
@@ -375,19 +405,19 @@ func TestStreamReducerUsesFullRequestEstimateAsInputFloor(t *testing.T) {
 		wantTotalInput int
 	}{
 		{
-			name:           "resumed input below full request",
+			name:           "upstream usage below local fallback",
 			fallback:       61_962,
 			input:          1_000,
-			wantInput:      61_962,
-			wantTotalInput: 61_962,
+			wantInput:      1_000,
+			wantTotalInput: 1_000,
 		},
 		{
-			name:           "cache accounting is preserved while filling the gap",
+			name:           "upstream cache accounting is preserved",
 			fallback:       258_400,
 			input:          35_614,
 			cacheRead:      185_344,
-			wantInput:      73_056,
-			wantTotalInput: 258_400,
+			wantInput:      35_614,
+			wantTotalInput: 220_958,
 		},
 		{
 			name:           "upstream total above floor is unchanged",
@@ -638,8 +668,13 @@ func TestStreamReducerBuffersWriteArgumentsWithToolSchemas(t *testing.T) {
 	}
 }
 
-func TestStreamReducerLeavesAgentModelAliasForClaudeCodeValidation(t *testing.T) {
+func TestStreamReducerMapsAgentModelAliasToConfiguredCodexTier(t *testing.T) {
 	reducer := NewStreamReducerWithOptions("msg_1", "gpt-5.5", StreamReducerOptions{
+		AgentModels: modelconfig.Config{
+			Opus:   "gpt-opus-next",
+			Sonnet: "gpt-sonnet-next",
+			Haiku:  "gpt-haiku-next",
+		},
 		ToolSchemas: map[string]map[string]any{
 			"Agent": {
 				"type":     "object",
@@ -671,12 +706,97 @@ func TestStreamReducerLeavesAgentModelAliasForClaudeCodeValidation(t *testing.T)
 	}
 	content := message["content"].([]map[string]any)
 	input := content[0]["input"].(map[string]any)
-	if input["model"] != "sonnet" {
+	if input["model"] != "gpt-sonnet-next" {
 		t.Fatalf("agent model = %#v, input = %#v", input["model"], input)
 	}
 }
 
-func TestStreamReducerPrunesEmptyAgentModel(t *testing.T) {
+func TestStreamReducerFallsBackRetiredAgentModelAliasToSol(t *testing.T) {
+	reducer := NewStreamReducerWithOptions("msg_1", "gpt-5.6-sol", StreamReducerOptions{
+		ToolSchemas: map[string]map[string]any{
+			"Agent": {
+				"type":     "object",
+				"required": []any{"description", "prompt"},
+				"properties": map[string]any{
+					"description": map[string]any{"type": "string"},
+					"prompt":      map[string]any{"type": "string"},
+					"model":       map[string]any{"type": "string"},
+				},
+			},
+		},
+	})
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_agent","name":"Agent"}}`,
+		`{"type":"response.function_call_arguments.done","output_index":0,"arguments":"{\"description\":\"Review plan\",\"prompt\":\"review it\",\"model\":\"fable\"}"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","call_id":"call_agent","name":"Agent"}}`,
+		`{"type":"response.completed","response":{"stop_reason":"tool_calls"}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	message, errEvent := AssembleMessage(events, "", "gpt-5.6-sol")
+	if errEvent != nil {
+		t.Fatalf("unexpected error event: %#v", errEvent)
+	}
+	content := message["content"].([]map[string]any)
+	input := content[0]["input"].(map[string]any)
+	if input["model"] != "gpt-5.6-sol" {
+		t.Fatalf("retired agent model did not fall back to sol: %#v", input)
+	}
+}
+
+func TestNormalizeClaudeCodeToolArgsMapsAllAgentAliasesToCodexTiers(t *testing.T) {
+	models := modelconfig.Config{
+		Opus:   "gpt-sol-custom",
+		Sonnet: "gpt-terra-custom",
+		Haiku:  "gpt-luna-custom",
+	}
+	tests := map[string]string{
+		"":                  "gpt-sol-custom",
+		"inherit":           "gpt-sol-custom",
+		"fable":             "gpt-sol-custom",
+		"claude-fable-5":    "gpt-sol-custom",
+		"opus":              "gpt-sol-custom",
+		"claude-opus-5":     "gpt-sol-custom",
+		"sonnet":            "gpt-terra-custom",
+		"claude-sonnet-4-6": "gpt-terra-custom",
+		"haiku":             "gpt-luna-custom",
+		"claude-haiku-4-5":  "gpt-luna-custom",
+	}
+	for input, want := range tests {
+		got := normalizeClaudeCodeToolArgs("Agent", map[string]any{"model": input}, models, "")
+		if got["model"] != want {
+			t.Errorf("model %q mapped to %#v, want %q", input, got["model"], want)
+		}
+	}
+}
+
+func TestNormalizeClaudeCodeToolArgsRewritesPlanMutationToAssignedFile(t *testing.T) {
+	const assigned = "/Users/test/.claudodex/claude-config/plans/session-slug.md"
+	for _, toolName := range []string{"Write", "Edit"} {
+		got := normalizeClaudeCodeToolArgs(toolName, map[string]any{
+			"file_path": "/Users/test/.claude/plans/descriptive-name.md",
+			"content":   "plan",
+		}, modelconfig.Config{}, assigned)
+		if got["file_path"] != assigned {
+			t.Errorf("%s plan path = %#v, want %q", toolName, got["file_path"], assigned)
+		}
+	}
+
+	got := normalizeClaudeCodeToolArgs("Write", map[string]any{
+		"file_path": "/repo/docs/plan.md",
+		"content":   "documentation",
+	}, modelconfig.Config{}, assigned)
+	if got["file_path"] != "/repo/docs/plan.md" {
+		t.Fatalf("ordinary write path was rewritten: %#v", got)
+	}
+}
+
+func TestStreamReducerDefaultsEmptyAgentModelToSol(t *testing.T) {
 	reducer := NewStreamReducerWithOptions("msg_1", "gpt-5.5", StreamReducerOptions{
 		ToolSchemas: map[string]map[string]any{
 			"Agent": {
@@ -708,8 +828,8 @@ func TestStreamReducerPrunesEmptyAgentModel(t *testing.T) {
 	}
 	content := message["content"].([]map[string]any)
 	input := content[0]["input"].(map[string]any)
-	if _, ok := input["model"]; ok {
-		t.Fatalf("empty agent model was not pruned: %#v", input)
+	if input["model"] != "gpt-5.6-sol" {
+		t.Fatalf("empty agent model did not default to sol: %#v", input)
 	}
 }
 

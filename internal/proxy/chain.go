@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/bassner/claudodex/internal/codex"
+	"github.com/bassner/claudodex/internal/convert"
 )
 
 type responseChain struct {
@@ -119,6 +120,36 @@ func (s *Server) recordResponseChain(chainKey string, request codex.Request, tra
 		ResponseID: strings.TrimSpace(trace.ResponseID),
 		Output:     trace.outputInOrder(),
 	}
+	s.chainsMu.Unlock()
+}
+
+func (s *Server) previousResponseUsage(chainKey string) convert.Usage {
+	chainKey = strings.TrimSpace(chainKey)
+	if chainKey == "" {
+		return convert.Usage{}
+	}
+	s.chainsMu.Lock()
+	defer s.chainsMu.Unlock()
+	return s.usage[chainKey]
+}
+
+func (s *Server) estimatedNextInputUsage(chainKey string, incrementalInput []codex.InputItem, incrementalInputKnown bool) convert.Usage {
+	previous := s.previousResponseUsage(chainKey)
+	if usageTotalInputTokens(previous) == 0 || !incrementalInputKnown {
+		return convert.Usage{}
+	}
+	previous.InputTokens += previous.OutputTokens + estimateCodexInputItems(incrementalInput)
+	previous.OutputTokens = 0
+	return previous
+}
+
+func (s *Server) recordResponseUsage(chainKey string, usage convert.Usage) {
+	chainKey = strings.TrimSpace(chainKey)
+	if chainKey == "" || usageTotalInputTokens(usage) == 0 {
+		return
+	}
+	s.chainsMu.Lock()
+	s.usage[chainKey] = usage
 	s.chainsMu.Unlock()
 }
 

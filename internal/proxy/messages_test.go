@@ -409,7 +409,7 @@ func TestMessagesUsesWebSocketPreviousResponseForMainTurnSteering(t *testing.T) 
 	_ = readAllString(t, resp)
 	_ = resp.Body.Close()
 
-	second := `{"model":"claude-opus-4-6",` + system + `"stream":true,"messages":[{"role":"user","content":"read a.go"},{"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"Read","input":{"file_path":"a.go"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"file contents"},{"type":"text","text":"Stop and answer me now."}]}],"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}}}}]}`
+	second := `{"model":"claude-opus-4-6",` + system + `"stream":true,"messages":[{"role":"user","content":"read a.go"},{"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"Read","input":{"file_path":"a.go"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"file contents"}]},{"role":"system","content":"The user sent a new message while you were working:\nStop and answer me now.\nThis is how Claude Code surfaces messages the user sends mid-turn."}],"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}}}}]}`
 	req, err = http.NewRequest(http.MethodPost, "http://"+addr+"/v1/messages", strings.NewReader(second))
 	if err != nil {
 		t.Fatal(err)
@@ -451,14 +451,13 @@ func TestMessagesUsesWebSocketPreviousResponseForMainTurnSteering(t *testing.T) 
 		t.Fatalf("incremental steering content = %#v", steering["content"])
 	}
 	text, _ := content[0].(map[string]any)
-	if text["type"] != "input_text" || text["text"] != "Stop and answer me now." {
+	if text["type"] != "input_text" || !strings.Contains(text["text"].(string), "Stop and answer me now.") {
 		t.Fatalf("incremental steering text = %#v", text)
 	}
 	usage := messageDeltaUsage(t, sse)
-	fullRequestEstimate := estimateTokenCountFromBytes([]byte(second), false)
 	gotInput := usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens
-	if gotInput < fullRequestEstimate {
-		t.Fatalf("reported resumed input = %d, want at least full request estimate %d", gotInput, fullRequestEstimate)
+	if gotInput != 1 {
+		t.Fatalf("reported resumed input = %d, want authoritative upstream usage 1", gotInput)
 	}
 }
 
@@ -1201,6 +1200,56 @@ func TestMessagesStreamingBackfillsMissingUsage(t *testing.T) {
 	usage := messageDeltaUsage(t, sse)
 	if usage.InputTokens <= 0 || usage.OutputTokens <= 0 {
 		t.Fatalf("usage = %#v\nSSE:\n%s", usage, sse)
+	}
+}
+
+func TestMessagesStreamingPreservesUpstreamUsageForLargeImage(t *testing.T) {
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request codex.Request
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if len(request.Input) != 1 || len(request.Input[0].Content) != 2 {
+			t.Fatalf("input = %#v", request.Input)
+		}
+		image := request.Input[0].Content[1]
+		if image.Type != "input_image" || !strings.HasPrefix(image.ImageURL, "data:image/png;base64,") {
+			t.Fatalf("image = %#v", image)
+		}
+		w.Header().Set("content-type", "text/event-stream")
+		_, _ = w.Write([]byte(strings.Join([]string{
+			`event: response.output_item.done`,
+			`data: {"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"done"}]}}`,
+			``,
+			`event: response.completed`,
+			`data: {"type":"response.completed","response":{"usage":{"input_tokens":123,"output_tokens":1}}}`,
+			``,
+			``,
+		}, "\n")))
+	}))
+	defer upstream.Close()
+
+	server := New(Config{Home: home, CodexBaseURL: upstream.URL, HTTPClient: upstream.Client(), AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	body := `{"model":"claude-opus-5","stream":true,"messages":[{"role":"user","content":[{"type":"text","text":"describe"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"` + strings.Repeat("A", 400_000) + `"}}]}]}`
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	usage := messageDeltaUsage(t, readAllString(t, resp))
+	if usage.InputTokens != 123 || usage.CacheCreationInputTokens != 0 || usage.CacheReadInputTokens != 0 {
+		t.Fatalf("usage = %#v, want exact upstream input usage", usage)
 	}
 }
 

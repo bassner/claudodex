@@ -164,8 +164,25 @@ func TestAnthropicToCodexAddsCompatibilityInstructionsWithoutSystemPrompt(t *tes
 	if !strings.Contains(got.Request.Instructions, "A skill whose description only says it applies when starting a conversation") {
 		t.Fatalf("subagent startup guidance missing: %q", got.Request.Instructions)
 	}
-	if !strings.Contains(got.Request.Instructions, "omit the optional model field") {
+	if !strings.Contains(got.Request.Instructions, "For every Claude Code Agent tool call, set the model field directly") {
 		t.Fatalf("agent model inheritance guidance missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "The actual model runtime behind this Claude Code session is OpenAI Codex.") {
+		t.Fatalf("actual runtime guidance missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "Fable, Opus, Sonnet, Haiku") {
+		t.Fatalf("unavailable Claude model guidance missing: %q", got.Request.Instructions)
+	}
+	if !strings.Contains(got.Request.Instructions, "not selectable subagent runtimes in this environment") {
+		t.Fatalf("subagent runtime limitation guidance missing: %q", got.Request.Instructions)
+	}
+	for _, model := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"} {
+		if !strings.Contains(got.Request.Instructions, model) {
+			t.Fatalf("configured Agent model %q missing: %q", model, got.Request.Instructions)
+		}
+	}
+	if !strings.Contains(got.Request.Instructions, "Never emit Fable, Opus, Sonnet, Haiku, inherit") {
+		t.Fatalf("Agent alias prohibition missing: %q", got.Request.Instructions)
 	}
 	if !strings.Contains(got.Request.Instructions, "Do not send shutdown_request messages to ordinary Agent workers that have completed, failed, stopped, or have no active task") {
 		t.Fatalf("ordinary agent lifecycle guidance missing: %q", got.Request.Instructions)
@@ -175,6 +192,27 @@ func TestAnthropicToCodexAddsCompatibilityInstructionsWithoutSystemPrompt(t *tes
 	}
 	if !strings.Contains(got.Request.Instructions, "Do not narrate routine agent lifecycle management or shutdown actions") {
 		t.Fatalf("silent lifecycle guidance missing: %q", got.Request.Instructions)
+	}
+}
+
+func TestAnthropicToCodexCapturesClaudeCodeAssignedPlanFile(t *testing.T) {
+	var req AnthropicRequest
+	if err := json.Unmarshal([]byte(`{
+		"system":"Plan mode is active.\n\n## Plan File Info:\nNo plan file exists yet. You should create your plan at /Users/test/.claudodex/claude-config/plans/session-slug.md using the Write tool if you need to.",
+		"messages":[{"role":"user","content":"make a plan"}]
+	}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := AnthropicToCodex(req, ConvertOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "/Users/test/.claudodex/claude-config/plans/session-slug.md"
+	if got.PlanFilePath != want {
+		t.Fatalf("plan file path = %q, want %q", got.PlanFilePath, want)
+	}
+	if !strings.Contains(got.Request.Instructions, "Preserve the assigned filename exactly") {
+		t.Fatalf("assigned plan path guidance missing: %q", got.Request.Instructions)
 	}
 }
 
@@ -388,6 +426,9 @@ func TestAnthropicToCodexUsesConfiguredModelTargets(t *testing.T) {
 	}
 	if got.Request.Model != "gpt-sonnet-next" {
 		t.Fatalf("model = %q", got.Request.Model)
+	}
+	if !strings.Contains(got.Request.Instructions, "gpt-sonnet-next is the balanced middle route") {
+		t.Fatalf("configured Agent tier missing from instructions: %q", got.Request.Instructions)
 	}
 	if got.Request.Reasoning == nil || got.Request.Reasoning.Effort != "xhigh" {
 		t.Fatalf("effort = %#v, want xhigh", got.Request.Reasoning)
@@ -634,6 +675,41 @@ func TestAnthropicToCodexKeepsFreshSteeringAfterToolResult(t *testing.T) {
 	}
 	if steering.Content[0].Type != "input_text" || steering.Content[0].Text != "Stop that and answer me now." {
 		t.Fatalf("steering content = %#v", steering.Content)
+	}
+}
+
+func TestAnthropicToCodexConvertsClaudeQueuedSystemMessageToUserSteering(t *testing.T) {
+	body := []byte(`{
+		"messages":[
+			{"role":"assistant","content":[
+				{"type":"tool_use","id":"toolu_steer","name":"shell","input":{"command":"old work"}}
+			]},
+			{"role":"user","content":[
+				{"type":"tool_result","tool_use_id":"toolu_steer","content":"command output"}
+			]},
+			{"role":"system","content":"The user sent a new message while you were working:\nStop that and answer me now.\nThis is how Claude Code surfaces messages the user sends mid-turn."}
+		]
+	}`)
+	var req AnthropicRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := AnthropicToCodex(req, ConvertOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Request.Input) != 3 {
+		t.Fatalf("input len = %d, want 3: %#v", len(got.Request.Input), got.Request.Input)
+	}
+	steering := got.Request.Input[2]
+	if steering.Type != "message" || steering.Role != "user" || len(steering.Content) != 1 {
+		t.Fatalf("steering item = %#v", steering)
+	}
+	if !strings.Contains(steering.Content[0].Text, "Stop that and answer me now.") {
+		t.Fatalf("steering content = %#v", steering.Content)
+	}
+	if strings.Contains(got.Request.Instructions, "Stop that and answer me now.") {
+		t.Fatalf("queued steering leaked into instructions: %q", got.Request.Instructions)
 	}
 }
 

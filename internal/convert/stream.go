@@ -26,7 +26,10 @@ type StreamReducer struct {
 	messageID           string
 	model               string
 	toolSchemas         map[string]map[string]any
+	agentModels         modelconfig.Config
+	planFilePath        string
 	fallbackInputTokens int
+	initialInputUsage   Usage
 	started             bool
 	done                bool
 	nextIndex           int
@@ -71,7 +74,10 @@ func NewStreamReducer(messageID, model string) *StreamReducer {
 
 type StreamReducerOptions struct {
 	ToolSchemas         map[string]map[string]any
+	AgentModels         modelconfig.Config
+	PlanFilePath        string
 	FallbackInputTokens int
+	InitialInputUsage   Usage
 }
 
 func NewStreamReducerWithOptions(messageID, model string, opts StreamReducerOptions) *StreamReducer {
@@ -85,7 +91,10 @@ func NewStreamReducerWithOptions(messageID, model string, opts StreamReducerOpti
 		messageID:           messageID,
 		model:               model,
 		toolSchemas:         cloneToolSchemas(opts.ToolSchemas),
+		agentModels:         opts.AgentModels.Normalize(),
+		planFilePath:        strings.TrimSpace(opts.PlanFilePath),
 		fallbackInputTokens: opts.FallbackInputTokens,
+		initialInputUsage:   opts.InitialInputUsage,
 		textIndex:           -1,
 		thinkingIndex:       -1,
 		thinkingSummaryPart: -1,
@@ -637,11 +646,61 @@ func (r *StreamReducer) finalToolArgs(state *toolStreamState) string {
 	if schema := r.toolSchemas[state.name]; schema != nil {
 		args = pruneEmptyOptionalToolArgs(args, schema)
 	}
+	args = normalizeClaudeCodeToolArgs(state.name, args, r.agentModels, r.planFilePath)
 	data, err := json.Marshal(args)
 	if err != nil {
 		return raw
 	}
 	return string(data)
+}
+
+func normalizeClaudeCodeToolArgs(toolName string, args map[string]any, models modelconfig.Config, planFilePath string) map[string]any {
+	if args == nil {
+		return args
+	}
+	if (toolName == "Write" || toolName == "Edit") && strings.TrimSpace(planFilePath) != "" {
+		if requested, _ := args["file_path"].(string); isClaudePlanFilePath(requested) && requested != planFilePath {
+			out := cloneMap(args)
+			out["file_path"] = planFilePath
+			args = out
+		}
+	}
+	if toolName != "Agent" {
+		return args
+	}
+	models = models.Normalize()
+	model, _ := args["model"].(string)
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	target := ""
+	switch {
+	case normalized == "":
+		target = models.Opus
+	case normalized == strings.ToLower(models.Opus),
+		normalized == strings.ToLower(models.Sonnet),
+		normalized == strings.ToLower(models.Haiku):
+		return args
+	case strings.Contains(normalized, "sonnet"):
+		target = models.Sonnet
+	case strings.Contains(normalized, "haiku"):
+		target = models.Haiku
+	case strings.Contains(normalized, "fable"),
+		strings.Contains(normalized, "mythos"),
+		strings.Contains(normalized, "opus"),
+		normalized == "inherit",
+		strings.HasPrefix(normalized, "claude-"):
+		target = models.Opus
+	default:
+		return args
+	}
+	out := cloneMap(args)
+	out["model"] = target
+	return out
+}
+
+func isClaudePlanFilePath(path string) bool {
+	normalized := strings.ReplaceAll(strings.TrimSpace(path), `\`, "/")
+	return strings.Contains(normalized, "/.claude/plans/") ||
+		strings.Contains(normalized, "/.claudodex/claude-config/plans/")
 }
 
 func (r *StreamReducer) finish(event map[string]any, forcedStop string) []AnthropicSSE {
@@ -785,7 +844,7 @@ func usageFromMap(usage map[string]any) Usage {
 }
 
 func (r *StreamReducer) usageForFinish(event map[string]any) Usage {
-	usage := usageWithInputFloor(usageFromEvent(event), r.fallbackInputTokens)
+	usage := usageWithInputFallback(usageFromEvent(event), r.fallbackInputTokens)
 	if r.visibleBlocks > 0 && usage.OutputTokens == 0 {
 		usage.OutputTokens = estimateVisibleOutputTokens(r.outputChars, r.visibleBlocks)
 	}
@@ -793,7 +852,11 @@ func (r *StreamReducer) usageForFinish(event map[string]any) Usage {
 }
 
 func (r *StreamReducer) usageForStart(event map[string]any) Usage {
-	usage := usageWithInputFloor(usageFromEvent(event), r.fallbackInputTokens)
+	usage := usageFromEvent(event)
+	if usageInputTokens(usage) == 0 && usageInputTokens(r.initialInputUsage) > 0 {
+		usage = r.initialInputUsage
+	}
+	usage = usageWithInputFallback(usage, r.fallbackInputTokens)
 	// Claude Code observes message_start usage before message_delta arrives.
 	// Keep output at zero here so per-content-block progress tracking does not
 	// count the same completion tokens once per streamed block.
@@ -805,9 +868,9 @@ func usageInputTokens(usage Usage) int {
 	return usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens
 }
 
-func usageWithInputFloor(usage Usage, floor int) Usage {
-	if missing := floor - usageInputTokens(usage); missing > 0 {
-		usage.InputTokens += missing
+func usageWithInputFallback(usage Usage, fallback int) Usage {
+	if usageInputTokens(usage) == 0 && fallback > 0 {
+		usage.InputTokens = fallback
 	}
 	return usage
 }

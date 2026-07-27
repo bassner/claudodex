@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/bassner/claudodex/internal/codex"
+	"github.com/bassner/claudodex/internal/convert"
 )
 
 func TestResponseTraceBackfillsFunctionCallArguments(t *testing.T) {
@@ -206,6 +207,45 @@ func TestImplicitResumeTreatsCompactionAsNewReasoningChain(t *testing.T) {
 	}
 	if !inputHasPrefix(current.Input, original) || len(current.Input) != len(original) {
 		t.Fatalf("compacted input was rewritten with pre-compaction state: %#v", current.Input)
+	}
+}
+
+func TestPreviousResponseUsageSurvivesChainReset(t *testing.T) {
+	server := New(Config{})
+	want := convert.Usage{
+		InputTokens:          32_000,
+		CacheReadInputTokens: 18_000,
+		OutputTokens:         500,
+	}
+	server.recordResponseUsage("session-1", want)
+	server.clearImplicitResume("session-1")
+	if got := server.previousResponseUsage("session-1"); got != want {
+		t.Fatalf("previous response usage = %#v, want %#v", got, want)
+	}
+}
+
+func TestEstimatedNextInputUsageAddsOnlyAppendedInput(t *testing.T) {
+	server := New(Config{})
+	server.recordResponseUsage("session-1", convert.Usage{
+		InputTokens:          32_000,
+		CacheReadInputTokens: 18_000,
+		OutputTokens:         500,
+	})
+	appended := []codex.InputItem{{
+		Type:    "message",
+		Role:    "user",
+		Content: []codex.ContentPart{{Type: "input_text", Text: "new user input"}},
+	}}
+	increment := estimateCodexInputItems(appended)
+	got := server.estimatedNextInputUsage("session-1", appended, true)
+	if got.InputTokens != 32_000+500+increment ||
+		got.CacheReadInputTokens != 18_000 ||
+		got.OutputTokens != 0 {
+		t.Fatalf("next input usage = %#v, want prior input plus prior output and appended estimate %d", got, increment)
+	}
+
+	if unknown := server.estimatedNextInputUsage("session-1", appended, false); unknown != (convert.Usage{}) {
+		t.Fatalf("unknown incremental suffix usage = %#v, want full-request fallback", unknown)
 	}
 }
 

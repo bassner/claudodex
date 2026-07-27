@@ -26,6 +26,7 @@ func applyClaudeUIPatches_2_1_220(data []byte, claudodexVersion, claudeVersion s
 	modelOptionsPatched := patchModelPickerOptions_2_1_220(data)
 	modelExtraOptionsPatched := patchModelPickerExtraOptions_2_1_220(data)
 	modelSelectionPatched := patchModelPickerSelectionValue_2_1_220(data)
+	agentModelValidatorPatched := patchAgentModelValidator_2_1_220(data)
 	fastModePatched := patchFastModeRuntimeFunctions_2_1_220(data)
 	fastModePricingPatched := patchFastModePricing_2_1_220(data)
 	contextWarningHintPatched := patchContextWarningHint_2_1_220(data)
@@ -34,9 +35,9 @@ func applyClaudeUIPatches_2_1_220(data []byte, claudodexVersion, claudeVersion s
 	remoteControlPatched := patchRemoteControlRuntimeFunctions_2_1_220(data)
 	brandingPatched := applyClaude209UIBrandingReplacements(data, claude220UIBrandingReplacements)
 
-	changed := versionPatched || whatsNewPatched || usagePatched || modelOptionsPatched || modelExtraOptionsPatched || modelSelectionPatched || fastModePatched || fastModePricingPatched || contextWarningHintPatched || resumeHintsPatched || compactProgressPatched || remoteControlPatched || brandingPatched
+	changed := versionPatched || whatsNewPatched || usagePatched || modelOptionsPatched || modelExtraOptionsPatched || modelSelectionPatched || agentModelValidatorPatched || fastModePatched || fastModePricingPatched || contextWarningHintPatched || resumeHintsPatched || compactProgressPatched || remoteControlPatched || brandingPatched
 	changed = applyClaudeUIFixedReplacements_2_1_208(data, modelCfg) || changed
-	if !versionPatched || !whatsNewPatched || !usagePatched || !modelOptionsPatched || !modelExtraOptionsPatched || !modelSelectionPatched || !fastModePatched || !fastModePricingPatched || !contextWarningHintPatched || !resumeHintsPatched || !compactProgressPatched || !remoteControlPatched || !brandingPatched {
+	if !versionPatched || !whatsNewPatched || !usagePatched || !modelOptionsPatched || !modelExtraOptionsPatched || !modelSelectionPatched || !agentModelValidatorPatched || !fastModePatched || !fastModePricingPatched || !contextWarningHintPatched || !resumeHintsPatched || !compactProgressPatched || !remoteControlPatched || !brandingPatched {
 		return false
 	}
 	return changed
@@ -70,6 +71,14 @@ func patchModelPickerExtraOptions_2_1_220(data []byte) bool {
 
 func patchModelPickerSelectionValue_2_1_220(data []byte) bool {
 	return replaceFirstFixed(data, `NLb=L4e===null?XJe:Bqi(M4e,L4e)??L4e`, `NLb=L4e===null?XJe:CDX220(L4e)`)
+}
+
+func patchAgentModelValidator_2_1_220(data []byte) bool {
+	return replaceFirstFixed(
+		data,
+		`model:E.enum(["sonnet","opus","haiku","fable"]).optional()`,
+		`model:E.string().optional()`,
+	)
 }
 
 func patchFastModeRuntimeFunctions_2_1_220(data []byte) bool {

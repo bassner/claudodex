@@ -53,6 +53,9 @@ Why not call it `claudex`? Because that name is already used in multiple places.
   definitions are sent through the Codex-compatible request path.
 - Fetches live Codex model metadata for context windows, model capabilities, and
   auto-compact limits.
+- Uses the token usage reported by completed OpenAI responses for Claude Code's
+  context accounting. Local preflight estimates exclude base64 payload text and
+  count GPT-5.6 image tokens from the decoded pixel dimensions instead.
 - Shows OpenAI reasoning summaries through Claude Code's native thinking UI,
   with each titled summary section kept as a separate thinking entry.
 - Preserves encrypted OpenAI reasoning items for lossless stateless tool-call

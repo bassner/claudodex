@@ -57,6 +57,7 @@ type Result struct {
 	OriginalModel  string
 	Stream         bool
 	ToolSchemas    map[string]map[string]any
+	PlanFilePath   string
 	RouteSessionID string
 	ParentThreadID string
 	Subagent       string
@@ -66,7 +67,9 @@ type BadRequestError struct {
 	Message string
 }
 
-const claudeCodeCompatibilityInstructions = `Claude Code compatibility:
+const claudeQueuedSteeringMarker = "The user sent a new message while you were working:"
+
+const claudeCodeCompatibilityInstructionsTemplate = `Claude Code compatibility:
 You are serving as the model backend for Claude Code through an API compatibility layer. A single Claude Code user request may be fulfilled as one assistant trajectory containing visible assistant text, tool calls, tool results, and a follow-up assistant message. Treat the follow-up after tool results as a continuation of the same request, not as a fresh conversational opening.
 
 You have two channels for staying in conversation with the user: share intermediate user-visible updates in the commentary channel, and return the terminal response in the final channel. If the user's request requires calling tools, start with a brief message in the commentary channel explaining what you are about to do. Do not issue the first tool call for a user turn until you have emitted at least one non-empty commentary message for that turn. During ongoing work, send further commentary only when there is substantive progress, a decision, a blocker, or completed work to report; never send updates merely because time has elapsed.
@@ -81,6 +84,8 @@ Preserve and obey Claude Code system, project, user, skill, slash-command, and t
 
 Claudodex may run Claude Code with a compatibility config directory under .claudodex/claude-config. Treat that directory as an implementation sidecar, not as the user's canonical Claude config location. If you need to edit, inspect, or report Claude config or instruction files and the path is inside .claudodex/claude-config, resolve symlinks first and operate on the real target path, usually under .claude. Prefer showing the real target path to the user.
 
+Plan-mode files are a strict exception to ordinary path selection: Claude Code assigns one exact session plan path and its approval UI reads only that file. Preserve the assigned filename exactly in every Write or Edit call. You may resolve the plans directory symlink while keeping that filename, but never invent a descriptive or dated replacement filename, save the plan beside the assigned file, or call ExitPlanMode before the assigned file exists.
+
 For tool calls, omit optional fields unless they have meaningful values.
 
 Do not change when you ask the user for input merely because the AskUserQuestion tool is available. Continue making reasonable assumptions and acting autonomously whenever user input is not genuinely required. Once you have already determined that user input is needed, use AskUserQuestion instead of asking in plain text when the tool is available and you have meaningful suggested answers or multiple plausible options to present. Bundle all currently known independent questions into one AskUserQuestion tool call. Ask questions sequentially only when a later question genuinely depends on an earlier answer. Do not manufacture choices or ask extra questions just to use the tool.
@@ -93,7 +98,13 @@ For Claude Code file tools, pass one valid JSON input object per tool call. Use 
 
 When the Claude Code system or agent prompt says you are a delegated agent, subagent, sidechain, or agent for Claude Code, execute the delegated task directly. Do not perform generic conversation-start rituals, startup greetings, or startup-only skill/tool invocations unless they are explicitly relevant to the delegated task or explicitly required for subagents. A skill whose description only says it applies when starting a conversation is not by itself relevant to a delegated subagent task.
 
-For the Claude Code Agent tool, omit the optional model field unless the user explicitly asks for a different subagent model or the requested agent configuration requires a specific model. Omitting the field lets Claude Code inherit the current session model for general-purpose agents.
+The actual model runtime behind this Claude Code session is OpenAI Codex. Anthropic model families and aliases such as Fable, Opus, Sonnet, Haiku, claude-fable-*, and other claude-* model IDs are not selectable subagent runtimes in this environment.
+
+For every Claude Code Agent tool call, set the model field directly to one of the configured Codex model IDs below. Choose the tier that fits the delegated task:
+- {{OPUS_MODEL}} is the strongest and most intelligent route for difficult reasoning, implementation, and review.
+- {{SONNET_MODEL}} is the balanced middle route for ordinary work.
+- {{HAIKU_MODEL}} is the fastest, cheapest, and least capable route for simple tasks.
+Never emit Fable, Opus, Sonnet, Haiku, inherit, a claude-* model ID, or another Anthropic compatibility alias as the Agent model. Do not omit the model merely to inherit a Claude compatibility name. If an unavailable model is explicitly requested, explain the limitation and choose the closest configured Codex tier.
 
 Ordinary Claude Code Agent tool workers stop automatically when they complete, fail, or are stopped. Do not send shutdown_request messages to ordinary Agent workers that have completed, failed, stopped, or have no active task: SendMessage would resume their transcript instead of cleaning anything up. Use SendMessage with an ordinary completed agent only when you intentionally want that same agent to continue with a concrete follow-up task.
 
@@ -131,6 +142,7 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		}
 		instructions += strings.TrimSpace(messageInstructions)
 	}
+	planFilePath := claudeCodePlanFilePath(instructions)
 	routeSessionID := strings.TrimSpace(opts.SessionID)
 	parentThreadID := ""
 	subagent := ""
@@ -148,7 +160,7 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 	}
 	out := codex.Request{
 		Model:             codexModel,
-		Instructions:      withClaudeCodeCompatibilityInstructions(instructions, isSubagent && !isTeamTeammate),
+		Instructions:      withClaudeCodeCompatibilityInstructions(instructions, isSubagent && !isTeamTeammate, models),
 		Input:             input,
 		Tools:             convertTools(req.Tools),
 		ToolChoice:        convertToolChoice(req.ToolChoice, len(req.Tools) > 0),
@@ -166,10 +178,31 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		OriginalModel:  model,
 		Stream:         stream,
 		ToolSchemas:    toolSchemas(req.Tools),
+		PlanFilePath:   planFilePath,
 		RouteSessionID: routeSessionID,
 		ParentThreadID: parentThreadID,
 		Subagent:       subagent,
 	}, nil
+}
+
+var claudeCodePlanFilePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`No plan file exists yet\. You should create your plan at ([^\n]+?) using the `),
+	regexp.MustCompile(`A plan file already exists at ([^\n]+?)\. You can read it`),
+	regexp.MustCompile(`Read-only except plan file \(([^)\n]+)\)`),
+}
+
+func claudeCodePlanFilePath(instructions string) string {
+	for _, pattern := range claudeCodePlanFilePatterns {
+		match := pattern.FindStringSubmatch(instructions)
+		if len(match) != 2 {
+			continue
+		}
+		path := strings.Trim(strings.TrimSpace(match[1]), "`")
+		if path != "" {
+			return path
+		}
+	}
+	return ""
 }
 
 func requestsThinking(thinking AnthropicThinking) bool {
@@ -197,9 +230,14 @@ func mapServiceTier(speed string) string {
 	return ""
 }
 
-func withClaudeCodeCompatibilityInstructions(instructions string, ordinarySubagent bool) string {
+func withClaudeCodeCompatibilityInstructions(instructions string, ordinarySubagent bool, models modelconfig.Config) string {
 	instructions = strings.TrimSpace(instructions)
-	compatibilityInstructions := claudeCodeCompatibilityInstructions
+	models = models.Normalize()
+	compatibilityInstructions := strings.NewReplacer(
+		"{{OPUS_MODEL}}", models.Opus,
+		"{{SONNET_MODEL}}", models.Sonnet,
+		"{{HAIKU_MODEL}}", models.Haiku,
+	).Replace(claudeCodeCompatibilityInstructionsTemplate)
 	if ordinarySubagent {
 		compatibilityInstructions += "\n\n" + ordinaryClaudeCodeSubagentInstructions
 	}
@@ -325,7 +363,11 @@ func convertMessages(messages []AnthropicMessage) ([]codex.InputItem, string, er
 		switch role {
 		case "system":
 			if text := strings.TrimSpace(systemInstructions(msg.Content)); text != "" {
-				systemTexts = append(systemTexts, text)
+				if strings.Contains(text, claudeQueuedSteeringMarker) {
+					input = append(input, messageItem("user", []codex.ContentPart{{Type: "input_text", Text: text}}))
+				} else {
+					systemTexts = append(systemTexts, text)
+				}
 			}
 			continue
 		case "user", "assistant":

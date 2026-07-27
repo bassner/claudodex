@@ -295,6 +295,7 @@ func TestInstalledClaude220PatchTargets(t *testing.T) {
 		{"model-options", patchModelPickerOptions_2_1_220},
 		{"model-extra-options", patchModelPickerExtraOptions_2_1_220},
 		{"model-selection", patchModelPickerSelectionValue_2_1_220},
+		{"agent-model-validator", patchAgentModelValidator_2_1_220},
 		{"fast-mode-gate", func(data []byte) bool {
 			return replaceFirstFixed(data, `function El(){if(xn()!=="firstParty")return!1;return!Z.CLAUDE_CODE_DISABLE_FAST_MODE}`, `function El(){return!Z.CLAUDE_CODE_DISABLE_FAST_MODE}`)
 		}},

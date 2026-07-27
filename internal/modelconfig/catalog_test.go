@@ -13,6 +13,8 @@ func TestConfigMapModelUsesOverrides(t *testing.T) {
 		"small-fast":        "gpt-haiku-next",
 		"gpt-5.6-luna":      "gpt-haiku-next",
 		"gpt-haiku-next":    "gpt-haiku-next",
+		"claude-fable-5":    "gpt-opus-next",
+		"mythos-5":          "gpt-opus-next",
 	}
 	for input, want := range tests {
 		if got := cfg.MapModel(input); got != want {

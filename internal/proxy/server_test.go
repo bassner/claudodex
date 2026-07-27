@@ -1,8 +1,12 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/png"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -332,15 +336,98 @@ func TestCountTokensEstimatesRequestSize(t *testing.T) {
 	}
 }
 
-func TestCountTokensAddsImagePadding(t *testing.T) {
-	textOnly := estimateImagePadding([]byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"x"}]}]}`))
-	withImage := estimateImagePadding([]byte(`{"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://example.com/image.png"}}]}]}`))
-	if textOnly != 0 {
-		t.Fatalf("text image padding = %d, want 0", textOnly)
+func TestTokenCountFallbackCountsImagePatchesWithoutBase64Text(t *testing.T) {
+	prefix := `{"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"`
+	suffix := `"}}]}]}`
+
+	tests := []struct {
+		name       string
+		width      int
+		height     int
+		wantTokens int
+	}{
+		{name: "common screenshot", width: 1600, height: 1200, wantTokens: 1900},
+		{name: "wide screenshot", width: 1682, height: 594, wantTokens: 1007},
+		{name: "small image", width: 270, height: 270, wantTokens: 81},
+		{name: "Claude Code dimension ceiling", width: 2000, height: 2000, wantTokens: 3969},
 	}
-	if withImage < 8500 {
-		t.Fatalf("image padding = %d, want at least 8500", withImage)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			encoded := testPNGBase64(t, test.width, test.height)
+			body := []byte(prefix + encoded + suffix)
+			normalized, imageTokens := normalizeTokenEstimateInput(body)
+			if imageTokens != test.wantTokens {
+				t.Fatalf("image tokens = %d, want %d", imageTokens, test.wantTokens)
+			}
+			if bytes.Contains(normalized, []byte(encoded)) {
+				t.Fatal("normalized token input still contains base64 payload")
+			}
+			wantTotal := (len(normalized)+2)/3 + test.wantTokens
+			if got := estimateTokenCountFromBytes(body, false); got != wantTotal {
+				t.Fatalf("total estimate = %d, want %d", got, wantTotal)
+			}
+		})
 	}
+}
+
+func TestTokenCountFallbackUsesBoundedEstimateForInvalidImage(t *testing.T) {
+	prefix := `{"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"`
+	suffix := `"}}]}]}`
+	small := estimateTokenCountFromBytes([]byte(prefix+strings.Repeat("A", 40)+suffix), false)
+	large := estimateTokenCountFromBytes([]byte(prefix+strings.Repeat("A", 400_000)+suffix), false)
+	if small != large {
+		t.Fatalf("small invalid image estimate = %d, large invalid image estimate = %d", small, large)
+	}
+	if large > 2500 {
+		t.Fatalf("invalid image fallback estimate = %d, want bounded estimate", large)
+	}
+}
+
+func TestTokenCountFallbackIgnoresValidBase64PayloadLength(t *testing.T) {
+	encoded := testPNGBase64(t, 1600, 1200)
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedWithTrailingData := base64.StdEncoding.EncodeToString(append(decoded, make([]byte, 300_000)...))
+	prefix := `{"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"`
+	suffix := `"}}]}]}`
+	small := estimateTokenCountFromBytes([]byte(prefix+encoded+suffix), false)
+	large := estimateTokenCountFromBytes([]byte(prefix+encodedWithTrailingData+suffix), false)
+	if small != large {
+		t.Fatalf("small valid image estimate = %d, large valid image estimate = %d", small, large)
+	}
+}
+
+func TestImageTokenEstimateReadsWebPDimensions(t *testing.T) {
+	header := make([]byte, 30)
+	copy(header[0:4], "RIFF")
+	copy(header[8:12], "WEBP")
+	copy(header[12:16], "VP8X")
+	width, height := 1682, 594
+	storedWidth, storedHeight := width-1, height-1
+	header[24], header[25], header[26] = byte(storedWidth), byte(storedWidth>>8), byte(storedWidth>>16)
+	header[27], header[28], header[29] = byte(storedHeight), byte(storedHeight>>8), byte(storedHeight>>16)
+	encoded := base64.StdEncoding.EncodeToString(header)
+	if got := encodedImageTokenEstimate(encoded, ""); got != 1007 {
+		t.Fatalf("WebP token estimate = %d, want 1007", got)
+	}
+}
+
+func TestLowDetailImageUsesFixed512PatchCount(t *testing.T) {
+	encoded := testPNGBase64(t, 1600, 1200)
+	if got := encodedImageTokenEstimate(encoded, "low"); got != 256 {
+		t.Fatalf("low-detail token estimate = %d, want 256", got)
+	}
+}
+
+func testPNGBase64(t *testing.T, width, height int) string {
+	t.Helper()
+	var data bytes.Buffer
+	if err := png.Encode(&data, image.NewGray(image.Rect(0, 0, width, height))); err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(data.Bytes())
 }
 
 func testModels() []codex.ModelInfo {
