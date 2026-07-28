@@ -17,17 +17,19 @@ const claudeBridgeAuthReadTimeout = 2 * time.Second
 
 func WithRealClaudeBridgeAuth(envList []string) []string {
 	env := envMap(envList)
-	if strings.TrimSpace(env["CLAUDE_BRIDGE_OAUTH_TOKEN"]) != "" {
-		return envList
-	}
 	if strings.TrimSpace(env["CLAUDODEX_DISABLE_REAL_CLAUDE_BRIDGE_AUTH"]) == "1" {
 		return envList
 	}
-	token, ok := realClaudeBridgeAccessToken()
-	if !ok {
-		return envList
+	if strings.TrimSpace(env["CLAUDE_BRIDGE_OAUTH_TOKEN"]) == "" {
+		if token, ok := realClaudeBridgeAccessToken(); ok {
+			env["CLAUDE_BRIDGE_OAUTH_TOKEN"] = token
+		}
 	}
-	env["CLAUDE_BRIDGE_OAUTH_TOKEN"] = token
+	if strings.TrimSpace(env["CLAUDE_CODE_ORGANIZATION_UUID"]) == "" {
+		if organizationUUID, ok := realClaudeBridgeOrganizationUUID(); ok {
+			env["CLAUDE_CODE_ORGANIZATION_UUID"] = organizationUUID
+		}
+	}
 	return flattenEnv(env)
 }
 
@@ -85,4 +87,36 @@ func realClaudeBridgeAccessTokenFromJSON(data []byte) (string, bool) {
 		return "", false
 	}
 	return token, true
+}
+
+func realClaudeBridgeOrganizationUUID() (string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+	return realClaudeBridgeOrganizationUUIDFromFile(filepath.Join(home, claudeGlobalConfigName))
+}
+
+func realClaudeBridgeOrganizationUUIDFromFile(path string) (string, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	return realClaudeBridgeOrganizationUUIDFromJSON(data)
+}
+
+func realClaudeBridgeOrganizationUUIDFromJSON(data []byte) (string, bool) {
+	var config struct {
+		OAuthAccount struct {
+			OrganizationUUID string `json:"organizationUuid"`
+		} `json:"oauthAccount"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return "", false
+	}
+	organizationUUID := strings.TrimSpace(config.OAuthAccount.OrganizationUUID)
+	if organizationUUID == "" {
+		return "", false
+	}
+	return organizationUUID, true
 }
