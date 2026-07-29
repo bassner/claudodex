@@ -210,7 +210,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	if result.Stream {
 		applyRateLimitHeaders(w.Header(), upstream.Header, false)
-		err = s.streamAnthropicWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, traceBase, usedImplicitResume)
+		err = s.streamAnthropicWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, result.WebSearchMaxUses, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, traceBase, usedImplicitResume)
 		_ = upstream.Body.Close()
 		if shouldRetryStream(r, err, usedImplicitResume) && remainingGenerationAttempts > 0 {
 			s.trace("resume.retry_full", mergeTraceFields(traceBase, map[string]any{
@@ -234,7 +234,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 					"previous_response_id":          "",
 				}))
 				applyRateLimitHeaders(w.Header(), upstream.Header, false)
-				err = s.streamAnthropicWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, mergeTraceFields(traceBase, map[string]any{
+				err = s.streamAnthropicWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, result.WebSearchMaxUses, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, mergeTraceFields(traceBase, map[string]any{
 					"implicit_resume":      false,
 					"upstream_input_items": len(fullRequest.Input),
 					"previous_response_id": "",
@@ -259,7 +259,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	applyRateLimitHeaders(w.Header(), upstream.Header, false)
-	err = s.writeNonStreamingMessageWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, traceBase)
+	err = s.writeNonStreamingMessageWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, result.WebSearchMaxUses, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, traceBase)
 	_ = upstream.Body.Close()
 	if shouldRetryStream(r, err, usedImplicitResume) && remainingGenerationAttempts > 0 {
 		s.trace("resume.retry_full", mergeTraceFields(traceBase, map[string]any{
@@ -283,7 +283,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 				"previous_response_id":          "",
 			}))
 			applyRateLimitHeaders(w.Header(), upstream.Header, false)
-			err = s.writeNonStreamingMessageWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, mergeTraceFields(traceBase, map[string]any{
+			err = s.writeNonStreamingMessageWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, result.WebSearchMaxUses, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, mergeTraceFields(traceBase, map[string]any{
 				"implicit_resume":      false,
 				"upstream_input_items": len(fullRequest.Input),
 				"previous_response_id": "",
@@ -530,10 +530,10 @@ func codexRouteForResult(result convert.Result, parentSessionID string) codex.Ro
 }
 
 func (s *Server) streamAnthropic(w http.ResponseWriter, body io.Reader, model string) {
-	_ = s.streamAnthropicWithSchemas(w, body, model, nil, "", 0, convert.Usage{}, "", codex.Request{}, nil, false)
+	_ = s.streamAnthropicWithSchemas(w, body, model, nil, "", 0, 0, convert.Usage{}, "", codex.Request{}, nil, false)
 }
 
-func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reader, model string, toolSchemas map[string]map[string]any, planFilePath string, fallbackInputTokens int, initialInputUsage convert.Usage, chainKey string, fullRequest codex.Request, traceBase map[string]any, retryEarlyUpstreamErrors bool) error {
+func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reader, model string, toolSchemas map[string]map[string]any, planFilePath string, webSearchMaxUses int, fallbackInputTokens int, initialInputUsage convert.Usage, chainKey string, fullRequest codex.Request, traceBase map[string]any, retryEarlyUpstreamErrors bool) error {
 	w.Header().Set("content-type", "text/event-stream")
 	w.Header().Set("cache-control", "no-cache")
 	w.Header().Set("connection", "keep-alive")
@@ -598,6 +598,7 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 		PlanFilePath:        planFilePath,
 		FallbackInputTokens: fallbackInputTokens,
 		InitialInputUsage:   initialInputUsage,
+		WebSearchMaxUses:    webSearchMaxUses,
 	})
 	var trace responseTrace
 	streamStarted := time.Now()
@@ -751,16 +752,17 @@ func usageTotalInputTokens(usage convert.Usage) int {
 }
 
 func (s *Server) writeNonStreamingMessage(w http.ResponseWriter, body io.Reader, model string) {
-	_ = s.writeNonStreamingMessageWithSchemas(w, body, model, nil, "", 0, convert.Usage{}, "", codex.Request{}, nil)
+	_ = s.writeNonStreamingMessageWithSchemas(w, body, model, nil, "", 0, 0, convert.Usage{}, "", codex.Request{}, nil)
 }
 
-func (s *Server) writeNonStreamingMessageWithSchemas(w http.ResponseWriter, body io.Reader, model string, toolSchemas map[string]map[string]any, planFilePath string, fallbackInputTokens int, initialInputUsage convert.Usage, chainKey string, fullRequest codex.Request, traceBase map[string]any) error {
+func (s *Server) writeNonStreamingMessageWithSchemas(w http.ResponseWriter, body io.Reader, model string, toolSchemas map[string]map[string]any, planFilePath string, webSearchMaxUses int, fallbackInputTokens int, initialInputUsage convert.Usage, chainKey string, fullRequest codex.Request, traceBase map[string]any) error {
 	reducer := convert.NewStreamReducerWithOptions(anthropicMessageID(traceBase), model, convert.StreamReducerOptions{
 		ToolSchemas:         toolSchemas,
 		AgentModels:         s.cfg.ModelConfig,
 		PlanFilePath:        planFilePath,
 		FallbackInputTokens: fallbackInputTokens,
 		InitialInputUsage:   initialInputUsage,
+		WebSearchMaxUses:    webSearchMaxUses,
 	})
 	var events []convert.AnthropicSSE
 	var trace responseTrace

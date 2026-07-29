@@ -321,6 +321,212 @@ func TestStreamReducerStreamsToolArgumentsAsDeltas(t *testing.T) {
 	}
 }
 
+func TestStreamReducerConvertsWebSearchCallAndCitations(t *testing.T) {
+	reducer := NewStreamReducer("msg_1", "claude-haiku-4-5")
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"in_progress"}}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"official Go website","sources":[{"type":"url","title":"The Go Programming Language","url":"https://go.dev/"}]}}}`,
+		`{"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"msg"}}`,
+		`{"type":"response.output_text.delta","output_index":1,"delta":"The official site is go.dev."}`,
+		`{"type":"response.output_text.annotation.added","output_index":1,"annotation":{"type":"url_citation","title":"The Go Programming Language","url":"https://go.dev/"}}`,
+		`{"type":"response.output_item.done","output_index":1,"item":{"type":"message","id":"msg","content":[{"type":"output_text","text":"The official site is go.dev.","annotations":[{"type":"url_citation","title":"The Go Programming Language","url":"https://go.dev/"}]}]}}`,
+		`{"type":"response.completed","response":{"stop_reason":"completed","usage":{"input_tokens":10,"output_tokens":4}}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	message, errEvent := AssembleMessage(events, "", "claude-haiku-4-5")
+	if errEvent != nil {
+		t.Fatalf("unexpected error event: %#v", errEvent)
+	}
+	content := message["content"].([]map[string]any)
+	if len(content) != 3 {
+		t.Fatalf("content = %#v", content)
+	}
+	serverUse := content[0]
+	input, _ := serverUse["input"].(map[string]any)
+	if serverUse["type"] != "server_tool_use" || serverUse["id"] != "srvtoolu_1" ||
+		serverUse["name"] != "web_search" || input["query"] != "official Go website" {
+		t.Fatalf("server tool use = %#v", serverUse)
+	}
+	result := content[1]
+	if result["type"] != "web_search_tool_result" || result["tool_use_id"] != "srvtoolu_1" {
+		t.Fatalf("web search result = %#v", result)
+	}
+	hits, ok := result["content"].([]map[string]any)
+	if !ok || len(hits) != 1 || hits[0]["title"] != "The Go Programming Language" || hits[0]["url"] != "https://go.dev/" {
+		t.Fatalf("hits = %#v", result["content"])
+	}
+	if content[2]["type"] != "text" || content[2]["text"] != "The official site is go.dev." {
+		t.Fatalf("text = %#v", content[2])
+	}
+	if message["stop_reason"] != "end_turn" {
+		t.Fatalf("stop_reason = %#v", message["stop_reason"])
+	}
+}
+
+func TestStreamReducerAssociatesSourcesWithMultiplePendingWebSearches(t *testing.T) {
+	reducer := NewStreamReducer("msg_1", "claude-haiku-4-5")
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.output_item.done","item":{"type":"web_search_call","id":"ws_1","action":{"type":"search","query":"first","sources":[{"type":"url","title":"First","url":"https://first.example/"}]}}}`,
+		`{"type":"response.output_item.done","item":{"type":"web_search_call","id":"ws_2","action":{"type":"search","query":"second","sources":[{"type":"url","title":"Second","url":"https://second.example/"}]}}}`,
+		`{"type":"response.output_text.delta","delta":"combined answer"}`,
+		`{"type":"response.completed","response":{"stop_reason":"completed"}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	message, errEvent := AssembleMessage(events, "", "claude-haiku-4-5")
+	if errEvent != nil {
+		t.Fatalf("unexpected error event: %#v", errEvent)
+	}
+	content := message["content"].([]map[string]any)
+	if len(content) != 5 {
+		t.Fatalf("content = %#v", content)
+	}
+	firstHits := content[2]["content"].([]map[string]any)
+	secondHits := content[3]["content"].([]map[string]any)
+	if len(firstHits) != 1 || firstHits[0]["url"] != "https://first.example/" {
+		t.Fatalf("first hits = %#v", firstHits)
+	}
+	if len(secondHits) != 1 || secondHits[0]["url"] != "https://second.example/" {
+		t.Fatalf("second hits = %#v", secondHits)
+	}
+	if content[4]["type"] != "text" || content[4]["text"] != "combined answer" {
+		t.Fatalf("buffered completion text = %#v", content[4])
+	}
+}
+
+func TestStreamReducerFlushesWebSearchBeforeClientToolWithoutInterleaving(t *testing.T) {
+	reducer := NewStreamReducer("msg_1", "claude-haiku-4-5")
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"web_search_call","id":"ws_1","action":{"type":"search","query":"first","sources":[{"type":"url","url":"https://first.example/"}]}}}`,
+		`{"type":"response.output_text.delta","delta":"found it"}`,
+		`{"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","call_id":"call_1","name":"Read"}}`,
+		`{"type":"response.function_call_arguments.done","output_index":1,"arguments":"{\"file_path\":\"a.go\"}"}`,
+		`{"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","call_id":"call_1","name":"Read"}}`,
+		`{"type":"response.completed","response":{"stop_reason":"tool_calls"}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	active := -1
+	for _, event := range events {
+		switch event.Event {
+		case "content_block_start":
+			index := intField(event.Data["index"], -1)
+			if active >= 0 {
+				t.Fatalf("nested content block start %d while %d active: %#v", index, active, events)
+			}
+			active = index
+		case "content_block_stop":
+			index := intField(event.Data["index"], -1)
+			if active != index {
+				t.Fatalf("content block stop %d while %d active: %#v", index, active, events)
+			}
+			active = -1
+		}
+	}
+	if active != -1 {
+		t.Fatalf("unclosed content block %d", active)
+	}
+}
+
+func TestStreamReducerEmitsEmptyWebSearchResultsAndMaxUsesError(t *testing.T) {
+	reducer := NewStreamReducerWithOptions("msg_1", "claude-haiku-4-5", StreamReducerOptions{
+		WebSearchMaxUses: 1,
+	})
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.output_item.done","item":{"type":"web_search_call","id":"ws_1","action":{"type":"search","query":"empty","sources":[]}}}`,
+		`{"type":"response.output_item.done","item":{"type":"message","content":[]}}`,
+		`{"type":"response.output_item.done","item":{"type":"web_search_call","id":"ws_2","action":{"type":"search","query":"too many","sources":[]}}}`,
+		`{"type":"response.completed","response":{"stop_reason":"completed"}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	message, errEvent := AssembleMessage(events, "", "claude-haiku-4-5")
+	if errEvent != nil {
+		t.Fatalf("unexpected error event: %#v", errEvent)
+	}
+	content := message["content"].([]map[string]any)
+	first, ok := content[1]["content"].([]map[string]any)
+	if !ok || len(first) != 0 {
+		t.Fatalf("empty successful content = %#v, want non-nil empty list", content[1]["content"])
+	}
+	errorContent, _ := content[3]["content"].(map[string]any)
+	if errorContent["error_code"] != "max_uses_exceeded" {
+		t.Fatalf("max uses error = %#v", content[3])
+	}
+}
+
+func TestStreamReducerKeepsWebSearchCyclesIsolatedAndSuppressesOpenPageActions(t *testing.T) {
+	reducer := NewStreamReducer("msg_1", "claude-haiku-4-5")
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.output_item.done","item":{"type":"web_search_call","id":"ws_search_1","status":"completed","action":{"type":"search","query":"first"}}}`,
+		`{"type":"response.output_item.done","item":{"type":"web_search_call","id":"ws_open_1","status":"completed","action":{"type":"open_page","url":"https://first.example/"}}}`,
+		`{"type":"response.output_text.annotation.added","annotation":{"type":"url_citation","title":"First","url":"https://first.example/"}}`,
+		`{"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"first answer"}]}}`,
+		`{"type":"response.output_item.done","item":{"type":"web_search_call","id":"ws_search_2","status":"completed","action":{"type":"search","query":"second"}}}`,
+		`{"type":"response.output_text.annotation.added","annotation":{"type":"url_citation","title":"Second","url":"https://second.example/"}}`,
+		`{"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"second answer"}]}}`,
+		`{"type":"response.completed","response":{"stop_reason":"completed"}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	message, errEvent := AssembleMessage(events, "", "claude-haiku-4-5")
+	if errEvent != nil {
+		t.Fatalf("unexpected error event: %#v", errEvent)
+	}
+	content := message["content"].([]map[string]any)
+	if len(content) != 6 {
+		t.Fatalf("content = %#v", content)
+	}
+	for index, wantType := range []string{
+		"server_tool_use", "web_search_tool_result", "text",
+		"server_tool_use", "web_search_tool_result", "text",
+	} {
+		if content[index]["type"] != wantType {
+			t.Fatalf("content[%d] = %#v, want %s", index, content[index], wantType)
+		}
+	}
+	firstHits := content[1]["content"].([]map[string]any)
+	secondHits := content[4]["content"].([]map[string]any)
+	if len(firstHits) != 1 || firstHits[0]["url"] != "https://first.example/" {
+		t.Fatalf("first hits = %#v", firstHits)
+	}
+	if len(secondHits) != 1 || secondHits[0]["url"] != "https://second.example/" {
+		t.Fatalf("second hits = %#v", secondHits)
+	}
+	for _, block := range content {
+		input, _ := block["input"].(map[string]any)
+		if input["query"] == "" {
+			t.Fatalf("empty-query server tool block emitted: %#v", block)
+		}
+	}
+}
+
 func TestStreamReducerBackfillsMissingUsageForVisibleToolCall(t *testing.T) {
 	reducer := NewStreamReducerWithOptions("msg_1", "claude-opus-4-6", StreamReducerOptions{
 		FallbackInputTokens: 123,

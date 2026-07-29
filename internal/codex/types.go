@@ -150,10 +150,26 @@ func (p ContentPart) MarshalJSON() ([]byte, error) {
 }
 
 type Tool struct {
-	Type        string         `json:"type"`
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Parameters  map[string]any `json:"parameters,omitempty"`
+	Type              string             `json:"type"`
+	Name              string             `json:"name,omitempty"`
+	Description       string             `json:"description,omitempty"`
+	Parameters        map[string]any     `json:"parameters,omitempty"`
+	ExternalWebAccess *bool              `json:"external_web_access,omitempty"`
+	IndexedWebAccess  *bool              `json:"indexed_web_access,omitempty"`
+	Filters           *WebSearchFilters  `json:"filters,omitempty"`
+	UserLocation      *WebSearchLocation `json:"user_location,omitempty"`
+}
+
+type WebSearchFilters struct {
+	AllowedDomains []string `json:"allowed_domains,omitempty"`
+}
+
+type WebSearchLocation struct {
+	Type     string `json:"type"`
+	Country  string `json:"country,omitempty"`
+	Region   string `json:"region,omitempty"`
+	City     string `json:"city,omitempty"`
+	Timezone string `json:"timezone,omitempty"`
 }
 
 type Credentials struct {

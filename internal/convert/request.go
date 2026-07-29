@@ -31,9 +31,22 @@ type AnthropicMessage struct {
 }
 
 type AnthropicTool struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"input_schema"`
+	Type           string                      `json:"type"`
+	Name           string                      `json:"name"`
+	Description    string                      `json:"description"`
+	InputSchema    map[string]any              `json:"input_schema"`
+	AllowedDomains []string                    `json:"allowed_domains"`
+	BlockedDomains []string                    `json:"blocked_domains"`
+	MaxUses        int                         `json:"max_uses"`
+	UserLocation   *AnthropicWebSearchLocation `json:"user_location"`
+}
+
+type AnthropicWebSearchLocation struct {
+	Type     string `json:"type"`
+	Country  string `json:"country"`
+	Region   string `json:"region"`
+	City     string `json:"city"`
+	Timezone string `json:"timezone"`
 }
 
 type AnthropicThinking struct {
@@ -53,14 +66,15 @@ type ConvertOptions struct {
 }
 
 type Result struct {
-	Request        codex.Request
-	OriginalModel  string
-	Stream         bool
-	ToolSchemas    map[string]map[string]any
-	PlanFilePath   string
-	RouteSessionID string
-	ParentThreadID string
-	Subagent       string
+	Request          codex.Request
+	OriginalModel    string
+	Stream           bool
+	ToolSchemas      map[string]map[string]any
+	PlanFilePath     string
+	RouteSessionID   string
+	ParentThreadID   string
+	Subagent         string
+	WebSearchMaxUses int
 }
 
 type BadRequestError struct {
@@ -118,6 +132,9 @@ func (e BadRequestError) Error() string {
 }
 
 func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error) {
+	if err := validateAnthropicServerTools(req.Tools); err != nil {
+		return Result{}, err
+	}
 	models := opts.Models.Normalize()
 	model := req.Model
 	if strings.TrimSpace(model) == "" {
@@ -142,6 +159,7 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		}
 		instructions += strings.TrimSpace(messageInstructions)
 	}
+	instructions = withWebSearchLimitInstructions(instructions, req.Tools)
 	planFilePath := claudeCodePlanFilePath(instructions)
 	routeSessionID := strings.TrimSpace(opts.SessionID)
 	parentThreadID := ""
@@ -163,25 +181,26 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		Instructions:      withClaudeCodeCompatibilityInstructions(instructions, isSubagent && !isTeamTeammate, models),
 		Input:             input,
 		Tools:             convertTools(req.Tools),
-		ToolChoice:        convertToolChoice(req.ToolChoice, len(req.Tools) > 0),
+		ToolChoice:        convertToolChoice(req.ToolChoice, req.Tools),
 		ParallelToolCalls: true,
 		Store:             false,
 		Stream:            true,
-		Include:           []string{"reasoning.encrypted_content"},
+		Include:           responseIncludes(req.Tools),
 		ServiceTier:       mapServiceTier(req.Speed),
 		Reasoning:         reasoning,
 		Text:              convertOutputFormat(req.OutputConfig.Format),
 		PromptCacheKey:    routeSessionID,
 	}
 	return Result{
-		Request:        out,
-		OriginalModel:  model,
-		Stream:         stream,
-		ToolSchemas:    toolSchemas(req.Tools),
-		PlanFilePath:   planFilePath,
-		RouteSessionID: routeSessionID,
-		ParentThreadID: parentThreadID,
-		Subagent:       subagent,
+		Request:          out,
+		OriginalModel:    model,
+		Stream:           stream,
+		ToolSchemas:      toolSchemas(req.Tools),
+		PlanFilePath:     planFilePath,
+		RouteSessionID:   routeSessionID,
+		ParentThreadID:   parentThreadID,
+		Subagent:         subagent,
+		WebSearchMaxUses: webSearchMaxUses(req.Tools),
 	}, nil
 }
 
@@ -704,6 +723,29 @@ func convertOutputFormat(raw json.RawMessage) *codex.TextConfig {
 func convertTools(tools []AnthropicTool) []codex.Tool {
 	out := make([]codex.Tool, 0, len(tools))
 	for _, tool := range tools {
+		if isAnthropicWebSearchTool(tool) {
+			live := true
+			converted := codex.Tool{
+				Type:              "web_search",
+				ExternalWebAccess: &live,
+			}
+			if len(tool.AllowedDomains) > 0 {
+				converted.Filters = &codex.WebSearchFilters{
+					AllowedDomains: append([]string(nil), tool.AllowedDomains...),
+				}
+			}
+			if tool.UserLocation != nil {
+				converted.UserLocation = &codex.WebSearchLocation{
+					Type:     tool.UserLocation.Type,
+					Country:  tool.UserLocation.Country,
+					Region:   tool.UserLocation.Region,
+					City:     tool.UserLocation.City,
+					Timezone: tool.UserLocation.Timezone,
+				}
+			}
+			out = append(out, converted)
+			continue
+		}
 		if strings.TrimSpace(tool.Name) == "" {
 			continue
 		}
@@ -720,6 +762,9 @@ func convertTools(tools []AnthropicTool) []codex.Tool {
 func toolSchemas(tools []AnthropicTool) map[string]map[string]any {
 	out := map[string]map[string]any{}
 	for _, tool := range tools {
+		if isAnthropicWebSearchTool(tool) {
+			continue
+		}
 		name := strings.TrimSpace(tool.Name)
 		if name == "" {
 			continue
@@ -730,6 +775,59 @@ func toolSchemas(tools []AnthropicTool) map[string]map[string]any {
 		return nil
 	}
 	return out
+}
+
+func isAnthropicWebSearchTool(tool AnthropicTool) bool {
+	typ := strings.ToLower(strings.TrimSpace(tool.Type))
+	return tool.Name == "web_search" && strings.HasPrefix(typ, "web_search_")
+}
+
+func validateAnthropicServerTools(tools []AnthropicTool) error {
+	for _, tool := range tools {
+		if isAnthropicWebSearchTool(tool) && len(tool.BlockedDomains) > 0 {
+			return BadRequestError{
+				Message: "web_search blocked_domains cannot be enforced by the Codex hosted search API; use allowed_domains instead",
+			}
+		}
+	}
+	return nil
+}
+
+func withWebSearchLimitInstructions(instructions string, tools []AnthropicTool) string {
+	limit := webSearchMaxUses(tools)
+	if limit == 0 {
+		return instructions
+	}
+	// The ChatGPT subscription Responses endpoint rejects both the public API's
+	// max_tool_calls request field and a tool-local max_uses field. Keep the
+	// upstream model bounded by instruction; StreamReducer independently turns
+	// any excess observed calls into Anthropic's max_uses_exceeded result.
+	const prefix = "Web search compatibility:"
+	addition := fmt.Sprintf("%s\n- Perform no more than %d web search actions in this response.", prefix, limit)
+	if strings.TrimSpace(instructions) == "" {
+		return addition
+	}
+	return strings.TrimSpace(instructions) + "\n\n" + addition
+}
+
+func webSearchMaxUses(tools []AnthropicTool) int {
+	limit := 0
+	for _, tool := range tools {
+		if isAnthropicWebSearchTool(tool) && tool.MaxUses > 0 && (limit == 0 || tool.MaxUses < limit) {
+			limit = tool.MaxUses
+		}
+	}
+	return limit
+}
+
+func responseIncludes(tools []AnthropicTool) []string {
+	include := []string{"reasoning.encrypted_content"}
+	for _, tool := range tools {
+		if isAnthropicWebSearchTool(tool) {
+			return append(include, "web_search_call.action.sources")
+		}
+	}
+	return include
 }
 
 func sanitizeSchema(schema map[string]any) map[string]any {
@@ -925,8 +1023,8 @@ func intersectStrings(left, right []string) []string {
 	return out
 }
 
-func convertToolChoice(raw json.RawMessage, hasTools bool) any {
-	if !hasTools {
+func convertToolChoice(raw json.RawMessage, tools []AnthropicTool) any {
+	if len(tools) == 0 {
 		return "none"
 	}
 	if len(raw) == 0 || string(raw) == "null" {
@@ -951,6 +1049,11 @@ func convertToolChoice(raw json.RawMessage, hasTools bool) any {
 	}
 	if typ, _ := obj["type"].(string); typ == "tool" {
 		if name, _ := obj["name"].(string); name != "" {
+			for _, tool := range tools {
+				if tool.Name == name && isAnthropicWebSearchTool(tool) {
+					return map[string]string{"type": "web_search"}
+				}
+			}
 			return map[string]string{"type": "function", "name": name}
 		}
 	}

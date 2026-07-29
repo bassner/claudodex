@@ -49,6 +49,12 @@ type StreamReducer struct {
 	toolByItemID        map[string]*toolStreamState
 	toolByCallID        map[string]*toolStreamState
 	toolBlocks          int
+	webSearchByItemID   map[string]*webSearchStreamState
+	webSearches         []*webSearchStreamState
+	webSearchHits       []map[string]any
+	webSearchText       strings.Builder
+	webSearchMaxUses    int
+	webSearchUses       int
 	usage               Usage
 	failed              bool
 	failureType         string
@@ -68,6 +74,16 @@ type toolStreamState struct {
 	sentStart   bool
 }
 
+type webSearchStreamState struct {
+	itemID        string
+	anthropicID   string
+	query         string
+	useEmitted    bool
+	resultEmitted bool
+	hits          []map[string]any
+	errorCode     string
+}
+
 func NewStreamReducer(messageID, model string) *StreamReducer {
 	return NewStreamReducerWithOptions(messageID, model, StreamReducerOptions{})
 }
@@ -78,6 +94,7 @@ type StreamReducerOptions struct {
 	PlanFilePath        string
 	FallbackInputTokens int
 	InitialInputUsage   Usage
+	WebSearchMaxUses    int
 }
 
 func NewStreamReducerWithOptions(messageID, model string, opts StreamReducerOptions) *StreamReducer {
@@ -95,12 +112,14 @@ func NewStreamReducerWithOptions(messageID, model string, opts StreamReducerOpti
 		planFilePath:        strings.TrimSpace(opts.PlanFilePath),
 		fallbackInputTokens: opts.FallbackInputTokens,
 		initialInputUsage:   opts.InitialInputUsage,
+		webSearchMaxUses:    opts.WebSearchMaxUses,
 		textIndex:           -1,
 		thinkingIndex:       -1,
 		thinkingSummaryPart: -1,
 		toolByOutput:        map[int]*toolStreamState{},
 		toolByItemID:        map[string]*toolStreamState{},
 		toolByCallID:        map[string]*toolStreamState{},
+		webSearchByItemID:   map[string]*webSearchStreamState{},
 	}
 }
 
@@ -165,10 +184,15 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 		switch itemType(item) {
 		case "message", "output_text":
 			events = append(events, r.stopThinkingBlock()...)
-			events = append(events, r.ensureTextBlock()...)
+			if !r.hasPendingWebSearchResults() {
+				events = append(events, r.ensureTextBlock()...)
+			}
 		case "function_call", "output_tool_call":
 			events = append(events, r.stopThinkingBlock()...)
+			events = append(events, r.flushPendingWebSearchOutput()...)
 			events = append(events, r.ensureToolBlock(event, item)...)
+		case "web_search_call":
+			r.webSearchStateForItem(item)
 		}
 	case "response.reasoning_summary_text.delta":
 		delta := stringField(event["delta"])
@@ -188,6 +212,11 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 	case "response.output_text.delta":
 		text := stringField(event["delta"])
 		if text != "" {
+			if r.hasPendingWebSearchResults() {
+				r.webSearchText.WriteString(text)
+				r.outputChars += len(text)
+				break
+			}
 			events = append(events, r.stopThinkingBlock()...)
 			events = append(events, r.ensureTextBlock()...)
 			events = append(events, contentBlockDelta(r.textIndex, map[string]any{
@@ -198,7 +227,12 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 			r.outputChars += len(text)
 		}
 	case "response.output_text.done":
-		events = append(events, r.stopTextBlock()...)
+		if !r.hasPendingWebSearchResults() {
+			events = append(events, r.stopTextBlock()...)
+		}
+	case "response.output_text.annotation.added":
+		annotation, _ := event["annotation"].(map[string]any)
+		r.addWebSearchHit(annotation)
 	case "response.function_call_arguments.delta":
 		events = append(events, r.stopThinkingBlock()...)
 		state := r.toolStateForEvent(event)
@@ -241,9 +275,19 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 			}
 		case "message", "output_text":
 			events = append(events, r.stopThinkingBlock()...)
-			events = append(events, r.finishMessageItem(item)...)
+			if r.hasPendingWebSearchResults() {
+				if r.webSearchText.Len() == 0 {
+					r.webSearchText.WriteString(outputTextFromItem(item))
+				}
+				r.addWebSearchHitsFromItem(item)
+				events = append(events, r.emitPendingWebSearchResults()...)
+				events = append(events, r.emitBufferedWebSearchText()...)
+			} else {
+				events = append(events, r.finishMessageItem(item)...)
+			}
 		case "function_call", "output_tool_call":
 			events = append(events, r.stopThinkingBlock()...)
+			events = append(events, r.flushPendingWebSearchOutput()...)
 			state := r.toolStateForItem(event, item)
 			events = append(events, r.startToolState(state)...)
 			if args := stringField(item["arguments"]); args != "" && !state.sawDelta {
@@ -259,6 +303,21 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 				}
 			}
 			events = append(events, r.stopToolState(state)...)
+		case "web_search_call":
+			events = append(events, r.stopThinkingBlock()...)
+			events = append(events, r.stopTextBlock()...)
+			state := r.webSearchStateForItem(item)
+			actionType, query := webSearchAction(item)
+			if actionType == "search" {
+				state.query = query
+				state.hits = webSearchHitsFromAction(item)
+				r.webSearchUses++
+				if r.webSearchMaxUses > 0 && r.webSearchUses > r.webSearchMaxUses {
+					state.errorCode = "max_uses_exceeded"
+					state.hits = nil
+				}
+				events = append(events, r.emitWebSearchUse(state)...)
+			}
 		}
 	case "response.completed", "response.done":
 		events = append(events, r.finish(event, "")...)
@@ -491,6 +550,233 @@ func (r *StreamReducer) finishMessageItem(item map[string]any) []AnthropicSSE {
 	return events
 }
 
+func (r *StreamReducer) webSearchStateForItem(item map[string]any) *webSearchStreamState {
+	itemID := stringField(item["id"])
+	if itemID != "" {
+		if state := r.webSearchByItemID[itemID]; state != nil {
+			return state
+		}
+	}
+	if itemID == "" {
+		itemID = fmt.Sprintf("ws_%d", len(r.webSearches))
+	}
+	state := &webSearchStreamState{itemID: itemID}
+	state.anthropicID = anthropicWebSearchID(itemID)
+	r.webSearchByItemID[itemID] = state
+	r.webSearches = append(r.webSearches, state)
+	return state
+}
+
+func webSearchAction(item map[string]any) (string, string) {
+	action, _ := item["action"].(map[string]any)
+	actionType := strings.ToLower(stringField(action["type"]))
+	if query := stringField(action["query"]); query != "" {
+		return actionType, query
+	}
+	queries, _ := action["queries"].([]any)
+	for _, value := range queries {
+		if query := stringField(value); query != "" {
+			return actionType, query
+		}
+	}
+	return actionType, ""
+}
+
+func anthropicWebSearchID(itemID string) string {
+	if strings.HasPrefix(itemID, "srvtoolu_") {
+		return itemID
+	}
+	itemID = strings.TrimPrefix(itemID, "ws_")
+	if itemID == "" {
+		itemID = "web_search"
+	}
+	return "srvtoolu_" + itemID
+}
+
+func (r *StreamReducer) emitWebSearchUse(state *webSearchStreamState) []AnthropicSSE {
+	if state == nil || state.useEmitted {
+		return nil
+	}
+	state.useEmitted = true
+	index := r.nextIndex
+	r.nextIndex++
+	events := []AnthropicSSE{{
+		Event: "content_block_start",
+		Data: map[string]any{
+			"type":  "content_block_start",
+			"index": index,
+			"content_block": map[string]any{
+				"type":  "server_tool_use",
+				"id":    state.anthropicID,
+				"name":  "web_search",
+				"input": map[string]any{},
+			},
+		},
+	}}
+	input, _ := json.Marshal(map[string]any{"query": state.query})
+	events = append(events, contentBlockDelta(index, map[string]any{
+		"type":         "input_json_delta",
+		"partial_json": string(input),
+	}), AnthropicSSE{
+		Event: "content_block_stop",
+		Data:  map[string]any{"type": "content_block_stop", "index": index},
+	})
+	r.visibleBlocks++
+	return events
+}
+
+func (r *StreamReducer) addWebSearchHitsFromItem(item map[string]any) {
+	content, _ := item["content"].([]any)
+	for _, rawPart := range content {
+		part, _ := rawPart.(map[string]any)
+		annotations, _ := part["annotations"].([]any)
+		for _, rawAnnotation := range annotations {
+			annotation, _ := rawAnnotation.(map[string]any)
+			r.addWebSearchHit(annotation)
+		}
+	}
+}
+
+func (r *StreamReducer) addWebSearchHit(annotation map[string]any) {
+	if annotation == nil {
+		return
+	}
+	if nested, _ := annotation["url_citation"].(map[string]any); nested != nil {
+		annotation = nested
+	}
+	typ := strings.ToLower(stringField(annotation["type"]))
+	if typ != "" && typ != "url_citation" {
+		return
+	}
+	url := stringField(annotation["url"])
+	if url == "" {
+		return
+	}
+	for _, hit := range r.webSearchHits {
+		if hit["url"] == url {
+			return
+		}
+	}
+	title := stringField(annotation["title"])
+	if title == "" {
+		title = url
+	}
+	r.webSearchHits = append(r.webSearchHits, map[string]any{
+		"type":              "web_search_result",
+		"title":             title,
+		"url":               url,
+		"encrypted_content": "",
+	})
+}
+
+func webSearchHitsFromAction(item map[string]any) []map[string]any {
+	action, _ := item["action"].(map[string]any)
+	sources, _ := action["sources"].([]any)
+	hits := make([]map[string]any, 0, len(sources))
+	seen := map[string]bool{}
+	for _, rawSource := range sources {
+		source, _ := rawSource.(map[string]any)
+		if nested, _ := source["url_citation"].(map[string]any); nested != nil {
+			source = nested
+		}
+		url := stringField(source["url"])
+		if url == "" || seen[url] {
+			continue
+		}
+		seen[url] = true
+		title := stringField(source["title"])
+		if title == "" {
+			title = url
+		}
+		hits = append(hits, map[string]any{
+			"type":              "web_search_result",
+			"title":             title,
+			"url":               url,
+			"encrypted_content": "",
+		})
+	}
+	return hits
+}
+
+func (r *StreamReducer) emitPendingWebSearchResults() []AnthropicSSE {
+	var pending []*webSearchStreamState
+	for _, state := range r.webSearches {
+		if state.useEmitted && !state.resultEmitted {
+			pending = append(pending, state)
+		}
+	}
+	var events []AnthropicSSE
+	for index, state := range pending {
+		hits := append([]map[string]any{}, state.hits...)
+		if len(pending) == 1 && index == 0 && len(hits) == 0 && state.errorCode == "" {
+			hits = append(hits, r.webSearchHits...)
+		}
+		events = append(events, r.emitWebSearchResult(state, hits)...)
+	}
+	r.webSearchHits = nil
+	return events
+}
+
+func (r *StreamReducer) emitWebSearchResult(state *webSearchStreamState, hits []map[string]any) []AnthropicSSE {
+	if state == nil || state.resultEmitted {
+		return nil
+	}
+	state.resultEmitted = true
+	index := r.nextIndex
+	r.nextIndex++
+	r.visibleBlocks++
+	var content any = hits
+	if state.errorCode != "" {
+		content = map[string]any{
+			"type":       "web_search_tool_result_error",
+			"error_code": state.errorCode,
+		}
+	}
+	return []AnthropicSSE{{
+		Event: "content_block_start",
+		Data: map[string]any{
+			"type":  "content_block_start",
+			"index": index,
+			"content_block": map[string]any{
+				"type":        "web_search_tool_result",
+				"tool_use_id": state.anthropicID,
+				"content":     content,
+			},
+		},
+	}, {
+		Event: "content_block_stop",
+		Data:  map[string]any{"type": "content_block_stop", "index": index},
+	}}
+}
+
+func (r *StreamReducer) hasPendingWebSearchResults() bool {
+	for _, state := range r.webSearches {
+		if state.useEmitted && !state.resultEmitted {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *StreamReducer) emitBufferedWebSearchText() []AnthropicSSE {
+	text := r.webSearchText.String()
+	r.webSearchText.Reset()
+	if text == "" {
+		return nil
+	}
+	events := r.ensureTextBlock()
+	events = append(events, contentBlockDelta(r.textIndex, map[string]any{
+		"type": "text_delta",
+		"text": text,
+	}))
+	return append(events, r.stopTextBlock()...)
+}
+
+func (r *StreamReducer) flushPendingWebSearchOutput() []AnthropicSSE {
+	events := r.emitPendingWebSearchResults()
+	return append(events, r.emitBufferedWebSearchText()...)
+}
+
 func (r *StreamReducer) toolStateForEvent(event map[string]any) *toolStreamState {
 	index := intField(event["output_index"], 0)
 	if itemID, _ := event["item_id"].(string); itemID != "" {
@@ -716,6 +1002,7 @@ func (r *StreamReducer) finish(event map[string]any, forcedStop string) []Anthro
 	for _, state := range states {
 		events = append(events, r.stopToolState(state)...)
 	}
+	events = append(events, r.flushPendingWebSearchOutput()...)
 	r.usage = r.usageForFinish(event)
 	stopReason := forcedStop
 	if stopReason == "" {
@@ -1059,6 +1346,7 @@ type assembledBlock struct {
 	ID        string
 	Name      string
 	Args      strings.Builder
+	Raw       map[string]any
 }
 
 func AssembleMessage(events []AnthropicSSE, messageID, model string) (map[string]any, *AnthropicSSE) {
@@ -1083,11 +1371,11 @@ func AssembleMessage(events []AnthropicSSE, messageID, model string) (map[string
 		case "content_block_start":
 			contentBlock, _ := event.Data["content_block"].(map[string]any)
 			typ, _ := contentBlock["type"].(string)
-			block := &assembledBlock{Type: typ}
+			block := &assembledBlock{Type: typ, Raw: cloneMap(contentBlock)}
 			if typ == "thinking" {
 				block.Signature.WriteString(stringField(contentBlock["signature"]))
 			}
-			if typ == "tool_use" {
+			if typ == "tool_use" || typ == "server_tool_use" {
 				block.ID, _ = contentBlock["id"].(string)
 				block.Name, _ = contentBlock["name"].(string)
 			}
@@ -1104,7 +1392,7 @@ func AssembleMessage(events []AnthropicSSE, messageID, model string) (map[string
 			case "thinking":
 				blocks[index].Text.WriteString(stringField(delta["thinking"]))
 				blocks[index].Signature.WriteString(stringField(delta["signature"]))
-			case "tool_use":
+			case "tool_use", "server_tool_use":
 				blocks[index].Args.WriteString(stringField(delta["partial_json"]))
 			}
 		case "message_delta":
@@ -1138,6 +1426,19 @@ func AssembleMessage(events []AnthropicSSE, messageID, model string) (map[string
 				"name":  block.Name,
 				"input": input,
 			})
+		case "server_tool_use":
+			var input map[string]any
+			if err := json.Unmarshal([]byte(block.Args.String()), &input); err != nil || input == nil {
+				input = map[string]any{}
+			}
+			content = append(content, map[string]any{
+				"type":  "server_tool_use",
+				"id":    block.ID,
+				"name":  block.Name,
+				"input": input,
+			})
+		case "web_search_tool_result":
+			content = append(content, cloneMap(block.Raw))
 		}
 	}
 	return map[string]any{

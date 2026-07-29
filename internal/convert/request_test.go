@@ -2,6 +2,7 @@ package convert
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -640,6 +641,83 @@ func TestAnthropicToCodexConvertsToolsImagesAndResults(t *testing.T) {
 	choice, ok := got.Request.ToolChoice.(map[string]string)
 	if !ok || choice["type"] != "function" || choice["name"] != "read_file" {
 		t.Fatalf("tool_choice = %#v", got.Request.ToolChoice)
+	}
+}
+
+func TestAnthropicToCodexConvertsWebSearchServerTool(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-haiku-4-5",
+		"messages":[{"role":"user","content":"Perform a web search for the query: official Go website"}],
+		"tools":[{
+			"type":"web_search_20250305",
+			"name":"web_search",
+			"allowed_domains":["go.dev"],
+			"blocked_domains":[],
+			"max_uses":8,
+			"user_location":{"type":"approximate","country":"DE","city":"Munich","timezone":"Europe/Berlin"}
+		}],
+		"tool_choice":{"type":"tool","name":"web_search"}
+	}`)
+	var req AnthropicRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := AnthropicToCodex(req, ConvertOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Request.Tools) != 1 {
+		t.Fatalf("tools = %#v", got.Request.Tools)
+	}
+	tool := got.Request.Tools[0]
+	if tool.Type != "web_search" || tool.Name != "" || tool.Parameters != nil {
+		t.Fatalf("web search tool = %#v", tool)
+	}
+	if tool.ExternalWebAccess == nil || !*tool.ExternalWebAccess || tool.IndexedWebAccess != nil {
+		t.Fatalf("web access flags = %#v", tool)
+	}
+	if tool.Filters == nil || len(tool.Filters.AllowedDomains) != 1 || tool.Filters.AllowedDomains[0] != "go.dev" {
+		t.Fatalf("filters = %#v", tool.Filters)
+	}
+	if tool.UserLocation == nil || tool.UserLocation.Type != "approximate" ||
+		tool.UserLocation.Country != "DE" || tool.UserLocation.City != "Munich" ||
+		tool.UserLocation.Timezone != "Europe/Berlin" {
+		t.Fatalf("user location = %#v", tool.UserLocation)
+	}
+	choice, ok := got.Request.ToolChoice.(map[string]string)
+	if !ok || choice["type"] != "web_search" {
+		t.Fatalf("tool_choice = %#v, want web_search", got.Request.ToolChoice)
+	}
+	if got.ToolSchemas != nil {
+		t.Fatalf("server tool leaked into client tool schemas: %#v", got.ToolSchemas)
+	}
+	if len(got.Request.Include) != 2 || got.Request.Include[1] != "web_search_call.action.sources" {
+		t.Fatalf("include = %#v, want web search sources", got.Request.Include)
+	}
+	if got.WebSearchMaxUses != 8 {
+		t.Fatalf("web search max uses = %d, want 8", got.WebSearchMaxUses)
+	}
+	if !strings.Contains(got.Request.Instructions, "Perform no more than 8 web search actions") {
+		t.Fatalf("max_uses instruction missing: %q", got.Request.Instructions)
+	}
+}
+
+func TestAnthropicToCodexRejectsUnsupportedBlockedWebSearchDomains(t *testing.T) {
+	var req AnthropicRequest
+	if err := json.Unmarshal([]byte(`{
+		"messages":[{"role":"user","content":"search"}],
+		"tools":[{
+			"type":"web_search_20250305",
+			"name":"web_search",
+			"blocked_domains":["example.com"]
+		}]
+	}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	_, err := AnthropicToCodex(req, ConvertOptions{})
+	var bad BadRequestError
+	if !errors.As(err, &bad) || !strings.Contains(bad.Message, "blocked_domains") {
+		t.Fatalf("error = %#v, want blocked_domains BadRequestError", err)
 	}
 }
 
