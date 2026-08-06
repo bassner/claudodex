@@ -21,7 +21,7 @@ import (
 
 const (
 	claudodexPatchedClaudeDirName = "patched-claude"
-	claudodexPatchSchemaVersion   = "claude-ui-patch-v61"
+	claudodexPatchSchemaVersion   = "claude-ui-patch-v62"
 )
 
 var (
@@ -40,6 +40,7 @@ type claudeUIPatchSpec struct {
 }
 
 var claudeUIPatches = []claudeUIPatchSpec{
+	claudeUIPatch_2_1_223,
 	claudeUIPatch_2_1_222,
 	claudeUIPatch_2_1_221,
 	claudeUIPatch_2_1_220,
