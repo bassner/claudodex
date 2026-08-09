@@ -45,10 +45,24 @@ func (w *WebSocketConversation) CreateResponse(ctx context.Context, client Clien
 	} else if !w.mu.TryLock() {
 		return nil, ErrWebSocketBusy
 	}
-	conn, header, err := w.connection(ctx, client, credentials, route)
-	if err != nil {
-		w.mu.Unlock()
-		return nil, err
+	connectFailures := 0
+	var conn *websocket.Conn
+	var header http.Header
+	for {
+		var err error
+		conn, header, err = w.connection(ctx, client, request, credentials, route)
+		if err == nil {
+			break
+		}
+		if !isConnectionEstablishmentError(err) || ctx.Err() != nil {
+			w.mu.Unlock()
+			return nil, err
+		}
+		connectFailures++
+		if err := client.waitForConnectRetry(ctx, connectFailures); err != nil {
+			w.mu.Unlock()
+			return nil, err
+		}
 	}
 
 	payload, err := json.Marshal(wsCreateRequest{Type: "response.create", Request: request})
@@ -83,7 +97,7 @@ func (w *WebSocketConversation) CreateResponse(ctx context.Context, client Clien
 	return resp, nil
 }
 
-func (w *WebSocketConversation) connection(ctx context.Context, c Client, credentials Credentials, route Route) (*websocket.Conn, http.Header, error) {
+func (w *WebSocketConversation) connection(ctx context.Context, c Client, request Request, credentials Credentials, route Route) (*websocket.Conn, http.Header, error) {
 	if w.conn != nil {
 		return w.conn, w.header.Clone(), nil
 	}
@@ -96,13 +110,16 @@ func (w *WebSocketConversation) connection(ctx context.Context, c Client, creden
 		return nil, nil, err
 	}
 	headers := http.Header{}
-	for key, value := range c.headers(credentials, route, true) {
+	for key, value := range c.headers(credentials, route, &request, true) {
 		headers.Set(key, value)
 	}
 	headers.Del("accept")
 	headers.Del("content-type")
 
-	dialer := websocket.DefaultDialer
+	dialer := c.WebSocketDialer
+	if dialer == nil {
+		dialer = websocket.DefaultDialer
+	}
 	conn, handshake, err := dialer.DialContext(ctx, wsURL, headers)
 	if err != nil {
 		if handshake != nil {

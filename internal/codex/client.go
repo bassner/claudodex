@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptrace"
 	"os"
@@ -16,12 +17,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 const (
 	responseHeaderTimeoutEnv     = "CLAUDODEX_CODEX_RESPONSE_HEADER_TIMEOUT"
 	defaultResponseHeaderTimeout = 45 * time.Second
 	responseHeaderRetriesHeader  = "x-claudodex-response-header-retries"
+	defaultConnectRetryInitial   = 5 * time.Second
+	defaultConnectRetryMax       = 60 * time.Second
 )
 
 type Client struct {
@@ -30,6 +35,9 @@ type Client struct {
 	Version                string
 	ResponseHeaderTimeout  time.Duration
 	ResponseHeaderAttempts int
+	ConnectRetryInitial    time.Duration
+	ConnectRetryMax        time.Duration
+	WebSocketDialer        *websocket.Dialer
 }
 
 type ResponseHeaderTimeoutError struct {
@@ -94,8 +102,18 @@ func (c Client) CreateResponse(ctx context.Context, request Request, credentials
 }
 
 func (c Client) createResponseWithHeaderTimeoutRetry(ctx context.Context, request Request, credentials Credentials, route Route, includeHTTPBeta bool, maxAttempts int) (*http.Response, int, error) {
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	attempt := 0
+	connectFailures := 0
+	for attempt < maxAttempts {
 		resp, err := c.createResponse(ctx, request, credentials, route, includeHTTPBeta)
+		if isConnectionEstablishmentError(err) && ctx.Err() == nil {
+			connectFailures++
+			if waitErr := c.waitForConnectRetry(ctx, connectFailures); waitErr != nil {
+				return nil, attempt, waitErr
+			}
+			continue
+		}
+		attempt++
 		if err == nil {
 			return resp, attempt, nil
 		}
@@ -109,6 +127,51 @@ func (c Client) createResponseWithHeaderTimeoutRetry(ctx context.Context, reques
 		}
 	}
 	panic("unreachable")
+}
+
+func isConnectionEstablishmentError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var networkErr *net.OpError
+	return errors.As(err, &networkErr) && strings.EqualFold(strings.TrimSpace(networkErr.Op), "dial")
+}
+
+func (c Client) waitForConnectRetry(ctx context.Context, failure int) error {
+	delay := c.connectRetryDelay(failure)
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (c Client) connectRetryDelay(failure int) time.Duration {
+	initial := c.ConnectRetryInitial
+	if initial <= 0 {
+		initial = defaultConnectRetryInitial
+	}
+	maximum := c.ConnectRetryMax
+	if maximum <= 0 {
+		maximum = defaultConnectRetryMax
+	}
+	if maximum < initial {
+		maximum = initial
+	}
+	delay := initial
+	for i := 1; i < failure && delay < maximum; i++ {
+		if delay > maximum/2 {
+			return maximum
+		}
+		delay *= 2
+	}
+	if delay > maximum {
+		return maximum
+	}
+	return delay
 }
 
 // SetCreateResponseAttempts records the total generation attempts represented by resp.
@@ -187,7 +250,7 @@ func (c Client) createResponse(ctx context.Context, request Request, credentials
 	if err != nil {
 		return nil, err
 	}
-	for key, value := range c.headers(credentials, route, includeHTTPBeta) {
+	for key, value := range c.headers(credentials, route, &request, includeHTTPBeta) {
 		req.Header.Set(key, value)
 	}
 
@@ -346,7 +409,7 @@ func (r *cancelOnCloseReadCloser) Close() error {
 	return err
 }
 
-func (c Client) headers(credentials Credentials, route Route, includeHTTPBeta bool) map[string]string {
+func (c Client) headers(credentials Credentials, route Route, request *Request, includeHTTPBeta bool) map[string]string {
 	version := c.Version
 	if version == "" {
 		version = "dev"
@@ -381,6 +444,9 @@ func (c Client) headers(credentials Credentials, route Route, includeHTTPBeta bo
 	if includeHTTPBeta {
 		headers["openai-beta"] = "responses_websockets=2026-02-06"
 	}
+	if hint := codexRoutingHint(credentials, request); hint != "" {
+		headers["x-codex-routing-hint"] = hint
+	}
 	if credentials.FedRAMP {
 		headers["x-openai-internal-codex-residency"] = "us"
 		headers["x-openai-fedramp"] = "true"
@@ -402,6 +468,22 @@ func (c Client) headers(credentials Credentials, route Route, includeHTTPBeta bo
 		delete(headers, "thread-id")
 	}
 	return headers
+}
+
+func codexRoutingHint(credentials Credentials, request *Request) string {
+	if strings.TrimSpace(credentials.AccountID) == "" || request == nil {
+		return ""
+	}
+	model := strings.TrimSpace(request.Model)
+	tier := strings.TrimSpace(request.ServiceTier)
+	if model == "" || strings.ContainsAny(model, "\r\n") || strings.ContainsAny(tier, "\r\n") {
+		return ""
+	}
+	hint := "model=" + model
+	if tier != "" {
+		hint += ";tier=" + tier
+	}
+	return hint
 }
 
 func httpBetaHeaderEnabled() bool {

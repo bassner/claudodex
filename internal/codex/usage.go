@@ -21,7 +21,7 @@ func (c Client) FetchUsage(ctx context.Context, credentials Credentials) (map[st
 	if err != nil {
 		return nil, err
 	}
-	for key, value := range c.headers(credentials, Route{}, false) {
+	for key, value := range c.headers(credentials, Route{}, nil, false) {
 		req.Header.Set(key, value)
 	}
 	req.Header.Del("content-type")

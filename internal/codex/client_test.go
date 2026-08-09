@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httptrace"
@@ -21,7 +22,7 @@ func TestClientCreateResponseBuildsCodexHeaders(t *testing.T) {
 		AccountID:      "acc_123",
 		InstallationID: "install-1",
 		FedRAMP:        true,
-	}, Route{SessionID: "session-1", ThreadID: "thread-1", ParentThreadID: "parent-1", Subagent: "collab_spawn"}, true)
+	}, Route{SessionID: "session-1", ThreadID: "thread-1", ParentThreadID: "parent-1", Subagent: "collab_spawn"}, &Request{Model: "gpt-5.6-terra", ServiceTier: "priority"}, true)
 
 	want := map[string]string{
 		"authorization":                     "Bearer access-1",
@@ -39,6 +40,7 @@ func TestClientCreateResponseBuildsCodexHeaders(t *testing.T) {
 		"x-openai-internal-codex-residency": "us",
 		"x-openai-fedramp":                  "true",
 		"openai-beta":                       "responses_websockets=2026-02-06",
+		"x-codex-routing-hint":              "model=gpt-5.6-terra;tier=priority",
 	}
 	for key, value := range want {
 		if headers[key] != value {
@@ -47,6 +49,86 @@ func TestClientCreateResponseBuildsCodexHeaders(t *testing.T) {
 	}
 	if !strings.Contains(headers["user-agent"], "claudodex/1.2.3") {
 		t.Fatalf("user-agent = %q", headers["user-agent"])
+	}
+}
+
+func TestCodexRoutingHintRequiresChatGPTResponsesRequest(t *testing.T) {
+	client := Client{}
+	credentials := Credentials{AccountID: "account-1"}
+	request := &Request{Model: "gpt-5.6-sol"}
+	if got := client.headers(credentials, Route{}, request, false)["x-codex-routing-hint"]; got != "model=gpt-5.6-sol" {
+		t.Fatalf("model-only routing hint = %q", got)
+	}
+	if got := client.headers(credentials, Route{}, nil, false)["x-codex-routing-hint"]; got != "" {
+		t.Fatalf("non-Responses routing hint = %q, want omitted", got)
+	}
+	if got := client.headers(Credentials{}, Route{}, request, false)["x-codex-routing-hint"]; got != "" {
+		t.Fatalf("provider-owned credential routing hint = %q, want omitted", got)
+	}
+}
+
+func TestClientCreateResponseRetriesConnectFailuresOutsideAttemptBudget(t *testing.T) {
+	var transportAttempts atomic.Int32
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempt := transportAttempts.Add(1)
+		if attempt <= 3 {
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection unavailable")}
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("ok")),
+			Request:    req,
+		}, nil
+	})
+	client := Client{
+		HTTPClient:             &http.Client{Transport: transport},
+		ResponseHeaderAttempts: 1,
+		ConnectRetryInitial:    time.Millisecond,
+		ConnectRetryMax:        time.Millisecond,
+	}
+	resp, err := client.CreateResponse(context.Background(), Request{Model: "gpt-5.6-terra"}, Credentials{AccountID: "account-1"}, Route{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if got := transportAttempts.Load(); got != 4 {
+		t.Fatalf("transport attempts = %d, want three connect retries plus one generation attempt", got)
+	}
+	if got := CreateResponseAttempts(resp, nil); got != 1 {
+		t.Fatalf("generation attempts = %d, want 1", got)
+	}
+}
+
+func TestClientCreateResponseConnectRetryStopsOnCallerCancellation(t *testing.T) {
+	started := make(chan struct{}, 1)
+	transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection unavailable")}
+	})
+	client := Client{
+		HTTPClient:          &http.Client{Transport: transport},
+		ConnectRetryInitial: time.Hour,
+		ConnectRetryMax:     time.Hour,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.CreateResponse(ctx, Request{Model: "gpt-5.6-terra"}, Credentials{AccountID: "account-1"}, Route{})
+		done <- err
+	}()
+	<-started
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want context canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("connect retry did not stop on caller cancellation")
 	}
 }
 
