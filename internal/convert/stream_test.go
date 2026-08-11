@@ -81,6 +81,7 @@ func TestStreamReducerKeepsDelayedSafetyBufferingNonterminal(t *testing.T) {
 	inputs := []string{
 		`{"type":"response.in_progress","response":{"id":"resp_safety","status":"in_progress"}}`,
 		`{"type":"response.safety_buffering","status":"in_progress","safety":{"status":"buffering"}}`,
+		`{"type":"response.metadata","response":{"id":"resp_safety"},"metadata":{"type":"safety_buffering","status":"in_progress","safety":{"status":"buffering"}}}`,
 		`{"type":"response.status","status":"in_progress","message":"delayed safety check"}`,
 	}
 	for _, input := range inputs {
