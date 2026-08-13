@@ -17,17 +17,23 @@ type ModelsResponse struct {
 	Models []ModelInfo `json:"models"`
 }
 
+type ReasoningEffortPreset struct {
+	Effort      string `json:"effort"`
+	Description string `json:"description,omitempty"`
+}
+
 type ModelInfo struct {
-	Slug                          string `json:"slug"`
-	DisplayName                   string `json:"display_name"`
-	Description                   string `json:"description,omitempty"`
-	ContextWindow                 int64  `json:"context_window,omitempty"`
-	MaxContextWindow              int64  `json:"max_context_window,omitempty"`
-	AutoCompactTokenLimit         int64  `json:"auto_compact_token_limit,omitempty"`
-	EffectiveContextWindowPercent int64  `json:"effective_context_window_percent,omitempty"`
-	SupportsReasoningSummaries    bool   `json:"supports_reasoning_summaries,omitempty"`
-	SupportedInAPI                bool   `json:"supported_in_api"`
-	Visibility                    string `json:"visibility"`
+	Slug                          string                  `json:"slug"`
+	DisplayName                   string                  `json:"display_name"`
+	Description                   string                  `json:"description,omitempty"`
+	ContextWindow                 int64                   `json:"context_window,omitempty"`
+	MaxContextWindow              int64                   `json:"max_context_window,omitempty"`
+	AutoCompactTokenLimit         int64                   `json:"auto_compact_token_limit,omitempty"`
+	EffectiveContextWindowPercent int64                   `json:"effective_context_window_percent,omitempty"`
+	SupportsReasoningSummaries    bool                    `json:"supports_reasoning_summaries,omitempty"`
+	SupportedReasoningLevels      []ReasoningEffortPreset `json:"supported_reasoning_levels,omitempty"`
+	SupportedInAPI                bool                    `json:"supported_in_api"`
+	Visibility                    string                  `json:"visibility"`
 }
 
 func (c Client) FetchModels(ctx context.Context, credentials Credentials) ([]ModelInfo, error) {

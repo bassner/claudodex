@@ -73,14 +73,19 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	route := codex.MaterializeRoute(codexRouteForResult(result, sessionID))
 	traceID := s.nextTraceID()
 	chainKey := responseChainKey(route.ThreadID, traceID, result.Request)
+	s.inheritResponseTurnIdentity(chainKey, &route, result.Request)
 	fullRequest := result.Request
+	codex.ApplyResponsesMetadata(&fullRequest, "", route)
 	upstreamRequest := result.Request
+	codex.ApplyResponsesMetadata(&upstreamRequest, "", route)
 	traceBase := map[string]any{
 		"request_id":                 traceID,
 		"session_id":                 sessionID,
 		"thread_id":                  route.ThreadID,
 		"parent_thread_id":           route.ParentThreadID,
 		"subagent":                   route.Subagent,
+		"turn_id":                    route.TurnID,
+		"root_turn_id":               route.RootTurnID,
 		"chain_key":                  chainKey,
 		"model":                      result.Request.Model,
 		"original_model":             result.OriginalModel,
@@ -366,7 +371,7 @@ func (s *Server) createCodexResponse(r *http.Request, req codex.Request, route c
 	if err != nil {
 		return finish(nil, err)
 	}
-	req.ClientMetadata = map[string]string{"x-codex-installation-id": installationID}
+	codex.ApplyResponsesMetadata(&req, installationID, route)
 
 	client := codex.Client{BaseURL: s.cfg.CodexBaseURL, HTTPClient: s.cfg.HTTPClient, Version: s.cfg.Version, ResponseHeaderAttempts: remainingAttempts()}
 	credentials := codex.Credentials{

@@ -155,6 +155,7 @@ func TestMessagesHTTPToolContinuationReplaysEncryptedReasoningLosslessly(t *test
 	home := t.TempDir()
 	saveTestAuth(t, home, "access-1")
 	var requests atomic.Int32
+	var firstRequest map[string]any
 	var secondRequest map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestNumber := requests.Add(1)
@@ -164,6 +165,7 @@ func TestMessagesHTTPToolContinuationReplaysEncryptedReasoningLosslessly(t *test
 		}
 		w.Header().Set("content-type", "text/event-stream")
 		if requestNumber == 1 {
+			firstRequest = captured
 			_, _ = w.Write([]byte(strings.Join([]string{
 				`event: response.created`,
 				`data: {"type":"response.created","response":{"id":"resp_state_1"}}`,
@@ -261,6 +263,24 @@ func TestMessagesHTTPToolContinuationReplaysEncryptedReasoningLosslessly(t *test
 		if item["type"] != wantType {
 			t.Fatalf("input[%d] = %#v, want type %q", index, item, wantType)
 		}
+	}
+	firstInput, _ := firstRequest["input"].([]any)
+	firstUser := firstInput[0].(map[string]any)
+	replayedUser := input[0].(map[string]any)
+	firstMetadata := firstUser["internal_chat_message_metadata_passthrough"].(map[string]any)
+	replayedMetadata := replayedUser["internal_chat_message_metadata_passthrough"].(map[string]any)
+	if firstMetadata["create_time"] == nil || firstMetadata["create_time"] != replayedMetadata["create_time"] {
+		t.Fatalf("user create_time was not stable across replay: first=%#v replayed=%#v", firstMetadata, replayedMetadata)
+	}
+	toolOutput := input[4].(map[string]any)
+	toolMetadata, _ := toolOutput["internal_chat_message_metadata_passthrough"].(map[string]any)
+	if toolMetadata["create_time"] == nil {
+		t.Fatalf("tool output lacks create_time: %#v", toolOutput)
+	}
+	firstClientMetadata := firstRequest["client_metadata"].(map[string]any)
+	secondClientMetadata := secondRequest["client_metadata"].(map[string]any)
+	if firstClientMetadata["root_turn_id"] == nil || firstClientMetadata["root_turn_id"] != secondClientMetadata["root_turn_id"] || firstClientMetadata["turn_id"] != secondClientMetadata["turn_id"] {
+		t.Fatalf("tool continuation turn identity changed: first=%#v second=%#v", firstClientMetadata, secondClientMetadata)
 	}
 	reasoning := input[1].(map[string]any)
 	if reasoning["encrypted_content"] != "opaque-reasoning-state" {

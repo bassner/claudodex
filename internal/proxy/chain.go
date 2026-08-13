@@ -14,6 +14,51 @@ type responseChain struct {
 	Request    codex.Request
 	ResponseID string
 	Output     []codex.InputItem
+	TurnID     string
+	RootTurnID string
+}
+
+func (s *Server) inheritResponseTurnIdentity(chainKey string, route *codex.Route, request codex.Request) {
+	if route == nil {
+		return
+	}
+	s.chainsMu.Lock()
+	chain, hasChain := s.chains[strings.TrimSpace(chainKey)]
+	parent, hasParent := s.chains[strings.TrimSpace(route.ParentThreadID)]
+	s.chainsMu.Unlock()
+	if hasChain && chainContinuesToolCall(chain, request) {
+		if strings.TrimSpace(chain.TurnID) != "" {
+			route.TurnID = chain.TurnID
+		}
+		if strings.TrimSpace(chain.RootTurnID) != "" {
+			route.RootTurnID = chain.RootTurnID
+		}
+		return
+	}
+	if strings.TrimSpace(route.ParentThreadID) != "" && hasParent && strings.TrimSpace(parent.RootTurnID) != "" {
+		route.RootTurnID = parent.RootTurnID
+	}
+}
+
+func chainContinuesToolCall(chain responseChain, request codex.Request) bool {
+	trimFrom, ok := trimAfterRecordedOutput(request.Input, chain.Output)
+	if !ok || trimFrom >= len(request.Input) {
+		return false
+	}
+	pending := make(map[string]struct{})
+	for _, item := range chain.Output {
+		if item.Type == "function_call" && strings.TrimSpace(item.CallID) != "" {
+			pending[item.CallID] = struct{}{}
+		}
+	}
+	for _, item := range request.Input[trimFrom:] {
+		if item.Type == "function_call_output" {
+			if _, ok := pending[item.CallID]; ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type responseTrace struct {
@@ -119,6 +164,8 @@ func (s *Server) recordResponseChain(chainKey string, request codex.Request, tra
 		Request:    request,
 		ResponseID: strings.TrimSpace(trace.ResponseID),
 		Output:     trace.outputInOrder(),
+		TurnID:     strings.TrimSpace(request.ClientMetadata["turn_id"]),
+		RootTurnID: strings.TrimSpace(request.ClientMetadata["root_turn_id"]),
 	}
 	s.chainsMu.Unlock()
 }

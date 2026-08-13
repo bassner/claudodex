@@ -39,25 +39,48 @@ type TextFormat struct {
 }
 
 type InputItem struct {
-	Type      string                     `json:"type"`
-	Role      string                     `json:"role,omitempty"`
-	Content   []ContentPart              `json:"content,omitempty"`
-	CallID    string                     `json:"call_id,omitempty"`
-	Name      string                     `json:"name,omitempty"`
-	Arguments string                     `json:"arguments,omitempty"`
-	Output    any                        `json:"output,omitempty"`
-	Raw       map[string]json.RawMessage `json:"-"`
+	Type                                   string                                  `json:"type"`
+	Role                                   string                                  `json:"role,omitempty"`
+	Content                                []ContentPart                           `json:"content,omitempty"`
+	CallID                                 string                                  `json:"call_id,omitempty"`
+	Name                                   string                                  `json:"name,omitempty"`
+	Arguments                              string                                  `json:"arguments,omitempty"`
+	Output                                 any                                     `json:"output,omitempty"`
+	InternalChatMessageMetadataPassthrough *InternalChatMessageMetadataPassthrough `json:"internal_chat_message_metadata_passthrough,omitempty"`
+	Raw                                    map[string]json.RawMessage              `json:"-"`
+}
+
+type InternalChatMessageMetadataPassthrough struct {
+	CreateTime float64 `json:"create_time,omitempty"`
+}
+
+func (i *InputItem) SetCreateTimeIfMissing(createTime float64) {
+	if i == nil || createTime <= 0 || len(i.Raw) > 0 {
+		return
+	}
+	eligible := i.Type == "function_call_output" ||
+		(i.Type == "message" && (i.Role == "user" || i.Role == "developer"))
+	if !eligible {
+		return
+	}
+	if i.InternalChatMessageMetadataPassthrough == nil {
+		i.InternalChatMessageMetadataPassthrough = &InternalChatMessageMetadataPassthrough{}
+	}
+	if i.InternalChatMessageMetadataPassthrough.CreateTime == 0 {
+		i.InternalChatMessageMetadataPassthrough.CreateTime = createTime
+	}
 }
 
 func (i *InputItem) UnmarshalJSON(data []byte) error {
 	type wire struct {
-		Type      string        `json:"type"`
-		Role      string        `json:"role,omitempty"`
-		Content   []ContentPart `json:"content,omitempty"`
-		CallID    string        `json:"call_id,omitempty"`
-		Name      string        `json:"name,omitempty"`
-		Arguments string        `json:"arguments,omitempty"`
-		Output    any           `json:"output,omitempty"`
+		Type                                   string                                  `json:"type"`
+		Role                                   string                                  `json:"role,omitempty"`
+		Content                                []ContentPart                           `json:"content,omitempty"`
+		CallID                                 string                                  `json:"call_id,omitempty"`
+		Name                                   string                                  `json:"name,omitempty"`
+		Arguments                              string                                  `json:"arguments,omitempty"`
+		Output                                 any                                     `json:"output,omitempty"`
+		InternalChatMessageMetadataPassthrough *InternalChatMessageMetadataPassthrough `json:"internal_chat_message_metadata_passthrough,omitempty"`
 	}
 	var decoded wire
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -68,14 +91,15 @@ func (i *InputItem) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*i = InputItem{
-		Type:      decoded.Type,
-		Role:      decoded.Role,
-		Content:   decoded.Content,
-		CallID:    decoded.CallID,
-		Name:      decoded.Name,
-		Arguments: decoded.Arguments,
-		Output:    decoded.Output,
-		Raw:       raw,
+		Type:                                   decoded.Type,
+		Role:                                   decoded.Role,
+		Content:                                decoded.Content,
+		CallID:                                 decoded.CallID,
+		Name:                                   decoded.Name,
+		Arguments:                              decoded.Arguments,
+		Output:                                 decoded.Output,
+		InternalChatMessageMetadataPassthrough: decoded.InternalChatMessageMetadataPassthrough,
+		Raw:                                    raw,
 	}
 	return nil
 }
@@ -96,22 +120,24 @@ func (i InputItem) MarshalJSON() ([]byte, error) {
 		return json.Marshal(raw)
 	}
 	type wire struct {
-		Type      string        `json:"type"`
-		Role      string        `json:"role,omitempty"`
-		Content   []ContentPart `json:"content,omitempty"`
-		CallID    string        `json:"call_id,omitempty"`
-		Name      string        `json:"name,omitempty"`
-		Arguments string        `json:"arguments,omitempty"`
-		Output    any           `json:"output,omitempty"`
+		Type                                   string                                  `json:"type"`
+		Role                                   string                                  `json:"role,omitempty"`
+		Content                                []ContentPart                           `json:"content,omitempty"`
+		CallID                                 string                                  `json:"call_id,omitempty"`
+		Name                                   string                                  `json:"name,omitempty"`
+		Arguments                              string                                  `json:"arguments,omitempty"`
+		Output                                 any                                     `json:"output,omitempty"`
+		InternalChatMessageMetadataPassthrough *InternalChatMessageMetadataPassthrough `json:"internal_chat_message_metadata_passthrough,omitempty"`
 	}
 	return json.Marshal(wire{
-		Type:      i.Type,
-		Role:      i.Role,
-		Content:   i.Content,
-		CallID:    i.CallID,
-		Name:      i.Name,
-		Arguments: i.Arguments,
-		Output:    i.Output,
+		Type:                                   i.Type,
+		Role:                                   i.Role,
+		Content:                                i.Content,
+		CallID:                                 i.CallID,
+		Name:                                   i.Name,
+		Arguments:                              i.Arguments,
+		Output:                                 i.Output,
+		InternalChatMessageMetadataPassthrough: i.InternalChatMessageMetadataPassthrough,
 	})
 }
 
@@ -182,6 +208,8 @@ type Credentials struct {
 type Route struct {
 	SessionID      string
 	ThreadID       string
+	TurnID         string
+	RootTurnID     string
 	ParentThreadID string
 	Subagent       string
 }

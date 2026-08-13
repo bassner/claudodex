@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/bassner/claudodex/internal/codex"
 	"github.com/bassner/claudodex/internal/modelconfig"
@@ -148,6 +149,7 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 	if len(input) == 0 {
 		input = append(input, messageItem("user", []codex.ContentPart{{Type: "input_text", Text: ""}}))
 	}
+	stampLocallyAuthoredItems(input, time.Now())
 	stream := false
 	if req.Stream != nil {
 		stream = *req.Stream
@@ -202,6 +204,13 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		Subagent:         subagent,
 		WebSearchMaxUses: webSearchMaxUses(req.Tools),
 	}, nil
+}
+
+func stampLocallyAuthoredItems(items []codex.InputItem, now time.Time) {
+	createTime := float64(now.UnixNano()) / float64(time.Second)
+	for index := range items {
+		items[index].SetCreateTimeIfMissing(createTime + float64(index)/1_000_000)
+	}
 }
 
 var claudeCodePlanFilePatterns = []*regexp.Regexp{

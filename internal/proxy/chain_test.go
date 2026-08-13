@@ -210,6 +210,52 @@ func TestImplicitResumeTreatsCompactionAsNewReasoningChain(t *testing.T) {
 	}
 }
 
+func TestResponseTurnIdentityContinuesToolsAndPropagatesToSubagents(t *testing.T) {
+	server := New(Config{})
+	parentRequest := codex.Request{
+		Input: []codex.InputItem{{Type: "message", Role: "user", Content: []codex.ContentPart{{Type: "input_text", Text: "delegate"}}}},
+		ClientMetadata: map[string]string{
+			"turn_id":      "turn-parent",
+			"root_turn_id": "turn-root",
+		},
+	}
+	server.recordResponseChain("parent-thread", parentRequest, responseTrace{
+		ResponseID: "resp-parent",
+		Output:     []codex.InputItem{{Type: "function_call", CallID: "call-agent", Name: "Agent", Arguments: `{}`}},
+	})
+
+	continuation := codex.Request{Input: []codex.InputItem{
+		parentRequest.Input[0],
+		{Type: "function_call", CallID: "call-agent", Name: "Agent", Arguments: `{}`},
+		{Type: "function_call_output", CallID: "call-agent", Output: "done"},
+	}}
+	continuedRoute := codex.MaterializeRoute(codex.Route{SessionID: "parent-thread", ThreadID: "parent-thread"})
+	server.inheritResponseTurnIdentity("parent-thread", &continuedRoute, continuation)
+	if continuedRoute.TurnID != "turn-parent" || continuedRoute.RootTurnID != "turn-root" {
+		t.Fatalf("tool continuation identity = turn %q root %q", continuedRoute.TurnID, continuedRoute.RootTurnID)
+	}
+
+	childRoute := codex.MaterializeRoute(codex.Route{SessionID: "child-thread", ThreadID: "child-thread", ParentThreadID: "parent-thread", Subagent: "collab_spawn"})
+	childTurnID := childRoute.TurnID
+	server.inheritResponseTurnIdentity("child-thread", &childRoute, codex.Request{})
+	if childRoute.TurnID != childTurnID || childRoute.RootTurnID != "turn-root" {
+		t.Fatalf("child identity = turn %q root %q", childRoute.TurnID, childRoute.RootTurnID)
+	}
+}
+
+func TestResponseTurnIdentityStartsNewRootAfterFinalMessage(t *testing.T) {
+	server := New(Config{})
+	server.recordResponseChain("thread-1", codex.Request{ClientMetadata: map[string]string{
+		"turn_id": "turn-old", "root_turn_id": "root-old",
+	}}, responseTrace{ResponseID: "resp-old", Output: []codex.InputItem{{Type: "message", Role: "assistant", Content: []codex.ContentPart{{Type: "output_text", Text: "done"}}}}})
+	route := codex.MaterializeRoute(codex.Route{SessionID: "thread-1", ThreadID: "thread-1"})
+	newRoot := route.RootTurnID
+	server.inheritResponseTurnIdentity("thread-1", &route, codex.Request{Input: []codex.InputItem{{Type: "message", Role: "user"}}})
+	if route.RootTurnID != newRoot || route.RootTurnID == "root-old" {
+		t.Fatalf("new top-level turn root = %q", route.RootTurnID)
+	}
+}
+
 func TestPreviousResponseUsageSurvivesChainReset(t *testing.T) {
 	server := New(Config{})
 	want := convert.Usage{

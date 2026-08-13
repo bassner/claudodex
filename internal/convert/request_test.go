@@ -97,6 +97,33 @@ func TestAnthropicToCodexRequestsSupportedReasoningSummaryForClaudeThinking(t *t
 	}
 }
 
+func TestAnthropicToCodexStampsLocallyAuthoredReplayItems(t *testing.T) {
+	req := AnthropicRequest{
+		Model: "claude-sonnet-4-6",
+		Messages: []AnthropicMessage{
+			{Role: "user", Content: json.RawMessage(`"run pwd"`)},
+			{Role: "assistant", Content: json.RawMessage(`[{"type":"tool_use","id":"call_1","name":"Bash","input":{"command":"pwd"}}]`)},
+			{Role: "user", Content: json.RawMessage(`[{"type":"tool_result","tool_use_id":"call_1","content":"/tmp"}]`)},
+		},
+	}
+	got, err := AnthropicToCodex(req, ConvertOptions{Models: modelconfig.Default()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Request.Input) != 3 {
+		t.Fatalf("input = %#v", got.Request.Input)
+	}
+	for _, index := range []int{0, 2} {
+		metadata := got.Request.Input[index].InternalChatMessageMetadataPassthrough
+		if metadata == nil || metadata.CreateTime <= 0 {
+			t.Fatalf("item %d lacks create_time: %#v", index, got.Request.Input[index])
+		}
+	}
+	if got.Request.Input[1].InternalChatMessageMetadataPassthrough != nil {
+		t.Fatalf("assistant function call was incorrectly stamped: %#v", got.Request.Input[1])
+	}
+}
+
 func TestAnthropicToCodexDoesNotRequestUnsupportedOrUnrequestedReasoningSummary(t *testing.T) {
 	for _, test := range []struct {
 		name     string

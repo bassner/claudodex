@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -25,6 +26,35 @@ func TestInputItemPreservesOpaqueReasoningFields(t *testing.T) {
 	extension, _ := got["provider_extension"].(map[string]any)
 	if extension["keep"] != true {
 		t.Fatalf("provider extension was not preserved: %#v", got)
+	}
+}
+
+func TestInputItemCreationTimePreservesExistingAndOpaqueMetadata(t *testing.T) {
+	item := InputItem{Type: "message", Role: "user"}
+	item.SetCreateTimeIfMissing(1234.5)
+	item.SetCreateTimeIfMissing(6789.0)
+	if got := item.InternalChatMessageMetadataPassthrough; got == nil || got.CreateTime != 1234.5 {
+		t.Fatalf("locally stamped metadata = %#v", got)
+	}
+	encoded, err := json.Marshal(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"internal_chat_message_metadata_passthrough":{"create_time":1234.5}`) {
+		t.Fatalf("creation timestamp missing from encoded item: %s", encoded)
+	}
+
+	var upstream InputItem
+	if err := json.Unmarshal([]byte(`{"type":"message","role":"user","content":[],"internal_chat_message_metadata_passthrough":{"create_time":42.25,"future":"keep"}}`), &upstream); err != nil {
+		t.Fatal(err)
+	}
+	upstream.SetCreateTimeIfMissing(99)
+	encoded, err = json.Marshal(upstream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"create_time":42.25`) || !strings.Contains(string(encoded), `"future":"keep"`) {
+		t.Fatalf("upstream metadata was not preserved: %s", encoded)
 	}
 }
 

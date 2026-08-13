@@ -22,7 +22,7 @@ func TestClientCreateResponseBuildsCodexHeaders(t *testing.T) {
 		AccountID:      "acc_123",
 		InstallationID: "install-1",
 		FedRAMP:        true,
-	}, Route{SessionID: "session-1", ThreadID: "thread-1", ParentThreadID: "parent-1", Subagent: "collab_spawn"}, &Request{Model: "gpt-5.6-terra", ServiceTier: "priority"}, true)
+	}, Route{SessionID: "session-1", ThreadID: "thread-1", TurnID: "turn-1", RootTurnID: "root-1", ParentThreadID: "parent-1", Subagent: "collab_spawn"}, &Request{Model: "gpt-5.6-terra", ServiceTier: "priority", ClientMetadata: map[string]string{"x-codex-turn-metadata": `{"root_turn_id":"root-1"}`}}, true)
 
 	want := map[string]string{
 		"authorization":                     "Bearer access-1",
@@ -37,6 +37,7 @@ func TestClientCreateResponseBuildsCodexHeaders(t *testing.T) {
 		"thread-id":                         "thread-1",
 		"x-codex-parent-thread-id":          "parent-1",
 		"x-openai-subagent":                 "collab_spawn",
+		"x-codex-turn-metadata":             `{"root_turn_id":"root-1"}`,
 		"x-openai-internal-codex-residency": "us",
 		"x-openai-fedramp":                  "true",
 		"openai-beta":                       "responses_websockets=2026-02-06",
@@ -49,6 +50,39 @@ func TestClientCreateResponseBuildsCodexHeaders(t *testing.T) {
 	}
 	if !strings.Contains(headers["user-agent"], "claudodex/1.2.3") {
 		t.Fatalf("user-agent = %q", headers["user-agent"])
+	}
+}
+
+func TestApplyResponsesMetadataIncludesCanonicalRootTurnIdentity(t *testing.T) {
+	request := Request{}
+	route := Route{
+		SessionID:      "session-1",
+		ThreadID:       "thread-1",
+		TurnID:         "turn-child",
+		RootTurnID:     "turn-root",
+		ParentThreadID: "thread-parent",
+		Subagent:       "collab_spawn",
+	}
+	ApplyResponsesMetadata(&request, "install-1", route)
+	for key, want := range map[string]string{
+		"x-codex-installation-id":  "install-1",
+		"session_id":               "session-1",
+		"thread_id":                "thread-1",
+		"turn_id":                  "turn-child",
+		"root_turn_id":             "turn-root",
+		"x-codex-parent-thread-id": "thread-parent",
+		"x-openai-subagent":        "collab_spawn",
+	} {
+		if got := request.ClientMetadata[key]; got != want {
+			t.Fatalf("client_metadata[%q] = %q, want %q", key, got, want)
+		}
+	}
+	var canonical map[string]any
+	if err := json.Unmarshal([]byte(request.ClientMetadata["x-codex-turn-metadata"]), &canonical); err != nil {
+		t.Fatal(err)
+	}
+	if canonical["root_turn_id"] != "turn-root" || canonical["turn_id"] != "turn-child" || canonical["request_kind"] != "turn" {
+		t.Fatalf("canonical turn metadata = %#v", canonical)
 	}
 }
 
@@ -458,7 +492,7 @@ func TestClientFetchModels(t *testing.T) {
 		if got := r.Header.Get("accept"); got != "application/json" {
 			t.Fatalf("accept = %q", got)
 		}
-		_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-5.5","display_name":"GPT-5.5","context_window":272000,"max_context_window":272000,"supported_in_api":true,"visibility":"list"}]}`)
+		_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-5.5","display_name":"GPT-5.5","context_window":272000,"max_context_window":272000,"supported_reasoning_levels":[{"effort":"low","description":"fast"},{"effort":"max","description":"deep"}],"supported_in_api":true,"visibility":"list"}]}`)
 	}))
 	defer upstream.Close()
 
@@ -469,6 +503,9 @@ func TestClientFetchModels(t *testing.T) {
 	}
 	if len(models) != 1 || models[0].Slug != "gpt-5.5" || models[0].ContextWindow != 272000 {
 		t.Fatalf("models = %#v", models)
+	}
+	if got := models[0].SupportedReasoningLevels; len(got) != 2 || got[0].Effort != "low" || got[1].Effort != "max" {
+		t.Fatalf("supported reasoning levels = %#v", got)
 	}
 }
 

@@ -233,7 +233,54 @@ func MaterializeRoute(route Route) Route {
 	if strings.TrimSpace(route.ThreadID) == "" {
 		route.ThreadID = route.SessionID
 	}
+	if strings.TrimSpace(route.TurnID) == "" {
+		route.TurnID = mustUUID()
+	}
+	if strings.TrimSpace(route.RootTurnID) == "" {
+		route.RootTurnID = route.TurnID
+	}
 	return route
+}
+
+func ApplyResponsesMetadata(request *Request, installationID string, route Route) {
+	if request == nil {
+		return
+	}
+	if request.ClientMetadata == nil {
+		request.ClientMetadata = make(map[string]string)
+	}
+	setMetadata := func(key, value string) {
+		if value = strings.TrimSpace(value); value != "" {
+			request.ClientMetadata[key] = value
+		}
+	}
+	setMetadata("x-codex-installation-id", installationID)
+	setMetadata("session_id", route.SessionID)
+	setMetadata("thread_id", route.ThreadID)
+	setMetadata("turn_id", route.TurnID)
+	setMetadata("root_turn_id", route.RootTurnID)
+	setMetadata("x-codex-parent-thread-id", route.ParentThreadID)
+	setMetadata("x-openai-subagent", route.Subagent)
+	payload := struct {
+		InstallationID string `json:"installation_id,omitempty"`
+		SessionID      string `json:"session_id,omitempty"`
+		ThreadID       string `json:"thread_id,omitempty"`
+		TurnID         string `json:"turn_id,omitempty"`
+		RequestKind    string `json:"request_kind"`
+		ParentThreadID string `json:"parent_thread_id,omitempty"`
+		RootTurnID     string `json:"root_turn_id,omitempty"`
+	}{
+		InstallationID: strings.TrimSpace(installationID),
+		SessionID:      strings.TrimSpace(route.SessionID),
+		ThreadID:       strings.TrimSpace(route.ThreadID),
+		TurnID:         strings.TrimSpace(route.TurnID),
+		RequestKind:    "turn",
+		ParentThreadID: strings.TrimSpace(route.ParentThreadID),
+		RootTurnID:     strings.TrimSpace(route.RootTurnID),
+	}
+	if encoded, err := json.Marshal(payload); err == nil {
+		request.ClientMetadata["x-codex-turn-metadata"] = string(encoded)
+	}
 }
 
 func (c Client) createResponse(ctx context.Context, request Request, credentials Credentials, route Route, includeHTTPBeta bool) (*http.Response, error) {
@@ -440,6 +487,11 @@ func (c Client) headers(credentials Credentials, route Route, request *Request, 
 	}
 	if subagent := strings.TrimSpace(route.Subagent); subagent != "" {
 		headers["x-openai-subagent"] = subagent
+	}
+	if request != nil {
+		if metadata := strings.TrimSpace(request.ClientMetadata["x-codex-turn-metadata"]); metadata != "" {
+			headers["x-codex-turn-metadata"] = metadata
+		}
 	}
 	if includeHTTPBeta {
 		headers["openai-beta"] = "responses_websockets=2026-02-06"
