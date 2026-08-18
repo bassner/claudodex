@@ -177,7 +177,7 @@ func applyModelOverrideEnv(env map[string]string, codexModels []codex.ModelInfo,
 	for _, spec := range specs {
 		target := modelCfg.Target(spec.Family)
 		runtimeModel := modelconfig.WithLongContext(modelCfg.RuntimeModel(string(spec.Family)))
-		override.AntModels = append(override.AntModels, codexAntModel(spec.ID, spec.DisplayName, runtimeModel, modelContextWindow(codexModels, target)))
+		override.AntModels = append(override.AntModels, codexAntModel(spec.ID, spec.DisplayName, runtimeModel, modelContextWindow(codexModels, target, spec.ID)))
 	}
 	mergeGrowthBookOverride(env, "tengu_ant_model_override", override)
 }
@@ -195,11 +195,19 @@ func codexAntModel(alias, label, model string, contextWindow int64) antModelOver
 	}
 }
 
-func modelContextWindow(models []codex.ModelInfo, slug string) int64 {
-	if contextWindow, ok := catalogContextWindow(models, slug); ok {
+func modelContextWindow(models []codex.ModelInfo, slug, route string) int64 {
+	if contextWindow, ok := catalogContextWindowForRoute(models, slug, route); ok {
 		return contextWindow
 	}
 	return 0
+}
+
+func catalogContextWindowForRoute(models []codex.ModelInfo, slug, route string) (int64, bool) {
+	model, ok := catalogModel(models, slug)
+	if !ok {
+		return 0, false
+	}
+	return modelInfoContextWindowForRoute(model, route)
 }
 
 func catalogContextWindow(models []codex.ModelInfo, slug string) (int64, bool) {
@@ -213,7 +221,7 @@ func catalogContextWindow(models []codex.ModelInfo, slug string) (int64, bool) {
 func requiredModelContextWindow(models []codex.ModelInfo, modelCfg modelconfig.Config) int64 {
 	var min int64
 	for _, slug := range modelCfg.RequiredModels() {
-		contextWindow, ok := catalogContextWindow(models, slug)
+		contextWindow, ok := catalogContextWindowForRoute(models, slug, modelconfig.WithLongContext(slug))
 		if !ok {
 			continue
 		}
@@ -231,7 +239,7 @@ func requiredModelAutoCompactWindow(models []codex.ModelInfo, modelCfg modelconf
 		if !ok {
 			return 0, false
 		}
-		contextWindow, ok := modelInfoContextWindow(model)
+		contextWindow, ok := modelInfoContextWindowForRoute(model, modelconfig.WithLongContext(slug))
 		percent := model.EffectiveContextWindowPercent
 		if percent == 0 {
 			percent = codexDefaultEffectiveContextWindowPercent
@@ -277,6 +285,13 @@ func modelInfoContextWindow(model codex.ModelInfo) (int64, bool) {
 		return model.MaxContextWindow, true
 	}
 	return 0, false
+}
+
+func modelInfoContextWindowForRoute(model codex.ModelInfo, route string) (int64, bool) {
+	if strings.HasSuffix(strings.ToLower(strings.TrimSpace(route)), modelconfig.LongContextSuffix) && model.MaxContextWindow > 0 {
+		return model.MaxContextWindow, true
+	}
+	return modelInfoContextWindow(model)
 }
 
 func mergeGrowthBookOverride(env map[string]string, key string, value any) {

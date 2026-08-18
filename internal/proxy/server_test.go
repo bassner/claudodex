@@ -65,21 +65,30 @@ func TestRoutes(t *testing.T) {
 		t.Fatal("models response had no models")
 	}
 	for _, model := range body.Data {
-		if strings.Contains(model.ID, "[1m]") {
-			t.Fatalf("long-context runtime suffix leaked into visible models response: %#v", body.Data)
-		}
 		switch model.ID {
-		case "claude-opus-5", "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "gpt-5.6-sol":
+		case "claude-opus-5", "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8":
 			if model.MaxInputTokens != 111000 {
 				t.Fatalf("%s max_input_tokens = %d, want 111000", model.ID, model.MaxInputTokens)
 			}
-		case "claude-sonnet-4-6", "gpt-5.6-terra":
+		case "claude-sonnet-4-6":
 			if model.MaxInputTokens != 222000 {
 				t.Fatalf("%s max_input_tokens = %d, want 222000", model.ID, model.MaxInputTokens)
 			}
-		case "claude-haiku-4-5", "gpt-5.6-luna":
+		case "claude-haiku-4-5":
 			if model.MaxInputTokens != 333000 {
 				t.Fatalf("%s max_input_tokens = %d, want 333000", model.ID, model.MaxInputTokens)
+			}
+		case "gpt-5.6-sol[1m]":
+			if model.MaxInputTokens != 811000 {
+				t.Fatalf("%s max_input_tokens = %d, want 811000", model.ID, model.MaxInputTokens)
+			}
+		case "gpt-5.6-terra[1m]":
+			if model.MaxInputTokens != 822000 {
+				t.Fatalf("%s max_input_tokens = %d, want 822000", model.ID, model.MaxInputTokens)
+			}
+		case "gpt-5.6-luna[1m]":
+			if model.MaxInputTokens != 833000 {
+				t.Fatalf("%s max_input_tokens = %d, want 833000", model.ID, model.MaxInputTokens)
 			}
 		}
 	}
@@ -136,9 +145,9 @@ func TestModelsUseConfiguredTargets(t *testing.T) {
 			Haiku:  "gpt-haiku-next",
 		},
 		Models: []codex.ModelInfo{
-			{Slug: "gpt-opus-next", ContextWindow: 444000},
-			{Slug: "gpt-sonnet-next", ContextWindow: 555000},
-			{Slug: "gpt-haiku-next", ContextWindow: 666000},
+			{Slug: "gpt-opus-next", ContextWindow: 444000, MaxContextWindow: 844000},
+			{Slug: "gpt-sonnet-next", ContextWindow: 555000, MaxContextWindow: 855000},
+			{Slug: "gpt-haiku-next", ContextWindow: 666000, MaxContextWindow: 866000},
 		},
 	})
 	addr, err := server.Start("127.0.0.1", 0)
@@ -167,10 +176,7 @@ func TestModelsUseConfiguredTargets(t *testing.T) {
 	foundDirect := false
 	foundAlias := false
 	for _, model := range body.Data {
-		if strings.Contains(model.ID, "[1m]") {
-			t.Fatalf("long-context runtime suffix leaked into custom models response: %#v", body.Data)
-		}
-		if model.ID == "gpt-sonnet-next" && model.MaxInputTokens == 555000 {
+		if model.ID == "gpt-sonnet-next[1m]" && model.MaxInputTokens == 855000 {
 			foundDirect = true
 		}
 		if model.ID == "claude-sonnet-4-6" && model.MaxInputTokens == 555000 {
@@ -432,8 +438,8 @@ func testPNGBase64(t *testing.T, width, height int) string {
 
 func testModels() []codex.ModelInfo {
 	return []codex.ModelInfo{
-		{Slug: "gpt-5.6-sol", ContextWindow: 111000},
-		{Slug: "gpt-5.6-terra", ContextWindow: 222000},
-		{Slug: "gpt-5.6-luna", ContextWindow: 333000},
+		{Slug: "gpt-5.6-sol", ContextWindow: 111000, MaxContextWindow: 811000},
+		{Slug: "gpt-5.6-terra", ContextWindow: 222000, MaxContextWindow: 822000},
+		{Slug: "gpt-5.6-luna", ContextWindow: 333000, MaxContextWindow: 833000},
 	}
 }

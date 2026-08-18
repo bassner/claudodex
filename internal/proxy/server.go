@@ -340,11 +340,11 @@ func normalizePath(path string) string {
 
 func modelsResponse(models []codex.ModelInfo, modelCfg modelconfig.Config) (map[string]any, error) {
 	modelCfg = modelCfg.Normalize()
-	specs := append(modelconfig.ClaudeAliasSpecs(modelCfg), modelconfig.DirectModelSpecs(modelCfg)...)
+	specs := append(modelconfig.ClaudeAliasSpecs(modelCfg), modelconfig.DirectRuntimeModelSpecs(modelCfg)...)
 	data := make([]map[string]any, 0, len(specs))
 	for _, spec := range specs {
 		target := modelCfg.Target(spec.Family)
-		contextWindow, ok := modelContextWindow(models, target)
+		contextWindow, ok := modelContextWindow(models, target, spec.ID)
 		if !ok {
 			return nil, fmt.Errorf("Codex model metadata missing context window for %s", target)
 		}
@@ -361,10 +361,13 @@ func modelsResponse(models []codex.ModelInfo, modelCfg modelconfig.Config) (map[
 	}, nil
 }
 
-func modelContextWindow(models []codex.ModelInfo, slug string) (int64, bool) {
+func modelContextWindow(models []codex.ModelInfo, slug, route string) (int64, bool) {
 	for _, model := range models {
 		if !strings.EqualFold(strings.TrimSpace(model.Slug), slug) {
 			continue
+		}
+		if strings.HasSuffix(strings.ToLower(strings.TrimSpace(route)), modelconfig.LongContextSuffix) && model.MaxContextWindow > 0 {
+			return model.MaxContextWindow, true
 		}
 		if model.ContextWindow > 0 {
 			return model.ContextWindow, true

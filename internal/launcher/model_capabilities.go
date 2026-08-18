@@ -56,14 +56,14 @@ func ensurePrivateClaudeCacheDir(cacheDir string) error {
 
 func claudeModelCapabilities(models []codex.ModelInfo, modelCfg modelconfig.Config) []claudeModelCapability {
 	modelCfg = modelCfg.Normalize()
-	specs := append(modelconfig.DirectModelSpecs(modelCfg), modelconfig.ClaudeAliasSpecs(modelCfg)...)
+	specs := append(modelconfig.DirectRuntimeModelSpecs(modelCfg), modelconfig.ClaudeAliasSpecs(modelCfg)...)
 	specs = append(specs, modelconfig.FamilyAliasSpecs()...)
 	out := make([]claudeModelCapability, 0, len(specs))
 	for _, spec := range specs {
 		target := modelCfg.Target(spec.Family)
 		out = append(out, claudeModelCapability{
 			ID:             spec.ID,
-			MaxInputTokens: modelContextWindow(models, target),
+			MaxInputTokens: modelContextWindow(models, target, spec.ID),
 			MaxTokens:      128_000,
 		})
 	}
@@ -94,7 +94,7 @@ func writeClaudeContextCompatibilityCache(sidecarDir string, models []codex.Mode
 		} else {
 			clientData = cloneJSONMap(clientData)
 		}
-		clientData["kelp_forest_sonnet"] = strconv.FormatInt(modelContextWindow(models, modelCfg.Sonnet), 10)
+		clientData["kelp_forest_sonnet"] = strconv.FormatInt(modelContextWindow(models, modelCfg.Sonnet, modelconfig.WithLongContext(modelCfg.Sonnet)), 10)
 		next["clientDataCache"] = clientData
 		next["additionalModelOptionsCache"] = claudeAdditionalModelOptions(modelCfg)
 		next = clearSidecarOAuthBranding(next)

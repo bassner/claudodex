@@ -239,6 +239,27 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 	}
 }
 
+func TestLongContextRoutesUseLiveMaxContextWindow(t *testing.T) {
+	models := []codex.ModelInfo{
+		{Slug: "gpt-5.6-sol", ContextWindow: 272_000, MaxContextWindow: 872_000, EffectiveContextWindowPercent: 95},
+		{Slug: "gpt-5.6-terra", ContextWindow: 272_000, MaxContextWindow: 872_000, EffectiveContextWindowPercent: 95},
+		{Slug: "gpt-5.6-luna", ContextWindow: 272_000, MaxContextWindow: 872_000, EffectiveContextWindowPercent: 95},
+	}
+
+	if got := modelContextWindow(models, "gpt-5.6-terra", "sonnet"); got != 272_000 {
+		t.Fatalf("normal Sonnet alias context = %d, want 272000", got)
+	}
+	if got := modelContextWindow(models, "gpt-5.6-terra", "gpt-5.6-terra[1m]"); got != 872_000 {
+		t.Fatalf("explicit long-context Terra route = %d, want 872000", got)
+	}
+	if got := requiredModelContextWindow(models, modelconfig.Default()); got != 872_000 {
+		t.Fatalf("launcher context window = %d, want 872000", got)
+	}
+	if got, ok := requiredModelAutoCompactWindow(models, modelconfig.Default()); !ok || got != 828_400 {
+		t.Fatalf("launcher auto-compact window = (%d, %t), want (828400, true)", got, ok)
+	}
+}
+
 func TestBuildClaudeEnvDropsUnsafeInheritedAutoCompactWindow(t *testing.T) {
 	env := BuildClaudeEnv([]string{"CLAUDE_CODE_AUTO_COMPACT_WINDOW=999999"}, 4321, "/tmp/claudodex-claude", "", "", "", []codex.ModelInfo{
 		{Slug: "gpt-5.6-sol", ContextWindow: 272_000, EffectiveContextWindowPercent: 95},

@@ -230,9 +230,9 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 	}
 
 	err := WriteClaudeModelCapabilitiesCache(sidecarDir, []codex.ModelInfo{
-		{Slug: "gpt-5.6-sol", ContextWindow: 272000},
-		{Slug: "gpt-5.6-terra", ContextWindow: 300000},
-		{Slug: "gpt-5.6-luna", ContextWindow: 400000},
+		{Slug: "gpt-5.6-sol", ContextWindow: 272000, MaxContextWindow: 872000},
+		{Slug: "gpt-5.6-terra", ContextWindow: 300000, MaxContextWindow: 900000},
+		{Slug: "gpt-5.6-luna", ContextWindow: 400000, MaxContextWindow: 1000000},
 	}, modelconfig.Default())
 	if err != nil {
 		t.Fatal(err)
@@ -257,11 +257,9 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 	}
 	foundSonnet := false
 	foundOpus5 := false
+	foundTerraLong := false
 	for _, item := range models {
 		model := item.(map[string]any)
-		if strings.Contains(model["id"].(string), "[1m]") {
-			t.Fatalf("long-context runtime suffix leaked into capabilities cache: %#v", models)
-		}
 		if model["id"] == "claude-sonnet-4-6" {
 			foundSonnet = true
 			if model["max_input_tokens"] != float64(300000) || model["max_tokens"] != float64(128000) {
@@ -274,6 +272,12 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 				t.Fatalf("Opus 5 capability = %#v", model)
 			}
 		}
+		if model["id"] == "gpt-5.6-terra[1m]" {
+			foundTerraLong = true
+			if model["max_input_tokens"] != float64(900000) || model["max_tokens"] != float64(128000) {
+				t.Fatalf("long-context Terra capability = %#v", model)
+			}
+		}
 	}
 	if !foundSonnet {
 		t.Fatalf("claude-sonnet-4-6 capability missing: %#v", models)
@@ -281,14 +285,17 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 	if !foundOpus5 {
 		t.Fatalf("claude-opus-5 capability missing: %#v", models)
 	}
+	if !foundTerraLong {
+		t.Fatalf("gpt-5.6-terra[1m] capability missing: %#v", models)
+	}
 	realCache := mustReadJSONMap(t, filepath.Join(realCacheDir, claudeModelCapabilitiesFileName))
 	if len(realCache["models"].([]any)) != 0 {
 		t.Fatalf("real Claude cache was modified: %#v", realCache)
 	}
 	globalConfig := mustReadJSONMap(t, filepath.Join(sidecarDir, claudeGlobalConfigName))
 	clientData := globalConfig["clientDataCache"].(map[string]any)
-	if clientData["kelp_forest_sonnet"] != "300000" {
-		t.Fatalf("kelp_forest_sonnet = %#v, want 300000", clientData["kelp_forest_sonnet"])
+	if clientData["kelp_forest_sonnet"] != "900000" {
+		t.Fatalf("kelp_forest_sonnet = %#v, want 900000", clientData["kelp_forest_sonnet"])
 	}
 	options := globalConfig["additionalModelOptionsCache"].([]any)
 	if len(options) != 3 {
