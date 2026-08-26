@@ -84,6 +84,29 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	if err != nil {
 		return err
 	}
+	claude246Compatibility := claudeFastModeSettingsFallbackRequired(ctx, claudePath)
+	claudeConfigDir, err := PrepareClaudeConfigSidecar(cfg.Home, modelCfg)
+	if err != nil {
+		return fmt.Errorf("prepare Claude Code compatibility config: %w", err)
+	}
+	if err := WriteClaudeModelCapabilitiesCache(claudeConfigDir, models, modelCfg); err != nil {
+		return fmt.Errorf("prepare Claude Code model capabilities: %w", err)
+	}
+	configMirror, err := StartClaudeConfigMirror(ctx, claudeConfigDir, modelCfg)
+	if err != nil {
+		return fmt.Errorf("start Claude Code config mirror: %w", err)
+	}
+	childArgs := RewriteClaudeModelArgsWithConfig(args, modelCfg)
+	var compatibilitySettings map[string]any
+	if claude246Compatibility {
+		compatibilitySettings = claude246ModelPickerSettings(modelCfg)
+	}
+	childArgs, err = prepareStatusLineFlagSettings(claudeConfigDir, childArgs, compatibilitySettings)
+	if err != nil {
+		_ = configMirror.Close()
+		return fmt.Errorf("prepare Claude Code statusline compatibility: %w", err)
+	}
+	childArgs = DisableClaudeChrome(childArgs)
 
 	serverCfg := proxy.Config{
 		Version:      cfg.Version,
@@ -95,19 +118,25 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 		Models:       models,
 		ModelConfig:  modelCfg,
 	}
+	if claude246Compatibility {
+		serverCfg.FastModeEnabledFallback = fastModeSettingsResolver(childArgs)
+	}
 	oauthServer := proxy.New(serverCfg)
 	addr, err := oauthServer.Start("127.0.0.1", 0)
 	if err != nil {
+		_ = configMirror.Close()
 		return fmt.Errorf("start local proxy: %w", err)
 	}
 	defer oauthServer.Close()
 
 	port := oauthServer.Port()
 	if port == 0 {
+		_ = configMirror.Close()
 		return fmt.Errorf("local proxy did not expose a port at %s", addr)
 	}
 	apiServer, apiSocket, apiSocketDir, apiCAPath, err := startAnthropicAPIServer(serverCfg)
 	if err != nil {
+		_ = configMirror.Close()
 		return fmt.Errorf("start local Anthropic API socket: %w", err)
 	}
 	if apiServer != nil {
@@ -118,17 +147,6 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	}
 	if apiCAPath != "" {
 		defer os.Remove(apiCAPath)
-	}
-	claudeConfigDir, err := PrepareClaudeConfigSidecar(cfg.Home, modelCfg)
-	if err != nil {
-		return fmt.Errorf("prepare Claude Code compatibility config: %w", err)
-	}
-	if err := WriteClaudeModelCapabilitiesCache(claudeConfigDir, models, modelCfg); err != nil {
-		return fmt.Errorf("prepare Claude Code model capabilities: %w", err)
-	}
-	configMirror, err := StartClaudeConfigMirror(ctx, claudeConfigDir, modelCfg)
-	if err != nil {
-		return fmt.Errorf("start Claude Code config mirror: %w", err)
 	}
 	httpsProxy := ""
 	caPath := ""
@@ -143,13 +161,6 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 		httpsProxy = oauthProxy.ProxyURL()
 		caPath = oauthProxy.CAPath()
 	}
-	childArgs := RewriteClaudeModelArgsWithConfig(args, modelCfg)
-	childArgs, err = PrepareStatusLineFlagSettings(claudeConfigDir, childArgs)
-	if err != nil {
-		_ = configMirror.Close()
-		return fmt.Errorf("prepare Claude Code statusline compatibility: %w", err)
-	}
-	childArgs = DisableClaudeChrome(childArgs)
 	if apiCAPath != "" {
 		caPath = apiCAPath
 	}

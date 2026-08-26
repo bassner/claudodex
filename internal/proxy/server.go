@@ -20,15 +20,16 @@ import (
 )
 
 type Config struct {
-	Version       string
-	Interactive   bool
-	AuthPresent   bool
-	Home          string
-	CodexBaseURL  string
-	TokenEndpoint string
-	HTTPClient    *http.Client
-	Models        []codex.ModelInfo
-	ModelConfig   modelconfig.Config
+	Version                 string
+	Interactive             bool
+	AuthPresent             bool
+	Home                    string
+	CodexBaseURL            string
+	TokenEndpoint           string
+	HTTPClient              *http.Client
+	Models                  []codex.ModelInfo
+	ModelConfig             modelconfig.Config
+	FastModeEnabledFallback func() bool
 }
 
 type Server struct {

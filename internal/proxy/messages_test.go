@@ -15,6 +15,7 @@ import (
 
 	"github.com/bassner/claudodex/internal/auth"
 	"github.com/bassner/claudodex/internal/codex"
+	"github.com/bassner/claudodex/internal/convert"
 	"github.com/gorilla/websocket"
 )
 
@@ -41,6 +42,29 @@ func TestResponseChainKeyIsolatesToollessAuxiliaryRequests(t *testing.T) {
 	secondAux := responseChainKey("thread-1", "request-2", codex.Request{})
 	if firstAux == "thread-1" || firstAux == secondAux {
 		t.Fatalf("auxiliary chain keys were not isolated: %q / %q", firstAux, secondAux)
+	}
+}
+
+func TestApplyFastModeFallback(t *testing.T) {
+	tests := []struct {
+		name    string
+		speed   string
+		enabled func() bool
+		want    string
+	}{
+		{name: "enabled", enabled: func() bool { return true }, want: "fast"},
+		{name: "disabled", enabled: func() bool { return false }},
+		{name: "unset resolver"},
+		{name: "preserves explicit speed", speed: "standard", enabled: func() bool { return true }, want: "standard"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := convert.AnthropicRequest{Speed: test.speed}
+			applyFastModeFallback(&req, test.enabled)
+			if req.Speed != test.want {
+				t.Fatalf("speed = %q, want %q", req.Speed, test.want)
+			}
+		})
 	}
 }
 

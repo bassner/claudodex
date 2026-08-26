@@ -53,6 +53,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", "request body is not valid JSON")
 		return
 	}
+	applyFastModeFallback(&anthropicReq, s.cfg.FastModeEnabledFallback)
 
 	sessionID := sessionIDFromRequest(r)
 	result, err := convert.AnthropicToCodex(anthropicReq, convert.ConvertOptions{
@@ -310,6 +311,13 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			writeAnthropicError(w, http.StatusBadGateway, "api_error", err.Error())
 		}
 	}
+}
+
+func applyFastModeFallback(req *convert.AnthropicRequest, enabled func() bool) {
+	if req == nil || strings.TrimSpace(req.Speed) != "" || enabled == nil || !enabled() {
+		return
+	}
+	req.Speed = "fast"
 }
 
 func countConvertedSteeringItems(input []codex.InputItem) int {

@@ -41,9 +41,17 @@ func IsStatusLineWrapperCommand(args []string) bool {
 }
 
 func PrepareStatusLineFlagSettings(sidecarDir string, args []string) ([]string, error) {
+	return prepareStatusLineFlagSettings(sidecarDir, args, nil)
+}
+
+func prepareStatusLineFlagSettings(sidecarDir string, args []string, compatibilitySettings map[string]any) ([]string, error) {
 	flagSettings, argsWithoutSettings, sawFlagSettings, err := extractFlagSettings(args)
 	if err != nil {
 		return nil, err
+	}
+	if compatibilitySettings != nil {
+		flagSettings = overlayJSONMap(flagSettings, compatibilitySettings)
+		sawFlagSettings = true
 	}
 	var sawUltracodeEffort bool
 	argsWithoutSettings, sawUltracodeEffort = liftUltracodeEffortArg(argsWithoutSettings, flagSettings)
@@ -89,6 +97,19 @@ func PrepareStatusLineFlagSettings(sidecarDir string, args []string) ([]string, 
 		return nil, err
 	}
 	return withDefaultEffortArg(append(argsWithoutSettings, "--settings", settingsPath), needsDefaultEffort), nil
+}
+
+func claude246ModelPickerSettings(modelCfg modelconfig.Config) map[string]any {
+	modelCfg = modelCfg.Normalize()
+	return map[string]any{
+		"modelPicker": map[string]any{
+			"replaceBuiltInOptions": true,
+			"options": []any{
+				map[string]any{"model": "opus", "label": "Opus", "description": modelCfg.Opus},
+				map[string]any{"model": "haiku", "label": "Haiku", "description": modelCfg.Haiku},
+			},
+		},
+	}
 }
 
 func statusLineSessionPaths(sidecarDir string) (string, string) {
@@ -320,6 +341,30 @@ func configuredSettings(source statusLineSource, flagSettings map[string]any) ma
 		settings["statusLine"] = mergeStatusLine(statusLine, source.FlagStatusLine)
 	}
 	return settings
+}
+
+func fastModeSettingsResolver(args []string) func() bool {
+	userSettingsPath, _ := userClaudeSettingsPath()
+	projectSettingsPath, localSettingsPath := projectClaudeSettingsPaths()
+	settingSources := enabledSettingSources(args)
+	args = append([]string(nil), args...)
+	return func() bool {
+		if strings.TrimSpace(os.Getenv("CLAUDE_CODE_DISABLE_FAST_MODE")) != "" {
+			return false
+		}
+		flagSettings, _, _, err := extractFlagSettings(args)
+		if err != nil {
+			return false
+		}
+		settings := configuredSettings(statusLineSource{
+			UserSettingsPath:    userSettingsPath,
+			ProjectSettingsPath: projectSettingsPath,
+			LocalSettingsPath:   localSettingsPath,
+			SettingSources:      settingSources,
+		}, flagSettings)
+		enabled, _ := settings["fastMode"].(bool)
+		return enabled
+	}
 }
 
 func mapValue(value any) map[string]any {

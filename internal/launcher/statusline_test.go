@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/bassner/claudodex/internal/modelconfig"
 )
 
 func TestPrepareStatusLineFlagSettingsPreservesSettingsFlagWithoutStatusLine(t *testing.T) {
@@ -33,6 +35,63 @@ func TestPrepareStatusLineFlagSettingsPreservesSettingsFlagWithoutStatusLine(t *
 		if len(matches) != 0 {
 			t.Fatalf("generated statusline files after no-op prepare: %#v", matches)
 		}
+	}
+}
+
+func TestFastModeSettingsResolverTracksEffectiveSettings(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSONFile(settingsPath, map[string]any{"fastMode": true}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resolve := fastModeSettingsResolver(nil)
+	if !resolve() {
+		t.Fatal("resolver did not read enabled user setting")
+	}
+	if err := writeJSONFile(settingsPath, map[string]any{"fastMode": false}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if resolve() {
+		t.Fatal("resolver did not observe changed user setting")
+	}
+}
+
+func TestFastModeSettingsResolverHonorsFlagsAndDisableEnvironment(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	resolve := fastModeSettingsResolver([]string{"--settings", `{"fastMode":true}`})
+	if !resolve() {
+		t.Fatal("resolver did not read enabled flag setting")
+	}
+	t.Setenv("CLAUDE_CODE_DISABLE_FAST_MODE", "1")
+	if resolve() {
+		t.Fatal("resolver ignored CLAUDE_CODE_DISABLE_FAST_MODE")
+	}
+}
+
+func TestPrepareStatusLineFlagSettingsAddsClaude246ThreeTierPicker(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	args, err := prepareStatusLineFlagSettings(t.TempDir(), nil, claude246ModelPickerSettings(modelconfig.Default()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := mustReadJSONMap(t, flagSettingsArg(t, args))
+	picker := mapValue(settings["modelPicker"])
+	if picker == nil || picker["replaceBuiltInOptions"] != true {
+		t.Fatalf("modelPicker = %#v", picker)
+	}
+	options, ok := picker["options"].([]any)
+	if !ok || len(options) != 2 {
+		t.Fatalf("modelPicker options = %#v, want two curated rows plus Claude's Sonnet default row", picker["options"])
+	}
+	if first := mapValue(options[0]); first["model"] != "opus" {
+		t.Fatalf("first modelPicker option = %#v", first)
+	}
+	if second := mapValue(options[1]); second["model"] != "haiku" {
+		t.Fatalf("second modelPicker option = %#v", second)
 	}
 }
 
