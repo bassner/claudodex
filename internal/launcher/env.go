@@ -128,6 +128,17 @@ func WithFriendlyCustomModelOption(envList []string, runtimeModel string) []stri
 	return flattenEnv(env)
 }
 
+func WithFriendlyCustomModelOptionForConfig(envList []string, runtimeModel string, modelCfg modelconfig.Config) []string {
+	if _, ok := modelCfg.SettingsAliasForTarget(runtimeModel); !ok {
+		return WithFriendlyCustomModelOption(envList, runtimeModel)
+	}
+	env := envMap(envList)
+	delete(env, "ANTHROPIC_CUSTOM_MODEL_OPTION")
+	delete(env, "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME")
+	delete(env, "ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION")
+	return flattenEnv(env)
+}
+
 func applyPrivacyEnv(env map[string]string) {
 	env["CLAUDE_CODE_FORCE_FULL_LOGO"] = "1"
 	env["CLAUDE_CODE_DISABLE_AGENT_VIEW"] = "1"

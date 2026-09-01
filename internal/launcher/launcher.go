@@ -167,7 +167,7 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	childEnv := BuildClaudeEnv(os.Environ(), port, claudeConfigDir, apiSocket, httpsProxy, caPath, models, modelCfg)
 	childEnv = WithRealClaudeBridgeAuth(childEnv)
 	if runtimeModel, ok := explicitModelArg(childArgs); ok {
-		childEnv = WithFriendlyCustomModelOption(childEnv, runtimeModel)
+		childEnv = WithFriendlyCustomModelOptionForConfig(childEnv, runtimeModel, modelCfg)
 	}
 	claudePath = prepareClaudeExecutable(ctx, cfg.Home, claudePath, cfg.Version, modelCfg, stderr)
 	childErr := runChild(ctx, claudePath, childArgs, childEnv, stdin, stdout, stderr, !cfg.Interactive)

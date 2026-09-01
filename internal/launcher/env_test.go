@@ -341,6 +341,33 @@ func TestWithFriendlyCustomModelOptionLabelsRuntimeModel(t *testing.T) {
 	}
 }
 
+func TestWithFriendlyCustomModelOptionForConfigOmitsConfiguredPickerTier(t *testing.T) {
+	env := WithFriendlyCustomModelOptionForConfig([]string{
+		"PATH=/bin",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION=stale",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION_NAME=stale",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION=stale",
+	}, "gpt-5.6-terra[1m]", modelconfig.Default())
+	got := envMap(env)
+	for _, key := range []string{
+		"ANTHROPIC_CUSTOM_MODEL_OPTION",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION_NAME",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION",
+	} {
+		if _, ok := got[key]; ok {
+			t.Fatalf("configured family target retained %s: %#v", key, got)
+		}
+	}
+}
+
+func TestWithFriendlyCustomModelOptionForConfigKeepsUnconfiguredTarget(t *testing.T) {
+	env := WithFriendlyCustomModelOptionForConfig([]string{"PATH=/bin"}, "gpt-custom[1m]", modelconfig.Default())
+	got := envMap(env)
+	if got["ANTHROPIC_CUSTOM_MODEL_OPTION"] != "gpt-custom[1m]" {
+		t.Fatalf("custom option = %q", got["ANTHROPIC_CUSTOM_MODEL_OPTION"])
+	}
+}
+
 func TestBuildClaudeEnvAvoidsFishForToolShell(t *testing.T) {
 	env := BuildClaudeEnv([]string{"PATH=/bin", "SHELL=/opt/homebrew/bin/fish"}, 4321, "/tmp/claudodex-claude", "", "", "", nil, modelconfig.Default())
 	got := map[string]string{}

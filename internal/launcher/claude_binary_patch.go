@@ -21,7 +21,7 @@ import (
 
 const (
 	claudodexPatchedClaudeDirName = "patched-claude"
-	claudodexPatchSchemaVersion   = "claude-ui-patch-v88"
+	claudodexPatchSchemaVersion   = "claude-ui-patch-v92"
 )
 
 var (
@@ -40,6 +40,7 @@ type claudeUIPatchSpec struct {
 }
 
 var claudeUIPatches = []claudeUIPatchSpec{
+	claudeUIPatch_2_1_252,
 	claudeUIPatch_2_1_251,
 	claudeUIPatch_2_1_247,
 	claudeUIPatch_2_1_246,
@@ -174,7 +175,7 @@ func claudeFastModeSettingsFallbackRequired(ctx context.Context, claudePath stri
 		return false
 	}
 	patch := findClaudeUIPatch(version, sha256Hex(sourceData))
-	return patch != nil && (patch.Version == claudeUIPatch_2_1_251.Version || patch.Version == claudeUIPatch_2_1_247.Version || patch.Version == claudeUIPatch_2_1_246.Version)
+	return patch != nil && (patch.Version == claudeUIPatch_2_1_252.Version || patch.Version == claudeUIPatch_2_1_251.Version || patch.Version == claudeUIPatch_2_1_247.Version || patch.Version == claudeUIPatch_2_1_246.Version)
 }
 
 func warnClaudePatchSkipped(stderr io.Writer, claudeVersion, sourceSHA string, err error) {
