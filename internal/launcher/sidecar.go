@@ -64,6 +64,31 @@ func PrepareClaudeConfigSidecar(home string, modelCfg modelconfig.Config) (strin
 	return sidecarDir, nil
 }
 
+func EnsureClaudeRemoteControlFeatureCache(sidecarDir string) error {
+	paths := sidecarGlobalConfigPaths(sidecarDir)
+	return withClaudeConfigLocks(paths, claudeConfigLockWait, func() error {
+		for _, path := range paths {
+			config, err := readJSONMap(path)
+			if err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+				config = map[string]any{}
+			}
+			features, _ := config["cachedGrowthBookFeatures"].(map[string]any)
+			features = cloneJSONMap(features)
+			features["tengu_ccr_bridge"] = true
+			features["tengu_bridge_repl_v2"] = true
+			next := cloneJSONMap(config)
+			next["cachedGrowthBookFeatures"] = features
+			if err := writeJSONFile(path, next, 0o600); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func syncClaudeConfigSidecar(sidecarDir, userHome string, modelCfg modelconfig.Config) error {
 	return withClaudeSidecarSetupLock(sidecarDir, claudeConfigLockWait, func() error {
 		if err := linkClaudeConfigEntries(filepath.Join(userHome, ".claude"), sidecarDir); err != nil {

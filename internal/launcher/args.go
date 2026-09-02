@@ -33,18 +33,38 @@ func RewriteClaudeModelArgs(args []string) []string {
 }
 
 func RewriteClaudeModelArgsWithConfig(args []string, models modelconfig.Config) []string {
+	return rewriteClaudeModelArgs(args, models, claudeRuntimeModel)
+}
+
+func RewriteClaudeModelArgsForThreeTierPicker(args []string, models modelconfig.Config) []string {
+	aliased := rewriteClaudeModelArgs(args, models, canonicalClaudeRuntimeModel)
+	out := make([]string, 0, len(aliased))
+	for i := 0; i < len(aliased); i++ {
+		if aliased[i] == "--model" && i+1 < len(aliased) && aliased[i+1] == "sonnet" {
+			i++
+			continue
+		}
+		if aliased[i] == "--model=sonnet" {
+			continue
+		}
+		out = append(out, aliased[i])
+	}
+	return out
+}
+
+func rewriteClaudeModelArgs(args []string, models modelconfig.Config, rewrite func(string, modelconfig.Config) string) []string {
 	out := append([]string(nil), args...)
 	for i := 0; i < len(out); i++ {
 		switch out[i] {
 		case "--model", "--fallback-model":
 			if i+1 < len(out) {
-				out[i+1] = claudeRuntimeModel(out[i+1], models)
+				out[i+1] = rewrite(out[i+1], models)
 				i++
 			}
 		default:
 			for _, prefix := range []string{"--model=", "--fallback-model="} {
 				if value, ok := strings.CutPrefix(out[i], prefix); ok {
-					out[i] = prefix + claudeRuntimeModel(value, models)
+					out[i] = prefix + rewrite(value, models)
 					break
 				}
 			}
@@ -93,6 +113,21 @@ func explicitModelArg(args []string) (string, bool) {
 
 func claudeRuntimeModel(model string, models modelconfig.Config) string {
 	return modelconfig.WithLongContext(models.RuntimeModel(model))
+}
+
+func canonicalClaudeRuntimeModel(model string, models modelconfig.Config) string {
+	models = models.Normalize()
+	runtimeModel := modelconfig.StripLongContext(models.RuntimeModel(model))
+	switch strings.ToLower(runtimeModel) {
+	case strings.ToLower(modelconfig.StripLongContext(models.Opus)):
+		return "opus"
+	case strings.ToLower(modelconfig.StripLongContext(models.Sonnet)):
+		return "sonnet"
+	case strings.ToLower(modelconfig.StripLongContext(models.Haiku)):
+		return "haiku"
+	default:
+		return modelconfig.WithLongContext(runtimeModel)
+	}
 }
 
 func DetectInteractive(args []string, stdin, stdout *os.File) bool {

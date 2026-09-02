@@ -85,9 +85,15 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 		return err
 	}
 	claude246Compatibility := claudeFastModeSettingsFallbackRequired(ctx, claudePath)
+	claude258Compatibility := claudeThreeTierPickerArgsRequired(ctx, claudePath)
 	claudeConfigDir, err := PrepareClaudeConfigSidecar(cfg.Home, modelCfg)
 	if err != nil {
 		return fmt.Errorf("prepare Claude Code compatibility config: %w", err)
+	}
+	if claude258Compatibility {
+		if err := EnsureClaudeRemoteControlFeatureCache(claudeConfigDir); err != nil {
+			return fmt.Errorf("prepare Claude Code Remote Control compatibility: %w", err)
+		}
 	}
 	if err := WriteClaudeModelCapabilitiesCache(claudeConfigDir, models, modelCfg); err != nil {
 		return fmt.Errorf("prepare Claude Code model capabilities: %w", err)
@@ -97,6 +103,9 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 		return fmt.Errorf("start Claude Code config mirror: %w", err)
 	}
 	childArgs := RewriteClaudeModelArgsWithConfig(args, modelCfg)
+	if claude258Compatibility {
+		childArgs = RewriteClaudeModelArgsForThreeTierPicker(args, modelCfg)
+	}
 	var compatibilitySettings map[string]any
 	if claude246Compatibility {
 		compatibilitySettings = claude246ModelPickerSettings(modelCfg)
@@ -165,6 +174,9 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 		caPath = apiCAPath
 	}
 	childEnv := BuildClaudeEnv(os.Environ(), port, claudeConfigDir, apiSocket, httpsProxy, caPath, models, modelCfg)
+	if claude258Compatibility {
+		childEnv = WithPrivateFeatureCache(childEnv)
+	}
 	childEnv = WithRealClaudeBridgeAuth(childEnv)
 	if runtimeModel, ok := explicitModelArg(childArgs); ok {
 		childEnv = WithFriendlyCustomModelOptionForConfig(childEnv, runtimeModel, modelCfg)

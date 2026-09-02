@@ -116,6 +116,17 @@ func BuildClaudePrivacyEnv(base []string) []string {
 	return flattenEnv(env)
 }
 
+// WithPrivateFeatureCache lets Claude consume Claudodex's explicit local feature
+// overrides while telemetry and nonessential traffic remain disabled. Claude
+// 2.1.258 otherwise ignores the Remote Control bridge override when
+// DISABLE_GROWTHBOOK is present, even though no remote evaluation is needed.
+func WithPrivateFeatureCache(envList []string) []string {
+	env := envMap(envList)
+	delete(env, "DISABLE_GROWTHBOOK")
+	env["CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF"] = "1"
+	return flattenEnv(env)
+}
+
 func WithFriendlyCustomModelOption(envList []string, runtimeModel string) []string {
 	displayModel := modelconfig.StripLongContext(runtimeModel)
 	if strings.TrimSpace(runtimeModel) == "" {

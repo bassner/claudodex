@@ -21,7 +21,7 @@ import (
 
 const (
 	claudodexPatchedClaudeDirName = "patched-claude"
-	claudodexPatchSchemaVersion   = "claude-ui-patch-v92"
+	claudodexPatchSchemaVersion   = "claude-ui-patch-v99"
 )
 
 var (
@@ -40,6 +40,7 @@ type claudeUIPatchSpec struct {
 }
 
 var claudeUIPatches = []claudeUIPatchSpec{
+	claudeUIPatch_2_1_258,
 	claudeUIPatch_2_1_252,
 	claudeUIPatch_2_1_251,
 	claudeUIPatch_2_1_247,
@@ -175,7 +176,20 @@ func claudeFastModeSettingsFallbackRequired(ctx context.Context, claudePath stri
 		return false
 	}
 	patch := findClaudeUIPatch(version, sha256Hex(sourceData))
-	return patch != nil && (patch.Version == claudeUIPatch_2_1_252.Version || patch.Version == claudeUIPatch_2_1_251.Version || patch.Version == claudeUIPatch_2_1_247.Version || patch.Version == claudeUIPatch_2_1_246.Version)
+	return patch != nil && (patch.Version == claudeUIPatch_2_1_258.Version || patch.Version == claudeUIPatch_2_1_252.Version || patch.Version == claudeUIPatch_2_1_251.Version || patch.Version == claudeUIPatch_2_1_247.Version || patch.Version == claudeUIPatch_2_1_246.Version)
+}
+
+func claudeThreeTierPickerArgsRequired(ctx context.Context, claudePath string) bool {
+	version := detectClaudeVersion(ctx, claudePath)
+	if version == "" {
+		return false
+	}
+	sourceData, err := os.ReadFile(claudePath)
+	if err != nil {
+		return false
+	}
+	patch := findClaudeUIPatch(version, sha256Hex(sourceData))
+	return patch != nil && patch.Version == claudeUIPatch_2_1_258.Version
 }
 
 func warnClaudePatchSkipped(stderr io.Writer, claudeVersion, sourceSHA string, err error) {

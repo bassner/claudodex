@@ -142,6 +142,44 @@ func TestPrepareClaudeConfigSidecarLinksUserStateAndWritesLocalOAuth(t *testing.
 	}
 }
 
+func TestEnsureClaudeRemoteControlFeatureCachePreservesSidecarState(t *testing.T) {
+	sidecarDir := t.TempDir()
+	primaryPath := filepath.Join(sidecarDir, claudeGlobalConfigName)
+	if err := writeJSONFile(primaryPath, map[string]any{
+		"cachedGrowthBookFeatures": map[string]any{"existing_gate": "kept"},
+		"unrelated":                true,
+	}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureClaudeRemoteControlFeatureCache(sidecarDir); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range sidecarGlobalConfigPaths(sidecarDir) {
+		config, err := readJSONMap(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		features, ok := config["cachedGrowthBookFeatures"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s feature cache = %#v", path, config["cachedGrowthBookFeatures"])
+		}
+		for _, key := range []string{"tengu_ccr_bridge", "tengu_bridge_repl_v2"} {
+			if features[key] != true {
+				t.Fatalf("%s %s = %#v", path, key, features[key])
+			}
+		}
+	}
+	primary, err := readJSONMap(primaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	features := primary["cachedGrowthBookFeatures"].(map[string]any)
+	if features["existing_gate"] != "kept" || primary["unrelated"] != true {
+		t.Fatalf("sidecar state was not preserved: %#v", primary)
+	}
+}
+
 func TestClaudeSecurityShimBlocksClaudeCodeCredentialCommands(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("macOS-only shim")

@@ -402,3 +402,19 @@ func TestBuildClaudePrivacyEnvDoesNotSetProxy(t *testing.T) {
 		t.Fatalf("privacy flags not forced: %#v", got)
 	}
 }
+
+func TestWithPrivateFeatureCacheKeepsPrivacyTrafficFlags(t *testing.T) {
+	env := WithPrivateFeatureCache(BuildClaudePrivacyEnv([]string{"PATH=/bin"}))
+	got := envMap(env)
+	if _, ok := got["DISABLE_GROWTHBOOK"]; ok {
+		t.Fatalf("DISABLE_GROWTHBOOK remains set: %#v", got)
+	}
+	if got["CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF"] != "1" {
+		t.Fatalf("disk feature cache flag = %q", got["CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF"])
+	}
+	for _, key := range []string{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_TELEMETRY", "DO_NOT_TRACK"} {
+		if got[key] != "1" {
+			t.Fatalf("%s = %q, want 1", key, got[key])
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package launcher
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/bassner/claudodex/internal/modelconfig"
@@ -72,6 +73,22 @@ func TestRewriteClaudeModelArgsUsesConfiguredModelTargets(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("arg %d = %q, want %q; args=%#v", i, got[i], want[i], got)
 		}
+	}
+}
+
+func TestRewriteClaudeModelArgsForThreeTierPickerUsesCanonicalRows(t *testing.T) {
+	models := modelconfig.Config{Opus: "custom-sol", Sonnet: "custom-terra", Haiku: "custom-luna"}
+	got := RewriteClaudeModelArgsForThreeTierPicker([]string{
+		"--model", "custom-terra[1m]",
+		"--fallback-model=custom-sol",
+		"--other", "custom-luna",
+	}, models)
+	want := []string{
+		"--fallback-model=opus",
+		"--other", "custom-luna",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("canonical aliases = %#v, want %#v", got, want)
 	}
 }
 
