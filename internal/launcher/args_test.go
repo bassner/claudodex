@@ -92,6 +92,15 @@ func TestRewriteClaudeModelArgsForThreeTierPickerUsesCanonicalRows(t *testing.T)
 	}
 }
 
+func TestRewriteClaudeModelArgsForSourcePatchedThreeTierPickerPreservesCanonicalSelection(t *testing.T) {
+	models := modelconfig.Config{Opus: "custom-sol", Sonnet: "custom-terra", Haiku: "custom-luna"}
+	got := RewriteClaudeModelArgsForSourcePatchedThreeTierPicker([]string{"--model", "custom-terra[1m]"}, models)
+	want := []string{"--model", "sonnet"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("source-patched canonical aliases = %#v, want %#v", got, want)
+	}
+}
+
 func TestExplicitModelArgFindsOnlyPrimaryModel(t *testing.T) {
 	got, ok := explicitModelArg([]string{"--fallback-model=gpt-5.5[1m]", "--model", "gpt-5.4[1m]"})
 	if !ok || got != "gpt-5.4[1m]" {

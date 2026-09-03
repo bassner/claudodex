@@ -86,6 +86,7 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	}
 	claude246Compatibility := claudeFastModeSettingsFallbackRequired(ctx, claudePath)
 	claude258Compatibility := claudeThreeTierPickerArgsRequired(ctx, claudePath)
+	claude259SourcePicker := claudeSourcePatchedPickerArgsRequired(ctx, claudePath)
 	claudeConfigDir, err := PrepareClaudeConfigSidecar(cfg.Home, modelCfg)
 	if err != nil {
 		return fmt.Errorf("prepare Claude Code compatibility config: %w", err)
@@ -105,6 +106,9 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	childArgs := RewriteClaudeModelArgsWithConfig(args, modelCfg)
 	if claude258Compatibility {
 		childArgs = RewriteClaudeModelArgsForThreeTierPicker(args, modelCfg)
+	}
+	if claude259SourcePicker {
+		childArgs = RewriteClaudeModelArgsForSourcePatchedThreeTierPicker(args, modelCfg)
 	}
 	var compatibilitySettings map[string]any
 	if claude246Compatibility {

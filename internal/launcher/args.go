@@ -52,6 +52,10 @@ func RewriteClaudeModelArgsForThreeTierPicker(args []string, models modelconfig.
 	return out
 }
 
+func RewriteClaudeModelArgsForSourcePatchedThreeTierPicker(args []string, models modelconfig.Config) []string {
+	return rewriteClaudeModelArgs(args, models, canonicalClaudeRuntimeModel)
+}
+
 func rewriteClaudeModelArgs(args []string, models modelconfig.Config, rewrite func(string, modelconfig.Config) string) []string {
 	out := append([]string(nil), args...)
 	for i := 0; i < len(out); i++ {
