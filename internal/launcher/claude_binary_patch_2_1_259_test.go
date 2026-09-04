@@ -112,6 +112,9 @@ func TestClaude259LogoPatchFailsClosedOnOverflow(t *testing.T) {
 }
 
 func TestClaude259DisablesStaleEmbeddedPatchedModuleBytecode(t *testing.T) {
+	if version := os.Getenv("CLAUDODEX_MAINTENANCE_CLAUDE_VERSION"); version != "" && version != "2.1.259" {
+		return
+	}
 	path := os.Getenv("CLAUDODEX_MAINTENANCE_CLAUDE_REALPATH")
 	if path == "" {
 		t.Skip("maintenance Claude path is unavailable")
@@ -137,6 +140,9 @@ func TestClaude259DisablesStaleEmbeddedPatchedModuleBytecode(t *testing.T) {
 }
 
 func TestClaude259PatchTargetsMaintenanceBinary(t *testing.T) {
+	if version := os.Getenv("CLAUDODEX_MAINTENANCE_CLAUDE_VERSION"); version != "" && version != "2.1.259" {
+		return
+	}
 	path := os.Getenv("CLAUDODEX_MAINTENANCE_CLAUDE_REALPATH")
 	if path == "" {
 		t.Skip("maintenance Claude path is unavailable")
