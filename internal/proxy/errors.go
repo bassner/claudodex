@@ -22,7 +22,7 @@ func writeMappedUpstreamError(w http.ResponseWriter, err error) {
 	}
 	var upstream *codex.UpstreamError
 	if errors.As(err, &upstream) {
-		status, typ := mapUpstreamStatus(upstream.Status)
+		status, typ := mapUpstreamStatus(upstream.Status, upstreamErrorCode(upstream))
 		applyRateLimitHeaders(w.Header(), upstream.Header, status == http.StatusTooManyRequests)
 		writeAnthropicError(w, status, typ, upstreamMessage(upstream))
 		return
@@ -30,7 +30,10 @@ func writeMappedUpstreamError(w http.ResponseWriter, err error) {
 	writeAnthropicError(w, http.StatusBadGateway, "api_error", "Codex upstream request failed")
 }
 
-func mapUpstreamStatus(status int) (int, string) {
+func mapUpstreamStatus(status int, code string) (int, string) {
+	if status == http.StatusServiceUnavailable && isRetryableRateLimitCode(code) {
+		return http.StatusTooManyRequests, "rate_limit_error"
+	}
 	switch status {
 	case http.StatusBadRequest:
 		return status, "invalid_request_error"
@@ -57,6 +60,21 @@ func mapUpstreamStatus(status int) (int, string) {
 		}
 		return status, "api_error"
 	}
+}
+
+func upstreamErrorCode(err *codex.UpstreamError) string {
+	if err == nil {
+		return ""
+	}
+	var payload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(err.Content, &payload) != nil {
+		return ""
+	}
+	return payload.Error.Code
 }
 
 func upstreamMessage(err *codex.UpstreamError) string {

@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,8 +28,10 @@ const streamKeepaliveIntervalEnv = "CLAUDODEX_STREAM_KEEPALIVE_INTERVAL"
 var errPreviousResponseNotFound = errors.New("previous response not found")
 
 type upstreamStreamEventError struct {
-	typ     string
-	message string
+	typ        string
+	code       string
+	message    string
+	retryAfter time.Duration
 }
 
 func (e upstreamStreamEventError) Error() string {
@@ -180,6 +183,35 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			"generation_attempts_remaining": remainingGenerationAttempts,
 		}))
 	}
+	if err != nil && shouldRetryUpstreamRateLimit(r, err) && remainingGenerationAttempts > 0 {
+		if waitErr := s.waitForUpstreamRetry(r.Context(), err); waitErr != nil {
+			err = waitErr
+		} else {
+			s.trace("upstream.retry", mergeTraceFields(traceBase, map[string]any{
+				"reason": "rate_limit",
+				"error":  err.Error(),
+			}))
+			createStarted = time.Now()
+			upstream, err = createResponse(upstreamRequest)
+			if err != nil {
+				s.trace("upstream.create_error", mergeTraceFields(traceBase, upstreamCreateErrorTraceFields(err, map[string]any{
+					"attempt":                       2,
+					"elapsed_ms":                    traceDurationMS(createStarted),
+					"generation_attempts_remaining": remainingGenerationAttempts,
+				})))
+			} else {
+				s.trace("upstream.opened", mergeTraceFields(traceBase, map[string]any{
+					"attempt":                       2,
+					"elapsed_ms":                    traceDurationMS(createStarted),
+					"status":                        upstream.StatusCode,
+					"transport":                     upstream.Header.Get("x-claudodex-transport"),
+					"ws_reused":                     upstream.Header.Get("x-claudodex-ws-reused"),
+					"response_header_retries":       upstream.Header.Get("x-claudodex-response-header-retries"),
+					"generation_attempts_remaining": remainingGenerationAttempts,
+				}))
+			}
+		}
+	}
 	if err != nil && usedImplicitResume && remainingGenerationAttempts > 0 {
 		s.trace("resume.retry_full", mergeTraceFields(traceBase, map[string]any{
 			"reason": "create_error",
@@ -216,42 +248,46 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	if result.Stream {
 		applyRateLimitHeaders(w.Header(), upstream.Header, false)
-		err = s.streamAnthropicWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, result.WebSearchMaxUses, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, traceBase, usedImplicitResume)
+		err = s.streamAnthropicWithSchemas(w, upstream.Body, upstream.Header, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, result.WebSearchMaxUses, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, traceBase, usedImplicitResume)
 		_ = upstream.Body.Close()
 		if shouldRetryStream(r, err, usedImplicitResume) && remainingGenerationAttempts > 0 {
-			s.trace("resume.retry_full", mergeTraceFields(traceBase, map[string]any{
-				"reason": "stream_error",
-				"error":  err.Error(),
-			}))
-			s.clearImplicitResume(chainKey)
-			s.closeWebSocket(chainKey)
-			createStarted = time.Now()
-			upstream, err = createResponse(fullRequest)
-			if err == nil {
-				s.trace("upstream.opened", mergeTraceFields(traceBase, map[string]any{
-					"attempt":                       2,
-					"elapsed_ms":                    traceDurationMS(createStarted),
-					"status":                        upstream.StatusCode,
-					"transport":                     upstream.Header.Get("x-claudodex-transport"),
-					"ws_reused":                     upstream.Header.Get("x-claudodex-ws-reused"),
-					"response_header_retries":       upstream.Header.Get("x-claudodex-response-header-retries"),
-					"generation_attempts_remaining": remainingGenerationAttempts,
-					"upstream_input_items":          len(fullRequest.Input),
-					"previous_response_id":          "",
-				}))
-				applyRateLimitHeaders(w.Header(), upstream.Header, false)
-				err = s.streamAnthropicWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, result.WebSearchMaxUses, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, mergeTraceFields(traceBase, map[string]any{
-					"implicit_resume":      false,
-					"upstream_input_items": len(fullRequest.Input),
-					"previous_response_id": "",
-				}), false)
-				_ = upstream.Body.Close()
+			if waitErr := s.waitForStreamRetry(r.Context(), err, upstream.Header); waitErr != nil {
+				err = waitErr
 			} else {
-				s.trace("upstream.create_error", mergeTraceFields(traceBase, upstreamCreateErrorTraceFields(err, map[string]any{
-					"attempt":                       2,
-					"elapsed_ms":                    traceDurationMS(createStarted),
-					"generation_attempts_remaining": remainingGenerationAttempts,
-				})))
+				s.trace("resume.retry_full", mergeTraceFields(traceBase, map[string]any{
+					"reason": "stream_error",
+					"error":  err.Error(),
+				}))
+				s.clearImplicitResume(chainKey)
+				s.closeWebSocket(chainKey)
+				createStarted = time.Now()
+				upstream, err = createResponse(fullRequest)
+				if err == nil {
+					s.trace("upstream.opened", mergeTraceFields(traceBase, map[string]any{
+						"attempt":                       2,
+						"elapsed_ms":                    traceDurationMS(createStarted),
+						"status":                        upstream.StatusCode,
+						"transport":                     upstream.Header.Get("x-claudodex-transport"),
+						"ws_reused":                     upstream.Header.Get("x-claudodex-ws-reused"),
+						"response_header_retries":       upstream.Header.Get("x-claudodex-response-header-retries"),
+						"generation_attempts_remaining": remainingGenerationAttempts,
+						"upstream_input_items":          len(fullRequest.Input),
+						"previous_response_id":          "",
+					}))
+					applyRateLimitHeaders(w.Header(), upstream.Header, false)
+					err = s.streamAnthropicWithSchemas(w, upstream.Body, upstream.Header, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, result.WebSearchMaxUses, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, mergeTraceFields(traceBase, map[string]any{
+						"implicit_resume":      false,
+						"upstream_input_items": len(fullRequest.Input),
+						"previous_response_id": "",
+					}), false)
+					_ = upstream.Body.Close()
+				} else {
+					s.trace("upstream.create_error", mergeTraceFields(traceBase, upstreamCreateErrorTraceFields(err, map[string]any{
+						"attempt":                       2,
+						"elapsed_ms":                    traceDurationMS(createStarted),
+						"generation_attempts_remaining": remainingGenerationAttempts,
+					})))
+				}
 			}
 		}
 		if err != nil {
@@ -259,7 +295,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			if errors.As(err, &timeoutErr) {
 				writeMappedUpstreamError(w, err)
 			} else {
-				writeAnthropicError(w, http.StatusBadGateway, "api_error", "Codex upstream stream failed")
+				writeMappedStreamError(w, err)
 			}
 		}
 		return
@@ -308,7 +344,12 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &timeoutErr) {
 			writeMappedUpstreamError(w, err)
 		} else {
-			writeAnthropicError(w, http.StatusBadGateway, "api_error", err.Error())
+			var streamErr upstreamStreamEventError
+			if errors.As(err, &streamErr) && isRetryableRateLimitCode(streamErr.code) {
+				writeMappedStreamError(w, err)
+			} else {
+				writeAnthropicError(w, http.StatusBadGateway, "api_error", err.Error())
+			}
 		}
 	}
 }
@@ -501,10 +542,30 @@ func shouldRetryStream(r *http.Request, err error, usedImplicitResume bool) bool
 		return true
 	}
 	var upstreamEvent upstreamStreamEventError
-	if errors.As(err, &upstreamEvent) || errors.Is(err, errPreviousResponseNotFound) {
+	if errors.As(err, &upstreamEvent) {
+		return isRetryableRateLimitCode(upstreamEvent.code)
+	}
+	if errors.Is(err, errPreviousResponseNotFound) {
 		return false
 	}
 	return isRetryableTransportError(err)
+}
+
+func isRetryableRateLimitCode(code string) bool {
+	switch strings.ToLower(strings.TrimSpace(code)) {
+	case "slow_down", "rate_limit_exceeded":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldRetryUpstreamRateLimit(r *http.Request, err error) bool {
+	if err == nil || (r != nil && r.Context().Err() != nil) {
+		return false
+	}
+	var upstream *codex.UpstreamError
+	return errors.As(err, &upstream) && isRetryableRateLimitCode(upstreamErrorCode(upstream))
 }
 
 func isRetryableTransportError(err error) bool {
@@ -543,10 +604,10 @@ func codexRouteForResult(result convert.Result, parentSessionID string) codex.Ro
 }
 
 func (s *Server) streamAnthropic(w http.ResponseWriter, body io.Reader, model string) {
-	_ = s.streamAnthropicWithSchemas(w, body, model, nil, "", 0, 0, convert.Usage{}, "", codex.Request{}, nil, false)
+	_ = s.streamAnthropicWithSchemas(w, body, nil, model, nil, "", 0, 0, convert.Usage{}, "", codex.Request{}, nil, false)
 }
 
-func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reader, model string, toolSchemas map[string]map[string]any, planFilePath string, webSearchMaxUses int, fallbackInputTokens int, initialInputUsage convert.Usage, chainKey string, fullRequest codex.Request, traceBase map[string]any, retryEarlyUpstreamErrors bool) error {
+func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reader, upstreamHeaders http.Header, model string, toolSchemas map[string]map[string]any, planFilePath string, webSearchMaxUses int, fallbackInputTokens int, initialInputUsage convert.Usage, chainKey string, fullRequest codex.Request, traceBase map[string]any, retryEarlyUpstreamErrors bool) error {
 	w.Header().Set("content-type", "text/event-stream")
 	w.Header().Set("cache-control", "no-cache")
 	w.Header().Set("connection", "keep-alive")
@@ -656,8 +717,12 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 			// Code may submit the next tool result immediately after observing it.
 			s.recordResponseUsage(chainKey, reducer.Usage())
 		}
-		if reducer.Failed() && retryEarlyUpstreamErrors && !wrote {
-			return upstreamStreamEventError{typ: reducer.FailureType(), message: reducer.FailureMessage()}
+		if reducer.Failed() && !wrote && (retryEarlyUpstreamErrors || isRetryableRateLimitCode(reducer.FailureCode())) {
+			retryAfter := retryDelayFromHeaders(upstreamHeaders)
+			if messageDelay := reducer.FailureRetryAfter(); messageDelay > retryAfter {
+				retryAfter = messageDelay
+			}
+			return upstreamStreamEventError{typ: reducer.FailureType(), code: reducer.FailureCode(), message: reducer.FailureMessage(), retryAfter: retryAfter}
 		}
 		for _, anthropicEvent := range events {
 			if err := writeConvertedEvent(anthropicEvent); err != nil {
@@ -746,6 +811,76 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 	s.recordResponseUsage(chainKey, reducer.Usage())
 	s.recordResponseChain(chainKey, fullRequest, trace)
 	return nil
+}
+
+func (s *Server) waitForStreamRetry(ctx context.Context, err error, headers http.Header) error {
+	delay := retryDelayFromHeaders(headers)
+	var streamErr upstreamStreamEventError
+	if errors.As(err, &streamErr) && streamErr.retryAfter > delay {
+		delay = streamErr.retryAfter
+	}
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (s *Server) waitForUpstreamRetry(ctx context.Context, err error) error {
+	var upstream *codex.UpstreamError
+	if !errors.As(err, &upstream) {
+		return nil
+	}
+	delay := retryDelayFromHeaders(upstream.Header)
+	if messageDelay := convert.RetryAfterFromMessage(upstreamMessage(upstream)); messageDelay > delay {
+		delay = messageDelay
+	}
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func retryDelayFromHeaders(headers http.Header) time.Duration {
+	if headers == nil {
+		return 0
+	}
+	value := strings.TrimSpace(headers.Get("retry-after"))
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.ParseFloat(value, 64); err == nil && seconds >= 0 {
+		return time.Duration(seconds * float64(time.Second))
+	}
+	if retryAt, err := http.ParseTime(value); err == nil {
+		delay := time.Until(retryAt)
+		if delay > 0 {
+			return delay
+		}
+	}
+	return 0
+}
+
+func writeMappedStreamError(w http.ResponseWriter, err error) {
+	var streamErr upstreamStreamEventError
+	if errors.As(err, &streamErr) && isRetryableRateLimitCode(streamErr.code) {
+		writeAnthropicError(w, http.StatusTooManyRequests, "rate_limit_error", streamErr.message)
+		return
+	}
+	writeAnthropicError(w, http.StatusBadGateway, "api_error", "Codex upstream stream failed")
 }
 
 func streamKeepaliveInterval() time.Duration {

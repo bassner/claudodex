@@ -77,6 +77,14 @@ func TestWriteMappedUpstreamErrorStatusTable(t *testing.T) {
 			wantMsg:    "overloaded",
 		},
 		{
+			name:       "slow down service unavailable",
+			status:     http.StatusServiceUnavailable,
+			body:       []byte(`{"error":{"code":"slow_down","message":"Please try again in 0s"}}`),
+			wantStatus: http.StatusTooManyRequests,
+			wantType:   "rate_limit_error",
+			wantMsg:    "Please try again in 0s",
+		},
+		{
 			name:       "server error",
 			status:     http.StatusInternalServerError,
 			body:       nil,

@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bassner/claudodex/internal/modelconfig"
 )
@@ -58,7 +61,9 @@ type StreamReducer struct {
 	usage               Usage
 	failed              bool
 	failureType         string
+	failureCode         string
 	failureMessage      string
+	failureRetryAfter   time.Duration
 }
 
 type toolStreamState struct {
@@ -147,6 +152,14 @@ func (r *StreamReducer) FailureMessage() string {
 		return "Codex upstream returned an error"
 	}
 	return r.failureMessage
+}
+
+func (r *StreamReducer) FailureCode() string {
+	return r.failureCode
+}
+
+func (r *StreamReducer) FailureRetryAfter() time.Duration {
+	return r.failureRetryAfter
 }
 
 func (r *StreamReducer) Reduce(raw json.RawMessage) ([]AnthropicSSE, error) {
@@ -328,7 +341,7 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 			events = append(events, r.errorEvents("api_error", "Codex response ended incomplete before visible output")...)
 		}
 	case "response.failed":
-		events = append(events, r.errorEvents("api_error", failureMessage(event))...)
+		events = append(events, r.errorEventsWithCode(failureCode(event), failureMessage(event))...)
 	default:
 		// Ignore reasoning, metadata, model-verification and rate-limit events for
 		// Anthropic visible block indexing.
@@ -1032,14 +1045,27 @@ func (r *StreamReducer) errorFromPayload(event map[string]any) []AnthropicSSE {
 	if typ == "" {
 		typ = "api_error"
 	}
+	code, _ := payload["code"].(string)
 	message, _ := payload["message"].(string)
 	if message == "" {
 		message = "Codex upstream returned an error"
 	}
-	return r.errorEvents(typ, message)
+	if mapped := anthropicFailureType(code); mapped != "api_error" {
+		typ = mapped
+	}
+	return r.errorEventsWithTypeAndCode(typ, code, message)
 }
 
 func (r *StreamReducer) errorEvents(typ, message string) []AnthropicSSE {
+	return r.errorEventsWithTypeAndCode(typ, "", message)
+}
+
+func (r *StreamReducer) errorEventsWithCode(code, message string) []AnthropicSSE {
+	typ := anthropicFailureType(code)
+	return r.errorEventsWithTypeAndCode(typ, code, message)
+}
+
+func (r *StreamReducer) errorEventsWithTypeAndCode(typ, code, message string) []AnthropicSSE {
 	if typ == "" {
 		typ = "api_error"
 	}
@@ -1048,7 +1074,9 @@ func (r *StreamReducer) errorEvents(typ, message string) []AnthropicSSE {
 	}
 	r.failed = true
 	r.failureType = typ
+	r.failureCode = code
 	r.failureMessage = message
+	r.failureRetryAfter = RetryAfterFromMessage(message)
 	r.done = true
 	return []AnthropicSSE{{
 		Event: "error",
@@ -1060,6 +1088,36 @@ func (r *StreamReducer) errorEvents(typ, message string) []AnthropicSSE {
 			},
 		},
 	}}
+}
+
+func anthropicFailureType(code string) string {
+	switch strings.ToLower(strings.TrimSpace(code)) {
+	case "slow_down", "rate_limit_exceeded":
+		return "rate_limit_error"
+	default:
+		return "api_error"
+	}
+}
+
+var retryAfterMessagePattern = regexp.MustCompile(`(?i)(?:try again|retry)\s+in\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|seconds?|m|minutes?)\b`)
+
+func RetryAfterFromMessage(message string) time.Duration {
+	parts := retryAfterMessagePattern.FindStringSubmatch(message)
+	if len(parts) != 3 {
+		return 0
+	}
+	value, err := strconv.ParseFloat(parts[1], 64)
+	if err != nil || value < 0 {
+		return 0
+	}
+	switch strings.ToLower(parts[2]) {
+	case "ms", "millisecond", "milliseconds":
+		return time.Duration(value * float64(time.Millisecond))
+	case "m", "minute", "minutes":
+		return time.Duration(value * float64(time.Minute))
+	default:
+		return time.Duration(value * float64(time.Second))
+	}
 }
 
 func contentBlockDelta(index int, delta map[string]any) AnthropicSSE {
@@ -1218,6 +1276,13 @@ func failureMessage(event map[string]any) string {
 		return msg
 	}
 	return "Codex response failed"
+}
+
+func failureCode(event map[string]any) string {
+	response, _ := event["response"].(map[string]any)
+	errorObj, _ := response["error"].(map[string]any)
+	code, _ := errorObj["code"].(string)
+	return code
 }
 
 func itemType(item map[string]any) string {

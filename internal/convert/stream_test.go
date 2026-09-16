@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bassner/claudodex/internal/codex"
 	"github.com/bassner/claudodex/internal/modelconfig"
@@ -1053,6 +1054,27 @@ func TestStreamReducerUsesSSEEventNameForError(t *testing.T) {
 	errObj := events[0].Data["error"].(map[string]any)
 	if errObj["type"] != "api_error" || errObj["message"] != "boom" {
 		t.Fatalf("error = %#v", errObj)
+	}
+}
+
+func TestStreamReducerMapsResponseFailedSlowDownToRateLimitError(t *testing.T) {
+	reducer := NewStreamReducer("msg_slow_down", "claude-opus-4-6")
+	events, err := reducer.Reduce(json.RawMessage(`{"type":"response.failed","response":{"error":{"code":"slow_down","message":"Please try again in 40ms"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[1].Event != "error" {
+		t.Fatalf("events = %#v", events)
+	}
+	errorData, _ := events[1].Data["error"].(map[string]any)
+	if got := errorData["type"]; got != "rate_limit_error" {
+		t.Fatalf("error type = %#v, want rate_limit_error", got)
+	}
+	if got := reducer.FailureCode(); got != "slow_down" {
+		t.Fatalf("failure code = %q, want slow_down", got)
+	}
+	if got := reducer.FailureRetryAfter(); got != 40*time.Millisecond {
+		t.Fatalf("failure retry delay = %s, want 40ms", got)
 	}
 }
 

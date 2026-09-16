@@ -169,6 +169,8 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 		"Codex Plan",
 	}
 	switch claudeVersion {
+	case "2.1.273":
+		wants = append(wants, "function aO(){return process.env.CLAUDE_BRIDGE_OAUTH_TOKEN}")
 	case "2.1.263":
 		wants = append(wants, "function RH(){return process.env.CLAUDE_BRIDGE_OAUTH_TOKEN}")
 	case "2.1.261":
@@ -219,11 +221,15 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 			t.Fatalf("patched installed Claude missing %q for version=%s sha=%s", want, claudeVersion, sourceSHA)
 		}
 	}
-	if claudeVersion == "2.1.216" || claudeVersion == "2.1.218" || claudeVersion == "2.1.219" || claudeVersion == "2.1.220" || claudeVersion == "2.1.221" || claudeVersion == "2.1.222" || claudeVersion == "2.1.223" || claudeVersion == "2.1.226" || claudeVersion == "2.1.227" || claudeVersion == "2.1.228" || claudeVersion == "2.1.229" || claudeVersion == "2.1.233" || claudeVersion == "2.1.234" || claudeVersion == "2.1.245" || claudeVersion == "2.1.246" || claudeVersion == "2.1.247" || claudeVersion == "2.1.251" || claudeVersion == "2.1.252" || claudeVersion == "2.1.258" || claudeVersion == "2.1.259" || claudeVersion == "2.1.260" || claudeVersion == "2.1.261" || claudeVersion == "2.1.263" {
+	if claudeVersion == "2.1.216" || claudeVersion == "2.1.218" || claudeVersion == "2.1.219" || claudeVersion == "2.1.220" || claudeVersion == "2.1.221" || claudeVersion == "2.1.222" || claudeVersion == "2.1.223" || claudeVersion == "2.1.226" || claudeVersion == "2.1.227" || claudeVersion == "2.1.228" || claudeVersion == "2.1.229" || claudeVersion == "2.1.233" || claudeVersion == "2.1.234" || claudeVersion == "2.1.245" || claudeVersion == "2.1.246" || claudeVersion == "2.1.247" || claudeVersion == "2.1.251" || claudeVersion == "2.1.252" || claudeVersion == "2.1.258" || claudeVersion == "2.1.259" || claudeVersion == "2.1.260" || claudeVersion == "2.1.261" || claudeVersion == "2.1.263" || claudeVersion == "2.1.273" {
 		normalizer := "function CDX216("
 		pickerEnd := "function tAe("
 		tierCall := `n("`
 		switch claudeVersion {
+		case "2.1.273":
+			normalizer = "function CDX273("
+			pickerEnd = "function yR("
+			tierCall = `r("`
 		case "2.1.263":
 			normalizer = "function CDX263("
 			pickerEnd = "function lto("
@@ -345,6 +351,8 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 	}
 	var brandingReplacements []claude209UIBrandingReplacement
 	switch claudeVersion {
+	case "2.1.273":
+		brandingReplacements = claude273UIBrandingReplacements
 	case "2.1.263":
 		brandingReplacements = claude263UIBrandingReplacements
 	case "2.1.261":
@@ -430,6 +438,7 @@ func installedClaudeTargetsCoveredByLaterTest(version, target string) bool {
 		"2.1.260": 17,
 		"2.1.261": 18,
 		"2.1.263": 19,
+		"2.1.273": 20,
 	}
 	return order[version] > order[target]
 }
@@ -1266,6 +1275,10 @@ func TestInstalledClaude263PatchTargets(t *testing.T) {
 		t.Fatalf("claude binary not available: %v", err)
 	}
 	if version := detectClaudeVersion(context.Background(), claudePath); version != "2.1.263" {
+		if installedClaudeTargetsCoveredByLaterTest(version, "2.1.263") {
+			t.Logf("installed Claude %s targets are covered by its version-specific test", version)
+			return
+		}
 		t.Fatalf("installed Claude version = %s, want 2.1.263", version)
 	}
 	source, err := os.ReadFile(claudePath)
@@ -1299,6 +1312,57 @@ func TestInstalledClaude263PatchTargets(t *testing.T) {
 	t.Run("all-required-transformations-gate", func(t *testing.T) {
 		broken := bytes.Replace(append([]byte(nil), source...), []byte("function PHe(){let l=a.DEMO_VERSION??"), []byte("function PHe(){let l=MISSING_TARGET??"), 1)
 		if applyClaudeUIPatches_2_1_263(broken, "test", "2.1.263", modelconfig.Default()) {
+			t.Fatal("patch succeeded without the required logo transformation target")
+		}
+	})
+}
+
+func TestInstalledClaude273PatchTargets(t *testing.T) {
+	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
+		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
+	}
+	claudePath, err := exec.LookPath("claude")
+	if err != nil {
+		t.Fatalf("claude binary not available: %v", err)
+	}
+	if version := detectClaudeVersion(context.Background(), claudePath); version != "2.1.273" {
+		if installedClaudeTargetsCoveredByLaterTest(version, "2.1.273") {
+			t.Logf("installed Claude %s targets are covered by its version-specific test", version)
+			return
+		}
+		t.Fatalf("installed Claude version = %s, want 2.1.273", version)
+	}
+	source, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sha256Hex(source); got != claude273SHA {
+		t.Fatalf("installed Claude SHA = %s, want %s", got, claude273SHA)
+	}
+	for _, transformation := range claude273Transformations("test") {
+		t.Run(transformation.name, func(t *testing.T) {
+			data := append([]byte(nil), source...)
+			if !transformation.apply(data) {
+				t.Fatalf("%s patch target did not match installed Claude 2.1.273", transformation.name)
+			}
+		})
+	}
+	for _, transformation := range claude273RemoteControlTransformations() {
+		t.Run("remote-control/"+transformation.name, func(t *testing.T) {
+			data := append([]byte(nil), source...)
+			if !transformation.apply(data) {
+				t.Errorf("remote-control %s patch target did not match installed Claude 2.1.273", transformation.name)
+			}
+		})
+	}
+	for _, replacement := range claude273UIBrandingReplacements {
+		if got := bytes.Count(source, []byte(replacement.old)); got != replacement.expectedCount {
+			t.Errorf("branding count for %q = %d, want %d", replacement.old, got, replacement.expectedCount)
+		}
+	}
+	t.Run("all-required-transformations-gate", func(t *testing.T) {
+		broken := bytes.Replace(append([]byte(nil), source...), []byte("function Z$e(){let l=a.DEMO_VERSION??"), []byte("function Z$e(){let l=MISSING_TARGET??"), 1)
+		if applyClaudeUIPatches_2_1_273(broken, "test", "2.1.273", modelconfig.Default()) {
 			t.Fatal("patch succeeded without the required logo transformation target")
 		}
 	})

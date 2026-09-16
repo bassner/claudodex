@@ -1331,11 +1331,33 @@ func TestShouldRetryStreamRetriesTransientTransportErrors(t *testing.T) {
 	if !shouldRetryStream(nil, errors.New("stream error: stream ID 11; INTERNAL_ERROR; received from peer"), false) {
 		t.Fatal("expected transient stream reset to be retryable")
 	}
+	if !shouldRetryStream(nil, upstreamStreamEventError{code: "rate_limit_exceeded", message: "Please try again in 0s"}, false) {
+		t.Fatal("expected early rate_limit_exceeded event to be retryable")
+	}
 	if shouldRetryStream(nil, upstreamStreamEventError{typ: "api_error", message: "quota exhausted"}, false) {
 		t.Fatal("upstream event errors should not be retried without implicit resume")
 	}
 	if !shouldRetryStream(nil, upstreamStreamEventError{typ: "api_error", message: "previous response not found"}, true) {
 		t.Fatal("implicit resume errors should be retryable")
+	}
+}
+
+func TestWriteMappedStreamErrorMapsExhaustedSlowDownToRateLimit(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeMappedStreamError(rec, upstreamStreamEventError{code: "slow_down", message: "Please try again in 0s"})
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusTooManyRequests)
+	}
+	var body struct {
+		Error struct {
+			Type string `json:"type"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Error.Type != "rate_limit_error" {
+		t.Fatalf("body = %#v", body)
 	}
 }
 
@@ -1709,6 +1731,176 @@ func TestMessagesGeneratedRouteIDsStayStableAcrossEarlyStreamRetry(t *testing.T)
 	}
 	if routeHeaders[0][0] != routeHeaders[0][1] || routeHeaders[0][1] != routeHeaders[0][2] {
 		t.Fatalf("generated route headers are inconsistent: %#v", routeHeaders[0])
+	}
+}
+
+func TestMessagesRetriesEarlySSESlowDown(t *testing.T) {
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	var attempts atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt := attempts.Add(1)
+		w.Header().Set("content-type", "text/event-stream")
+		w.Header().Set("retry-after", "0")
+		if attempt == 1 {
+			_, _ = w.Write([]byte("event: response.failed\n" +
+				"data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"slow_down\",\"message\":\"Please try again in 0s\"}}}\n\n"))
+			return
+		}
+		_, _ = w.Write([]byte("event: response.output_item.done\n" +
+			"data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"recovered\"}]}}\n\n" +
+			"event: response.completed\n" +
+			"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n"))
+	}))
+	defer upstream.Close()
+	server := New(Config{Home: home, CodexBaseURL: upstream.URL, HTTPClient: upstream.Client(), AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-opus-4-6","stream":true,"messages":[{"role":"user","content":"x"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if body := readAllString(t, resp); !strings.Contains(body, "recovered") {
+		t.Fatalf("missing recovered response: %s", body)
+	}
+	if got := attempts.Load(); got != 2 {
+		t.Fatalf("generation attempts = %d, want 2", got)
+	}
+}
+
+func TestMessagesRetriesSlowDownHTTP503(t *testing.T) {
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	var attempts atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) == 1 {
+			w.Header().Set("retry-after", "0")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":{"code":"slow_down","message":"Please try again in 0s"}}`))
+			return
+		}
+		w.Header().Set("content-type", "text/event-stream")
+		_, _ = w.Write([]byte("event: response.output_item.done\n" +
+			"data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"recovered http\"}]}}\n\n" +
+			"event: response.completed\n" +
+			"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n"))
+	}))
+	defer upstream.Close()
+	server := New(Config{Home: home, CodexBaseURL: upstream.URL, HTTPClient: upstream.Client(), AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-opus-4-6","messages":[{"role":"user","content":"x"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if body := readAllString(t, resp); !strings.Contains(body, "recovered http") {
+		t.Fatalf("missing recovered response: %s", body)
+	}
+	if got := attempts.Load(); got != 2 {
+		t.Fatalf("generation attempts = %d, want 2", got)
+	}
+}
+
+func TestMessagesWaitsForSlowDownMessageDelayBeforeRetrying(t *testing.T) {
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	var attempts atomic.Int32
+	var firstAt time.Time
+	var secondAt time.Time
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt := attempts.Add(1)
+		if attempt == 1 {
+			firstAt = time.Now()
+			w.Header().Set("content-type", "text/event-stream")
+			_, _ = w.Write([]byte("event: response.failed\n" +
+				"data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"slow_down\",\"message\":\"Please try again in 40ms\"}}}\n\n"))
+			return
+		}
+		secondAt = time.Now()
+		w.Header().Set("content-type", "text/event-stream")
+		_, _ = w.Write([]byte("event: response.output_item.done\n" +
+			"data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"recovered\"}]}}\n\n" +
+			"event: response.completed\n" +
+			"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n"))
+	}))
+	defer upstream.Close()
+	server := New(Config{Home: home, CodexBaseURL: upstream.URL, HTTPClient: upstream.Client(), AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-opus-4-6","stream":true,"messages":[{"role":"user","content":"x"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	_ = readAllString(t, resp)
+	if got := secondAt.Sub(firstAt); got < 30*time.Millisecond {
+		t.Fatalf("retry delay = %s, want at least 30ms", got)
+	}
+}
+
+func TestMessagesRetriesEarlyWebSocketSlowDown(t *testing.T) {
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	t.Setenv("CLAUDODEX_FORCE_CODEX_WEBSOCKET", "true")
+	var handshakes atomic.Int32
+	upgrader := websocket.Upgrader{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !websocket.IsWebSocketUpgrade(r) {
+			t.Fatalf("expected websocket upgrade, got %s", r.Header.Get("upgrade"))
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		switch handshakes.Add(1) {
+		case 1:
+			if _, _, err := conn.ReadMessage(); err != nil {
+				t.Fatal(err)
+			}
+			writeWSJSON(t, conn, map[string]any{"type": "response.failed", "response": map[string]any{"error": map[string]any{"code": "slow_down", "message": "Please try again in 0s"}}})
+		case 2:
+			if _, _, err := conn.ReadMessage(); err != nil {
+				t.Fatal(err)
+			}
+			writeWSJSON(t, conn, map[string]any{"type": "response.output_item.done", "item": map[string]any{"type": "message", "content": []any{map[string]any{"type": "output_text", "text": "recovered websocket"}}}})
+			writeWSJSON(t, conn, map[string]any{"type": "response.completed", "response": map[string]any{"usage": map[string]any{"input_tokens": 1, "output_tokens": 1}}})
+		default:
+			t.Fatalf("unexpected websocket handshake")
+		}
+	}))
+	defer upstream.Close()
+	server := New(Config{Home: home, CodexBaseURL: upstream.URL, HTTPClient: upstream.Client(), AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-opus-4-6","stream":true,"messages":[{"role":"user","content":"x"}],"tools":[{"name":"Read","input_schema":{"type":"object"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if body := readAllString(t, resp); !strings.Contains(body, "recovered websocket") {
+		t.Fatalf("missing recovered websocket response: %s", body)
+	}
+	if got := handshakes.Load(); got != 2 {
+		t.Fatalf("websocket handshakes = %d, want 2", got)
 	}
 }
 
