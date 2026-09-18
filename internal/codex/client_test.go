@@ -121,7 +121,7 @@ func TestClientCreateResponseRetriesConnectFailuresOutsideAttemptBudget(t *testi
 		ConnectRetryInitial:    time.Millisecond,
 		ConnectRetryMax:        time.Millisecond,
 	}
-	resp, err := client.CreateResponse(context.Background(), Request{Model: "gpt-5.6-terra"}, Credentials{AccountID: "account-1"}, Route{})
+	resp, err := client.CreateResponse(context.Background(), Request{Model: "gpt-5.6-terra"}, Credentials{}, Route{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestClientCreateResponseConnectRetryStopsOnCallerCancellation(t *testing.T)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := client.CreateResponse(ctx, Request{Model: "gpt-5.6-terra"}, Credentials{AccountID: "account-1"}, Route{})
+		_, err := client.CreateResponse(ctx, Request{Model: "gpt-5.6-terra"}, Credentials{}, Route{})
 		done <- err
 	}()
 	<-started

@@ -31,6 +31,7 @@ const (
 
 type Client struct {
 	BaseURL                string
+	ChatGPTBaseURL         string
 	HTTPClient             *http.Client
 	Version                string
 	ResponseHeaderTimeout  time.Duration
@@ -75,17 +76,21 @@ func (e *UpstreamError) Error() string {
 }
 
 func (c Client) CreateResponse(ctx context.Context, request Request, credentials Credentials, route Route) (*http.Response, error) {
+	destination, err := c.resolveResponsesDestination(ctx, credentials)
+	if err != nil {
+		return nil, err
+	}
 	route = MaterializeRoute(route)
 	maxAttempts := c.responseHeaderAttempts()
 	includeHTTPBeta := httpBetaHeaderEnabled()
-	resp, attempts, err := c.createResponseWithHeaderTimeoutRetry(ctx, request, credentials, route, includeHTTPBeta, maxAttempts)
+	resp, attempts, err := c.createResponseWithHeaderTimeoutRetry(ctx, request, credentials, route, destination, includeHTTPBeta, maxAttempts)
 	if err == nil {
 		SetCreateResponseAttempts(resp, attempts)
 		return resp, nil
 	}
 	var upstream *UpstreamError
 	if includeHTTPBeta && attempts < maxAttempts && errors.As(err, &upstream) && upstream.Status == http.StatusBadRequest {
-		fallbackResp, fallbackAttempts, fallbackErr := c.createResponseWithHeaderTimeoutRetry(ctx, request, credentials, route, false, maxAttempts-attempts)
+		fallbackResp, fallbackAttempts, fallbackErr := c.createResponseWithHeaderTimeoutRetry(ctx, request, credentials, route, destination, false, maxAttempts-attempts)
 		attempts += fallbackAttempts
 		if fallbackErr == nil {
 			SetCreateResponseAttempts(fallbackResp, attempts)
@@ -101,11 +106,11 @@ func (c Client) CreateResponse(ctx context.Context, request Request, credentials
 	return nil, err
 }
 
-func (c Client) createResponseWithHeaderTimeoutRetry(ctx context.Context, request Request, credentials Credentials, route Route, includeHTTPBeta bool, maxAttempts int) (*http.Response, int, error) {
+func (c Client) createResponseWithHeaderTimeoutRetry(ctx context.Context, request Request, credentials Credentials, route Route, destination responsesDestination, includeHTTPBeta bool, maxAttempts int) (*http.Response, int, error) {
 	attempt := 0
 	connectFailures := 0
 	for attempt < maxAttempts {
-		resp, err := c.createResponse(ctx, request, credentials, route, includeHTTPBeta)
+		resp, err := c.createResponse(ctx, request, credentials, route, destination, includeHTTPBeta)
 		if isConnectionEstablishmentError(err) && ctx.Err() == nil {
 			connectFailures++
 			if waitErr := c.waitForConnectRetry(ctx, connectFailures); waitErr != nil {
@@ -283,21 +288,17 @@ func ApplyResponsesMetadata(request *Request, installationID string, route Route
 	}
 }
 
-func (c Client) createResponse(ctx context.Context, request Request, credentials Credentials, route Route, includeHTTPBeta bool) (*http.Response, error) {
-	client := c.responseHTTPClient()
-	baseURL := strings.TrimRight(c.BaseURL, "/")
-	if baseURL == "" {
-		baseURL = DefaultBaseURL
-	}
+func (c Client) createResponse(ctx context.Context, request Request, credentials Credentials, route Route, destination responsesDestination, includeHTTPBeta bool) (*http.Response, error) {
+	client := c.responseHTTPClient(destination.routed)
 	data, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/codex/responses", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, destination.baseURL+"/codex/responses", bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
-	for key, value := range c.headers(credentials, route, &request, includeHTTPBeta) {
+	for key, value := range c.headersForDestination(credentials, route, &request, destination, includeHTTPBeta) {
 		req.Header.Set(key, value)
 	}
 
@@ -318,7 +319,7 @@ func (c Client) createResponse(ctx context.Context, request Request, credentials
 	return resp, nil
 }
 
-func (c Client) responseHTTPClient() *http.Client {
+func (c Client) responseHTTPClient(rejectRedirects bool) *http.Client {
 	client := c.HTTPClient
 	if client == nil {
 		client = http.DefaultClient
@@ -331,6 +332,11 @@ func (c Client) responseHTTPClient() *http.Client {
 	clone.Transport = responseHeaderTimeoutRoundTripper{
 		base:    transport,
 		timeout: c.responseHeaderTimeout(),
+	}
+	if rejectRedirects {
+		clone.CheckRedirect = func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
 	}
 	return &clone
 }
@@ -457,6 +463,10 @@ func (r *cancelOnCloseReadCloser) Close() error {
 }
 
 func (c Client) headers(credentials Credentials, route Route, request *Request, includeHTTPBeta bool) map[string]string {
+	return c.headersForDestination(credentials, route, request, responsesDestination{}, includeHTTPBeta)
+}
+
+func (c Client) headersForDestination(credentials Credentials, route Route, request *Request, destination responsesDestination, includeHTTPBeta bool) map[string]string {
 	version := c.Version
 	if version == "" {
 		version = "dev"
@@ -498,6 +508,9 @@ func (c Client) headers(credentials Credentials, route Route, request *Request, 
 	}
 	if hint := codexRoutingHint(credentials, request); hint != "" {
 		headers["x-codex-routing-hint"] = hint
+	}
+	if destination.routingHeader != "" {
+		headers[accountRoutingHeader] = destination.routingHeader
 	}
 	if credentials.FedRAMP {
 		headers["x-openai-internal-codex-residency"] = "us"

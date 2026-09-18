@@ -93,6 +93,22 @@ func TestWriteMappedUpstreamErrorStatusTable(t *testing.T) {
 			wantMsg:    "Codex upstream returned HTTP 500",
 		},
 		{
+			name:       "direct biological policy",
+			status:     http.StatusServiceUnavailable,
+			body:       []byte(`{"code":"bio_policy","message":"Custom biological safety message"}`),
+			wantStatus: http.StatusBadRequest,
+			wantType:   "invalid_request_error",
+			wantMsg:    "Custom biological safety message",
+		},
+		{
+			name:       "wrapped biological policy missing message",
+			status:     http.StatusInternalServerError,
+			body:       []byte(`{"error":{"code":"bio_policy"}}`),
+			wantStatus: http.StatusBadRequest,
+			wantType:   "invalid_request_error",
+			wantMsg:    codex.BioPolicyFallbackMessage,
+		},
+		{
 			name:       "overloaded custom status",
 			status:     529,
 			body:       []byte(`{"error":{"message":"overloaded"}}`),

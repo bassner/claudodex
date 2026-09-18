@@ -1078,6 +1078,51 @@ func TestStreamReducerMapsResponseFailedSlowDownToRateLimitError(t *testing.T) {
 	}
 }
 
+func TestStreamReducerMapsBioPolicyFailuresToTerminalInvalidRequest(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		eventName   string
+		body        string
+		wantMessage string
+	}{
+		{
+			name:        "direct websocket error with message",
+			eventName:   "error",
+			body:        `{"type":"error","code":"bio_policy","message":"Custom biological safety message"}`,
+			wantMessage: "Custom biological safety message",
+		},
+		{
+			name:        "wrapped SSE error without message",
+			eventName:   "error",
+			body:        `{"error":{"code":"bio_policy"}}`,
+			wantMessage: codex.BioPolicyFallbackMessage,
+		},
+		{
+			name:        "response failed with blank message",
+			body:        `{"type":"response.failed","response":{"error":{"code":"bio_policy","message":"  "}}}`,
+			wantMessage: codex.BioPolicyFallbackMessage,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reducer := NewStreamReducer("msg_bio", "claude-opus-4-6")
+			events, err := reducer.ReduceNamed(test.eventName, json.RawMessage(test.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(events) == 0 || events[len(events)-1].Event != "error" {
+				t.Fatalf("events = %#v", events)
+			}
+			errorData := events[len(events)-1].Data["error"].(map[string]any)
+			if errorData["type"] != "invalid_request_error" || errorData["message"] != test.wantMessage {
+				t.Fatalf("error = %#v", errorData)
+			}
+			if reducer.FailureCode() != "bio_policy" || !reducer.Done() || !reducer.Failed() {
+				t.Fatalf("failure state: code=%q done=%v failed=%v", reducer.FailureCode(), reducer.Done(), reducer.Failed())
+			}
+		})
+	}
+}
+
 func TestStreamReducerGoldenCodexSSEToAnthropicSSE(t *testing.T) {
 	input, err := os.Open("testdata/codex_text_tool.sse")
 	if err != nil {

@@ -538,12 +538,18 @@ func shouldRetryStream(r *http.Request, err error, usedImplicitResume bool) bool
 	if r != nil && r.Context().Err() != nil {
 		return false
 	}
-	if usedImplicitResume {
-		return true
-	}
 	var upstreamEvent upstreamStreamEventError
 	if errors.As(err, &upstreamEvent) {
+		if strings.EqualFold(strings.TrimSpace(upstreamEvent.code), "bio_policy") {
+			return false
+		}
+		if usedImplicitResume {
+			return true
+		}
 		return isRetryableRateLimitCode(upstreamEvent.code)
+	}
+	if usedImplicitResume {
+		return true
 	}
 	if errors.Is(err, errPreviousResponseNotFound) {
 		return false
@@ -876,6 +882,10 @@ func retryDelayFromHeaders(headers http.Header) time.Duration {
 
 func writeMappedStreamError(w http.ResponseWriter, err error) {
 	var streamErr upstreamStreamEventError
+	if errors.As(err, &streamErr) && strings.EqualFold(strings.TrimSpace(streamErr.code), "bio_policy") {
+		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", streamErr.message)
+		return
+	}
 	if errors.As(err, &streamErr) && isRetryableRateLimitCode(streamErr.code) {
 		writeAnthropicError(w, http.StatusTooManyRequests, "rate_limit_error", streamErr.message)
 		return

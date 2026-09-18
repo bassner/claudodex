@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/bassner/claudodex/internal/auth"
 	"github.com/bassner/claudodex/internal/codex"
@@ -31,6 +32,9 @@ func writeMappedUpstreamError(w http.ResponseWriter, err error) {
 }
 
 func mapUpstreamStatus(status int, code string) (int, string) {
+	if strings.EqualFold(strings.TrimSpace(code), "bio_policy") {
+		return http.StatusBadRequest, "invalid_request_error"
+	}
 	if status == http.StatusServiceUnavailable && isRetryableRateLimitCode(code) {
 		return http.StatusTooManyRequests, "rate_limit_error"
 	}
@@ -66,18 +70,13 @@ func upstreamErrorCode(err *codex.UpstreamError) string {
 	if err == nil {
 		return ""
 	}
-	var payload struct {
-		Error struct {
-			Code string `json:"code"`
-		} `json:"error"`
-	}
-	if json.Unmarshal(err.Content, &payload) != nil {
-		return ""
-	}
-	return payload.Error.Code
+	return codex.ParseResponseFailure(err.Content).Code
 }
 
 func upstreamMessage(err *codex.UpstreamError) string {
+	if failure := codex.ParseResponseFailure(err.Content); strings.TrimSpace(failure.Message) != "" {
+		return failure.Message
+	}
 	var parsed struct {
 		Error   any    `json:"error"`
 		Detail  any    `json:"detail"`
@@ -108,10 +107,10 @@ func nestedMessage(value any) string {
 	case string:
 		return v
 	case map[string]any:
-		if msg, _ := v["message"].(string); msg != "" {
+		if msg, _ := v["message"].(string); strings.TrimSpace(msg) != "" {
 			return msg
 		}
-		if msg, _ := v["detail"].(string); msg != "" {
+		if msg, _ := v["detail"].(string); strings.TrimSpace(msg) != "" {
 			return msg
 		}
 	}

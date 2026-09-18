@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bassner/claudodex/internal/codex"
 	"github.com/bassner/claudodex/internal/modelconfig"
 )
 
@@ -1045,8 +1046,9 @@ func (r *StreamReducer) errorFromPayload(event map[string]any) []AnthropicSSE {
 	if typ == "" {
 		typ = "api_error"
 	}
-	code, _ := payload["code"].(string)
-	message, _ := payload["message"].(string)
+	failure := responseFailure(event)
+	code := failure.Code
+	message := failure.Message
 	if message == "" {
 		message = "Codex upstream returned an error"
 	}
@@ -1094,6 +1096,8 @@ func anthropicFailureType(code string) string {
 	switch strings.ToLower(strings.TrimSpace(code)) {
 	case "slow_down", "rate_limit_exceeded":
 		return "rate_limit_error"
+	case "bio_policy":
+		return "invalid_request_error"
 	default:
 		return "api_error"
 	}
@@ -1267,22 +1271,22 @@ func stopReasonFromEvent(event map[string]any, hasTools bool) string {
 }
 
 func failureMessage(event map[string]any) string {
-	response, _ := event["response"].(map[string]any)
-	errorObj, _ := response["error"].(map[string]any)
-	if msg, _ := errorObj["message"].(string); msg != "" {
-		return msg
-	}
-	if msg, _ := event["message"].(string); msg != "" {
-		return msg
+	if message := responseFailure(event).Message; strings.TrimSpace(message) != "" {
+		return message
 	}
 	return "Codex response failed"
 }
 
 func failureCode(event map[string]any) string {
-	response, _ := event["response"].(map[string]any)
-	errorObj, _ := response["error"].(map[string]any)
-	code, _ := errorObj["code"].(string)
-	return code
+	return responseFailure(event).Code
+}
+
+func responseFailure(event map[string]any) codex.ResponseFailure {
+	raw, err := json.Marshal(event)
+	if err != nil {
+		return codex.ResponseFailure{}
+	}
+	return codex.ParseResponseFailure(raw)
 }
 
 func itemType(item map[string]any) string {

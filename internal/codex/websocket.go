@@ -3,6 +3,7 @@ package codex
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +26,14 @@ type WebSocketConversation struct {
 	mu     sync.Mutex
 	conn   *websocket.Conn
 	header http.Header
+	key    websocketConnectionKey
+}
+
+type websocketConnectionKey struct {
+	URL           string
+	RoutingHeader string
+	AccountID     string
+	AuthDigest    [sha256.Size]byte
 }
 
 func (w *WebSocketConversation) Close() error {
@@ -36,6 +45,7 @@ func (w *WebSocketConversation) Close() error {
 	err := w.conn.Close()
 	w.conn = nil
 	w.header = nil
+	w.key = websocketConnectionKey{}
 	return err
 }
 
@@ -98,19 +108,28 @@ func (w *WebSocketConversation) CreateResponse(ctx context.Context, client Clien
 }
 
 func (w *WebSocketConversation) connection(ctx context.Context, c Client, request Request, credentials Credentials, route Route) (*websocket.Conn, http.Header, error) {
-	if w.conn != nil {
-		return w.conn, w.header.Clone(), nil
-	}
-	baseURL := strings.TrimRight(c.BaseURL, "/")
-	if baseURL == "" {
-		baseURL = DefaultBaseURL
-	}
-	wsURL, err := websocketResponseURL(baseURL)
+	destination, err := c.resolveResponsesDestination(ctx, credentials)
 	if err != nil {
 		return nil, nil, err
 	}
+	wsURL, err := websocketResponseURL(destination.baseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	key := websocketConnectionKey{
+		URL:           wsURL,
+		RoutingHeader: destination.routingHeader,
+		AccountID:     strings.TrimSpace(credentials.AccountID),
+		AuthDigest:    sha256.Sum256([]byte(credentials.AccessToken)),
+	}
+	if w.conn != nil && w.key == key {
+		return w.conn, w.header.Clone(), nil
+	}
+	if w.conn != nil {
+		w.closeLocked()
+	}
 	headers := http.Header{}
-	for key, value := range c.headers(credentials, route, &request, true) {
+	for key, value := range c.headersForDestination(credentials, route, &request, destination, true) {
 		headers.Set(key, value)
 	}
 	headers.Del("accept")
@@ -135,6 +154,7 @@ func (w *WebSocketConversation) connection(ctx context.Context, c Client, reques
 		return nil, nil, err
 	}
 	w.conn = conn
+	w.key = key
 	w.header = http.Header{}
 	if handshake != nil {
 		w.header = handshake.Header.Clone()
@@ -148,6 +168,7 @@ func (w *WebSocketConversation) closeLocked() {
 	}
 	w.conn = nil
 	w.header = nil
+	w.key = websocketConnectionKey{}
 }
 
 func (w *WebSocketConversation) streamAsSSE(conn *websocket.Conn, writer *io.PipeWriter, done chan<- struct{}) {

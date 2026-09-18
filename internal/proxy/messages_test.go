@@ -1327,6 +1327,77 @@ func TestMessagesStreamingForwardsNamedUpstreamErrorEvent(t *testing.T) {
 	}
 }
 
+func TestMessagesWebSocketMapsDirectAndWrappedBioPolicyFailures(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		upstream    map[string]any
+		wantMessage string
+	}{
+		{
+			name: "direct",
+			upstream: map[string]any{
+				"type":    "error",
+				"code":    "bio_policy",
+				"message": "Custom biological safety message",
+			},
+			wantMessage: "Custom biological safety message",
+		},
+		{
+			name: "wrapped missing message",
+			upstream: map[string]any{
+				"type":     "response.failed",
+				"response": map[string]any{"error": map[string]any{"code": "bio_policy"}},
+			},
+			wantMessage: codex.BioPolicyFallbackMessage,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			saveTestAuth(t, home, "access-1")
+			var handshakes atomic.Int32
+			upgrader := websocket.Upgrader{}
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				handshakes.Add(1)
+				conn, err := upgrader.Upgrade(w, r, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer conn.Close()
+				if _, _, err := conn.ReadMessage(); err != nil {
+					t.Fatal(err)
+				}
+				writeWSJSON(t, conn, test.upstream)
+			}))
+			defer upstream.Close()
+
+			t.Setenv("CLAUDODEX_FORCE_CODEX_WEBSOCKET", "1")
+			server := New(Config{Home: home, CodexBaseURL: upstream.URL, HTTPClient: upstream.Client(), AuthPresent: true})
+			addr, err := server.Start("127.0.0.1", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer server.Close()
+
+			body := `{"model":"claude-opus-4-6","stream":true,"messages":[{"role":"user","content":"x"}],"tools":[{"name":"Read","input_schema":{"type":"object"}}]}`
+			resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d", resp.StatusCode)
+			}
+			sse := readAllString(t, resp)
+			if !strings.Contains(sse, `"type":"invalid_request_error"`) || !strings.Contains(sse, test.wantMessage) {
+				t.Fatalf("bio_policy error not preserved:\n%s", sse)
+			}
+			if handshakes.Load() != 1 {
+				t.Fatalf("websocket handshakes = %d, want terminal failure without retry", handshakes.Load())
+			}
+		})
+	}
+}
+
 func TestShouldRetryStreamRetriesTransientTransportErrors(t *testing.T) {
 	if !shouldRetryStream(nil, errors.New("stream error: stream ID 11; INTERNAL_ERROR; received from peer"), false) {
 		t.Fatal("expected transient stream reset to be retryable")
@@ -1339,6 +1410,9 @@ func TestShouldRetryStreamRetriesTransientTransportErrors(t *testing.T) {
 	}
 	if !shouldRetryStream(nil, upstreamStreamEventError{typ: "api_error", message: "previous response not found"}, true) {
 		t.Fatal("implicit resume errors should be retryable")
+	}
+	if shouldRetryStream(nil, upstreamStreamEventError{typ: "invalid_request_error", code: "bio_policy", message: codex.BioPolicyFallbackMessage}, true) {
+		t.Fatal("bio_policy must remain terminal even during implicit resume")
 	}
 }
 
@@ -1357,6 +1431,26 @@ func TestWriteMappedStreamErrorMapsExhaustedSlowDownToRateLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if body.Error.Type != "rate_limit_error" {
+		t.Fatalf("body = %#v", body)
+	}
+}
+
+func TestWriteMappedStreamErrorMapsBioPolicyToInvalidRequest(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeMappedStreamError(rec, upstreamStreamEventError{code: "bio_policy", message: codex.BioPolicyFallbackMessage})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	var body struct {
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Error.Type != "invalid_request_error" || body.Error.Message != codex.BioPolicyFallbackMessage {
 		t.Fatalf("body = %#v", body)
 	}
 }
