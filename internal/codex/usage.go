@@ -9,10 +9,7 @@ import (
 )
 
 func (c Client) FetchUsage(ctx context.Context, credentials Credentials) (map[string]any, error) {
-	client := c.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
+	client := c.routingCookieHTTPClient()
 	baseURL := strings.TrimRight(c.BaseURL, "/")
 	if baseURL == "" {
 		baseURL = DefaultBaseURL

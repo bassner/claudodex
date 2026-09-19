@@ -134,12 +134,16 @@ func (w *WebSocketConversation) connection(ctx context.Context, c Client, reques
 	}
 	headers.Del("accept")
 	headers.Del("content-type")
+	sharedChatGPTRoutingCookies.addRequestCookies(wsURL, headers)
 
 	dialer := c.WebSocketDialer
 	if dialer == nil {
 		dialer = websocket.DefaultDialer
 	}
 	conn, handshake, err := dialer.DialContext(ctx, wsURL, headers)
+	if handshake != nil {
+		sharedChatGPTRoutingCookies.storeResponseCookies(wsURL, handshake.Header)
+	}
 	if err != nil {
 		if handshake != nil {
 			defer handshake.Body.Close()

@@ -161,10 +161,7 @@ func applyWorkspaceRouting(baseURL, backendOrigin, routingOverride string) (stri
 }
 
 func (c Client) noRedirectHTTPClient() *http.Client {
-	client := c.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
+	client := c.routingCookieHTTPClient()
 	clone := *client
 	clone.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse

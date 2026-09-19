@@ -210,6 +210,8 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 		"Codex Plan",
 	}
 	switch claudeVersion {
+	case "2.1.278":
+		wants = append(wants, "function XD(){return process.env.CLAUDE_BRIDGE_OAUTH_TOKEN}")
 	case "2.1.276":
 		wants = append(wants, "function wD(){return process.env.CLAUDE_BRIDGE_OAUTH_TOKEN}")
 	case "2.1.274":
@@ -502,7 +504,7 @@ func installedClaudeTargetsCoveredByLaterTest(version, target string) bool {
 	return order[version] > order[target]
 }
 
-func TestInstalledClaude220PatchTargets(t *testing.T) {
+func TestArchivedClaude220PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -569,7 +571,7 @@ func TestInstalledClaude220PatchTargets(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude221PatchTargets(t *testing.T) {
+func TestArchivedClaude221PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -625,7 +627,7 @@ func TestInstalledClaude221PatchTargets(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude222PatchTargets(t *testing.T) {
+func TestArchivedClaude222PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -681,7 +683,7 @@ func TestInstalledClaude222PatchTargets(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude223PatchTargets(t *testing.T) {
+func TestArchivedClaude223PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -737,7 +739,7 @@ func TestInstalledClaude223PatchTargets(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude226PatchTargets(t *testing.T) {
+func TestArchivedClaude226PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -771,7 +773,7 @@ func TestInstalledClaude226PatchTargets(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude227PatchTargets(t *testing.T) {
+func TestArchivedClaude227PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -805,7 +807,7 @@ func TestInstalledClaude227PatchTargets(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude228PatchTargets(t *testing.T) {
+func TestArchivedClaude228PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -839,7 +841,7 @@ func TestInstalledClaude228PatchTargets(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude229PatchTargets(t *testing.T) {
+func TestArchivedClaude229PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -873,7 +875,7 @@ func TestInstalledClaude229PatchTargets(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude233PatchTargets(t *testing.T) {
+func TestArchivedClaude233PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -907,7 +909,7 @@ func TestInstalledClaude233PatchTargets(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude234PatchTargets(t *testing.T) {
+func TestArchivedClaude234PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -941,7 +943,7 @@ func TestInstalledClaude234PatchTargets(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude245PatchTargets(t *testing.T) {
+func TestArchivedClaude245PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -975,7 +977,7 @@ func TestInstalledClaude245PatchTargets(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude246PatchTargets(t *testing.T) {
+func TestArchivedClaude246PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -1009,7 +1011,7 @@ func TestInstalledClaude246PatchTargets(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude247PatchTargets(t *testing.T) {
+func TestArchivedClaude247PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -1043,7 +1045,7 @@ func TestInstalledClaude247PatchTargets(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude251PatchTargets(t *testing.T) {
+func TestArchivedClaude251PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -1077,7 +1079,7 @@ func TestInstalledClaude251PatchTargets(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude252PatchTargets(t *testing.T) {
+func TestArchivedClaude252PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -1111,7 +1113,7 @@ func TestInstalledClaude252PatchTargets(t *testing.T) {
 	}
 }
 
-func TestInstalledClaude258PatchTargets(t *testing.T) {
+func TestArchivedClaude258PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -1172,7 +1174,7 @@ func TestInstalledClaude258PatchTargets(t *testing.T) {
 	})
 }
 
-func TestInstalledClaude259PatchTargets(t *testing.T) {
+func TestArchivedClaude259PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -1223,7 +1225,7 @@ func TestInstalledClaude259PatchTargets(t *testing.T) {
 	})
 }
 
-func TestInstalledClaude260PatchTargets(t *testing.T) {
+func TestArchivedClaude260PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -1274,7 +1276,7 @@ func TestInstalledClaude260PatchTargets(t *testing.T) {
 	})
 }
 
-func TestInstalledClaude261PatchTargets(t *testing.T) {
+func TestArchivedClaude261PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -1325,7 +1327,7 @@ func TestInstalledClaude261PatchTargets(t *testing.T) {
 	})
 }
 
-func TestInstalledClaude263PatchTargets(t *testing.T) {
+func TestArchivedClaude263PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -1376,7 +1378,7 @@ func TestInstalledClaude263PatchTargets(t *testing.T) {
 	})
 }
 
-func TestInstalledClaude273PatchTargets(t *testing.T) {
+func TestArchivedClaude273PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -1427,7 +1429,7 @@ func TestInstalledClaude273PatchTargets(t *testing.T) {
 	})
 }
 
-func TestInstalledClaude274PatchTargets(t *testing.T) {
+func TestArchivedClaude274PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -1478,7 +1480,7 @@ func TestInstalledClaude274PatchTargets(t *testing.T) {
 	})
 }
 
-func TestInstalledClaude276PatchTargets(t *testing.T) {
+func TestArchivedClaude276PatchTargets(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -1520,6 +1522,53 @@ func TestInstalledClaude276PatchTargets(t *testing.T) {
 	t.Run("all-required-transformations-gate", func(t *testing.T) {
 		broken := bytes.Replace(append([]byte(nil), source...), claude276RequiredLogoAnchor(), []byte("function MISSING_TARGET(){"), 1)
 		if applyClaudeUIPatches_2_1_276(broken, "test", "2.1.276", modelconfig.Default()) {
+			t.Fatal("patch succeeded without the required logo transformation target")
+		}
+	})
+}
+
+func TestInstalledClaude278PatchTargets(t *testing.T) {
+	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
+		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
+	}
+	claudePath, err := exec.LookPath("claude")
+	if err != nil {
+		t.Fatalf("claude binary not available: %v", err)
+	}
+	if version := detectClaudeVersion(context.Background(), claudePath); version != "2.1.278" {
+		t.Fatalf("installed Claude version = %s, want 2.1.278", version)
+	}
+	source, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sha256Hex(source); got != claude278SHA {
+		t.Fatalf("installed Claude SHA = %s, want %s", got, claude278SHA)
+	}
+	for _, transformation := range claude278Transformations("test") {
+		t.Run(transformation.name, func(t *testing.T) {
+			data := append([]byte(nil), source...)
+			if !transformation.apply(data) {
+				t.Fatalf("%s patch target did not match installed Claude 2.1.278", transformation.name)
+			}
+		})
+	}
+	for _, transformation := range claude278RemoteControlTransformations() {
+		t.Run("remote-control/"+transformation.name, func(t *testing.T) {
+			data := append([]byte(nil), source...)
+			if !transformation.apply(data) {
+				t.Errorf("remote-control %s patch target did not match installed Claude 2.1.278", transformation.name)
+			}
+		})
+	}
+	for _, replacement := range claude278UIBrandingReplacements {
+		if got := bytes.Count(source, []byte(replacement.old)); got != replacement.expectedCount {
+			t.Errorf("branding count for %q = %d, want %d", replacement.old, got, replacement.expectedCount)
+		}
+	}
+	t.Run("all-required-transformations-gate", func(t *testing.T) {
+		broken := bytes.Replace(append([]byte(nil), source...), claude278RequiredLogoAnchor(), []byte("function MISSING_TARGET(){"), 1)
+		if applyClaudeUIPatches_2_1_278(broken, "test", "2.1.278", modelconfig.Default()) {
 			t.Fatal("patch succeeded without the required logo transformation target")
 		}
 	})

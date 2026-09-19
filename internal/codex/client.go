@@ -320,17 +320,10 @@ func (c Client) createResponse(ctx context.Context, request Request, credentials
 }
 
 func (c Client) responseHTTPClient(rejectRedirects bool) *http.Client {
-	client := c.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
+	client := c.routingCookieHTTPClient()
 	clone := *client
-	transport := client.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
 	clone.Transport = responseHeaderTimeoutRoundTripper{
-		base:    transport,
+		base:    client.Transport,
 		timeout: c.responseHeaderTimeout(),
 	}
 	if rejectRedirects {

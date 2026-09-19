@@ -37,10 +37,7 @@ type ModelInfo struct {
 }
 
 func (c Client) FetchModels(ctx context.Context, credentials Credentials) ([]ModelInfo, error) {
-	client := c.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
+	client := c.routingCookieHTTPClient()
 	baseURL := strings.TrimRight(c.BaseURL, "/")
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
