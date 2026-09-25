@@ -68,6 +68,14 @@ func TestLoginLoopbackAndExchange(t *testing.T) {
 		if r.Form.Get("code") != "code-123" {
 			t.Fatalf("code = %q", r.Form.Get("code"))
 		}
+		redirectURI := r.Form.Get("redirect_uri")
+		parsedRedirect, err := url.Parse(redirectURI)
+		if err != nil {
+			t.Fatalf("parse token redirect_uri: %v", err)
+		}
+		if parsedRedirect.Hostname() != "127.0.0.1" || parsedRedirect.Path != "/auth/callback" {
+			t.Fatalf("token redirect_uri = %q, want numeric loopback callback", redirectURI)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"access_token":  "access",
 			"refresh_token": "refresh",
@@ -94,6 +102,13 @@ func TestLoginLoopbackAndExchange(t *testing.T) {
 				return err
 			}
 			redirect := parsed.Query().Get("redirect_uri")
+			parsedRedirect, err := url.Parse(redirect)
+			if err != nil {
+				return err
+			}
+			if parsedRedirect.Hostname() != "127.0.0.1" || parsedRedirect.Path != "/auth/callback" {
+				t.Fatalf("authorization redirect_uri = %q, want numeric loopback callback", redirect)
+			}
 			state := parsed.Query().Get("state")
 			go func() {
 				_, _ = http.Get(redirect + "?code=code-123&state=" + url.QueryEscape(state))

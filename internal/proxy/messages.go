@@ -212,7 +212,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if err != nil && usedImplicitResume && remainingGenerationAttempts > 0 {
+	if err != nil && usedImplicitResume && remainingGenerationAttempts > 0 && !isFlexUnavailable(err) {
 		s.trace("resume.retry_full", mergeTraceFields(traceBase, map[string]any{
 			"reason": "create_error",
 			"error":  err.Error(),
@@ -540,6 +540,9 @@ func shouldRetryStream(r *http.Request, err error, usedImplicitResume bool) bool
 	}
 	var upstreamEvent upstreamStreamEventError
 	if errors.As(err, &upstreamEvent) {
+		if strings.EqualFold(strings.TrimSpace(upstreamEvent.code), "flex_unavailable") {
+			return false
+		}
 		if strings.EqualFold(strings.TrimSpace(upstreamEvent.code), "bio_policy") {
 			return false
 		}
@@ -555,6 +558,18 @@ func shouldRetryStream(r *http.Request, err error, usedImplicitResume bool) bool
 		return false
 	}
 	return isRetryableTransportError(err)
+}
+
+func isFlexUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	var streamEvent upstreamStreamEventError
+	if errors.As(err, &streamEvent) && strings.EqualFold(strings.TrimSpace(streamEvent.code), "flex_unavailable") {
+		return true
+	}
+	var upstream *codex.UpstreamError
+	return errors.As(err, &upstream) && strings.EqualFold(strings.TrimSpace(upstreamErrorCode(upstream)), "flex_unavailable")
 }
 
 func isRetryableRateLimitCode(code string) bool {

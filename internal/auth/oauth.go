@@ -109,7 +109,7 @@ func Login(ctx context.Context, opts LoginOptions) (File, error) {
 	if err != nil {
 		return File{}, err
 	}
-	redirectURI := "http://localhost:" + port + "/auth/callback"
+	redirectURI := "http://127.0.0.1:" + port + "/auth/callback"
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 	server := &http.Server{Handler: callbackHandler(state, codeCh, errCh)}

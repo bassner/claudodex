@@ -1414,6 +1414,15 @@ func TestShouldRetryStreamRetriesTransientTransportErrors(t *testing.T) {
 	if shouldRetryStream(nil, upstreamStreamEventError{typ: "invalid_request_error", code: "bio_policy", message: codex.BioPolicyFallbackMessage}, true) {
 		t.Fatal("bio_policy must remain terminal even during implicit resume")
 	}
+	if shouldRetryStream(nil, upstreamStreamEventError{typ: "server_error", code: "flex_unavailable", message: "Flex unavailable"}, true) {
+		t.Fatal("flex_unavailable must remain terminal even during implicit resume")
+	}
+	if !isFlexUnavailable(&codex.UpstreamError{Status: http.StatusTooManyRequests, Content: []byte(`{"error":{"code":"flex_unavailable","message":"Flex unavailable"}}`)}) {
+		t.Fatal("HTTP flex_unavailable response was not classified as terminal")
+	}
+	if !isFlexUnavailable(upstreamStreamEventError{typ: "server_error", code: "flex_unavailable"}) {
+		t.Fatal("streamed flex_unavailable response was not classified as terminal")
+	}
 }
 
 func TestWriteMappedStreamErrorMapsExhaustedSlowDownToRateLimit(t *testing.T) {

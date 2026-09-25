@@ -21,3 +21,20 @@ func TestParseResponseFailureRecognizesBioPolicyShapes(t *testing.T) {
 		})
 	}
 }
+
+func TestParseResponseFailureRecognizesFlexUnavailableTransportShapes(t *testing.T) {
+	tests := map[string]string{
+		"http":      `{"error":{"code":"flex_unavailable","message":"Flex unavailable"}}`,
+		"sse error": `{"type":"error","code":"flex_unavailable","message":"Flex unavailable"}`,
+		"response":  `{"type":"response.failed","response":{"error":{"code":"flex_unavailable","message":"Flex unavailable"}}}`,
+		"websocket": `{"type":"error","error":{"code":"flex_unavailable","message":"Flex unavailable"}}`,
+	}
+	for name, raw := range tests {
+		t.Run(name, func(t *testing.T) {
+			failure := ParseResponseFailure([]byte(raw))
+			if failure.Code != "flex_unavailable" || failure.Message != "Flex unavailable" {
+				t.Fatalf("failure = %#v", failure)
+			}
+		})
+	}
+}
