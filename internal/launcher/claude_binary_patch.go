@@ -21,7 +21,7 @@ import (
 
 const (
 	claudodexPatchedClaudeDirName = "patched-claude"
-	claudodexPatchSchemaVersion   = "claude-ui-patch-v109"
+	claudodexPatchSchemaVersion   = "claude-ui-patch-v110"
 )
 
 var (
@@ -40,6 +40,7 @@ type claudeUIPatchSpec struct {
 }
 
 var claudeUIPatches = []claudeUIPatchSpec{
+	claudeUIPatch_2_1_283,
 	claudeUIPatch_2_1_282,
 	claudeUIPatch_2_1_281,
 	claudeUIPatch_2_1_278,
@@ -186,7 +187,7 @@ func claudeFastModeSettingsFallbackRequired(ctx context.Context, claudePath stri
 		return false
 	}
 	patch := findClaudeUIPatch(version, sha256Hex(sourceData))
-	return patch != nil && (patch.Version == claudeUIPatch_2_1_282.Version || patch.Version == claudeUIPatch_2_1_281.Version || patch.Version == claudeUIPatch_2_1_278.Version || patch.Version == claudeUIPatch_2_1_276.Version || patch.Version == claudeUIPatch_2_1_274.Version || patch.Version == claudeUIPatch_2_1_273.Version || patch.Version == claudeUIPatch_2_1_263.Version || patch.Version == claudeUIPatch_2_1_261.Version || patch.Version == claudeUIPatch_2_1_260.Version || patch.Version == claudeUIPatch_2_1_259.Version || patch.Version == claudeUIPatch_2_1_258.Version || patch.Version == claudeUIPatch_2_1_252.Version || patch.Version == claudeUIPatch_2_1_251.Version || patch.Version == claudeUIPatch_2_1_247.Version || patch.Version == claudeUIPatch_2_1_246.Version)
+	return patch != nil && (patch.Version == claudeUIPatch_2_1_283.Version || patch.Version == claudeUIPatch_2_1_282.Version || patch.Version == claudeUIPatch_2_1_281.Version || patch.Version == claudeUIPatch_2_1_278.Version || patch.Version == claudeUIPatch_2_1_276.Version || patch.Version == claudeUIPatch_2_1_274.Version || patch.Version == claudeUIPatch_2_1_273.Version || patch.Version == claudeUIPatch_2_1_263.Version || patch.Version == claudeUIPatch_2_1_261.Version || patch.Version == claudeUIPatch_2_1_260.Version || patch.Version == claudeUIPatch_2_1_259.Version || patch.Version == claudeUIPatch_2_1_258.Version || patch.Version == claudeUIPatch_2_1_252.Version || patch.Version == claudeUIPatch_2_1_251.Version || patch.Version == claudeUIPatch_2_1_247.Version || patch.Version == claudeUIPatch_2_1_246.Version)
 }
 
 func claudeThreeTierPickerArgsRequired(ctx context.Context, claudePath string) bool {
@@ -199,7 +200,7 @@ func claudeThreeTierPickerArgsRequired(ctx context.Context, claudePath string) b
 		return false
 	}
 	patch := findClaudeUIPatch(version, sha256Hex(sourceData))
-	return patch != nil && (patch.Version == claudeUIPatch_2_1_282.Version || patch.Version == claudeUIPatch_2_1_281.Version || patch.Version == claudeUIPatch_2_1_278.Version || patch.Version == claudeUIPatch_2_1_276.Version || patch.Version == claudeUIPatch_2_1_274.Version || patch.Version == claudeUIPatch_2_1_273.Version || patch.Version == claudeUIPatch_2_1_263.Version || patch.Version == claudeUIPatch_2_1_261.Version || patch.Version == claudeUIPatch_2_1_260.Version || patch.Version == claudeUIPatch_2_1_259.Version || patch.Version == claudeUIPatch_2_1_258.Version)
+	return patch != nil && (patch.Version == claudeUIPatch_2_1_283.Version || patch.Version == claudeUIPatch_2_1_282.Version || patch.Version == claudeUIPatch_2_1_281.Version || patch.Version == claudeUIPatch_2_1_278.Version || patch.Version == claudeUIPatch_2_1_276.Version || patch.Version == claudeUIPatch_2_1_274.Version || patch.Version == claudeUIPatch_2_1_273.Version || patch.Version == claudeUIPatch_2_1_263.Version || patch.Version == claudeUIPatch_2_1_261.Version || patch.Version == claudeUIPatch_2_1_260.Version || patch.Version == claudeUIPatch_2_1_259.Version || patch.Version == claudeUIPatch_2_1_258.Version)
 }
 
 func claudeSourcePatchedPickerArgsRequired(ctx context.Context, claudePath string) bool {
@@ -212,7 +213,7 @@ func claudeSourcePatchedPickerArgsRequired(ctx context.Context, claudePath strin
 		return false
 	}
 	patch := findClaudeUIPatch(version, sha256Hex(sourceData))
-	return patch != nil && (patch.Version == claudeUIPatch_2_1_282.Version || patch.Version == claudeUIPatch_2_1_281.Version || patch.Version == claudeUIPatch_2_1_278.Version || patch.Version == claudeUIPatch_2_1_276.Version || patch.Version == claudeUIPatch_2_1_274.Version || patch.Version == claudeUIPatch_2_1_273.Version || patch.Version == claudeUIPatch_2_1_263.Version || patch.Version == claudeUIPatch_2_1_261.Version || patch.Version == claudeUIPatch_2_1_260.Version || patch.Version == claudeUIPatch_2_1_259.Version)
+	return patch != nil && (patch.Version == claudeUIPatch_2_1_283.Version || patch.Version == claudeUIPatch_2_1_282.Version || patch.Version == claudeUIPatch_2_1_281.Version || patch.Version == claudeUIPatch_2_1_278.Version || patch.Version == claudeUIPatch_2_1_276.Version || patch.Version == claudeUIPatch_2_1_274.Version || patch.Version == claudeUIPatch_2_1_273.Version || patch.Version == claudeUIPatch_2_1_263.Version || patch.Version == claudeUIPatch_2_1_261.Version || patch.Version == claudeUIPatch_2_1_260.Version || patch.Version == claudeUIPatch_2_1_259.Version)
 }
 
 func warnClaudePatchSkipped(stderr io.Writer, claudeVersion, sourceSHA string, err error) {
