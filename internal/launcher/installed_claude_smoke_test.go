@@ -25,12 +25,12 @@ func TestInstalledClaudeLiveCodexModelEfforts(t *testing.T) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
-	file, err := auth.NewStore("").Load()
-	if err != nil {
-		t.Fatalf("load existing Claudodex auth: %v", err)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	file, err := auth.EnsureLoggedIn(ctx, "", false)
+	if err != nil {
+		t.Fatalf("load fresh Claudodex auth: %v", err)
+	}
 	models, err := FetchCodexModels(ctx, Config{Version: "dev", Models: modelconfig.Default()}, file)
 	if err != nil {
 		t.Fatalf("fetch live Codex model metadata: %v", err)
