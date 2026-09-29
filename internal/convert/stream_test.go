@@ -122,6 +122,43 @@ func TestStreamReducerKeepsDelayedSafetyBufferingNonterminal(t *testing.T) {
 	}
 }
 
+func TestStreamReducerTreatsContentFilterIncompleteAsFailureBeforeOutput(t *testing.T) {
+	reducer := NewStreamReducer("msg_filter", "claude-sonnet-4-6")
+	events, err := reducer.Reduce(json.RawMessage(`{"type":"response.incomplete","response":{"incomplete_details":{"reason":"content_filter"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reducer.Done() || !reducer.Failed() || reducer.FailureCode() != "content_filter" {
+		t.Fatalf("failure state: done=%v failed=%v code=%q", reducer.Done(), reducer.Failed(), reducer.FailureCode())
+	}
+	for _, event := range events {
+		if event.Event == "message_delta" || event.Event == "message_stop" {
+			t.Fatalf("content filter emitted successful completion: %#v", event)
+		}
+	}
+}
+
+func TestStreamReducerTreatsContentFilterIncompleteAsFailureAfterOutput(t *testing.T) {
+	reducer := NewStreamReducer("msg_filter", "claude-sonnet-4-6")
+	for _, raw := range []string{
+		`{"type":"response.output_text.delta","delta":"partial"}`,
+		`{"type":"response.incomplete","response":{"incomplete_details":{"reason":"content_filter"}}}`,
+	} {
+		events, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, event := range events {
+			if event.Event == "message_delta" || event.Event == "message_stop" {
+				t.Fatalf("content filter emitted successful completion: %#v", event)
+			}
+		}
+	}
+	if !reducer.Failed() || reducer.FailureCode() != "content_filter" {
+		t.Fatalf("failure state: failed=%v code=%q", reducer.Failed(), reducer.FailureCode())
+	}
+}
+
 func TestStreamReducerSeparatesAnnouncedReasoningSummaryParts(t *testing.T) {
 	reducer := NewStreamReducer("msg_1", "claude-sonnet-4-6")
 	var events []AnthropicSSE

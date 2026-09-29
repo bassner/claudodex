@@ -336,7 +336,9 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 	case "response.completed", "response.done":
 		events = append(events, r.finish(event, "")...)
 	case "response.incomplete":
-		if r.visibleBlocks > 0 {
+		if incompleteReason(event) == "content_filter" {
+			events = append(events, r.errorEventsWithCode("content_filter", "Codex response was blocked by a content filter")...)
+		} else if r.visibleBlocks > 0 {
 			events = append(events, r.finish(event, "max_tokens")...)
 		} else {
 			events = append(events, r.errorEvents("api_error", "Codex response ended incomplete before visible output")...)
@@ -1279,6 +1281,13 @@ func failureMessage(event map[string]any) string {
 
 func failureCode(event map[string]any) string {
 	return responseFailure(event).Code
+}
+
+func incompleteReason(event map[string]any) string {
+	response, _ := event["response"].(map[string]any)
+	details, _ := response["incomplete_details"].(map[string]any)
+	reason, _ := details["reason"].(string)
+	return strings.ToLower(strings.TrimSpace(reason))
 }
 
 func responseFailure(event map[string]any) codex.ResponseFailure {

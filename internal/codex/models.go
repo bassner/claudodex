@@ -22,6 +22,10 @@ type ReasoningEffortPreset struct {
 	Description string `json:"description,omitempty"`
 }
 
+type ModelMessages struct {
+	ContentFilterGuidance *string `json:"content_filter_guidance,omitempty"`
+}
+
 type ModelInfo struct {
 	Slug                          string                  `json:"slug"`
 	DisplayName                   string                  `json:"display_name"`
@@ -32,6 +36,7 @@ type ModelInfo struct {
 	EffectiveContextWindowPercent int64                   `json:"effective_context_window_percent,omitempty"`
 	SupportsReasoningSummaries    bool                    `json:"supports_reasoning_summaries,omitempty"`
 	SupportedReasoningLevels      []ReasoningEffortPreset `json:"supported_reasoning_levels,omitempty"`
+	ModelMessages                 *ModelMessages          `json:"model_messages,omitempty"`
 	SupportedInAPI                bool                    `json:"supported_in_api"`
 	Visibility                    string                  `json:"visibility"`
 }

@@ -21,6 +21,8 @@ import (
 const (
 	maxMessagesBody                = 64 << 20
 	defaultStreamKeepaliveInterval = 10 * time.Second
+	maxContentFilterGuidanceBytes  = 512
+	defaultContentFilterGuidance   = "Your previous response was blocked by a content filter. Do not treat this as a transient failure or try to reproduce or work around the blocked content through repeated attempts, altered formatting, splitting, encoding, tools, subagents, or later wakes. Briefly explain the limitation and offer a permitted alternative. Continue unrelated authorized work."
 )
 
 const streamKeepaliveIntervalEnv = "CLAUDODEX_STREAM_KEEPALIVE_INTERVAL"
@@ -254,6 +256,9 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			if waitErr := s.waitForStreamRetry(r.Context(), err, upstream.Header); waitErr != nil {
 				err = waitErr
 			} else {
+				if isContentFilterError(err) {
+					fullRequest = s.appendContentFilterGuidance(fullRequest)
+				}
 				s.trace("resume.retry_full", mergeTraceFields(traceBase, map[string]any{
 					"reason": "stream_error",
 					"error":  err.Error(),
@@ -304,6 +309,9 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	err = s.writeNonStreamingMessageWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, result.WebSearchMaxUses, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, traceBase)
 	_ = upstream.Body.Close()
 	if shouldRetryStream(r, err, usedImplicitResume) && remainingGenerationAttempts > 0 {
+		if isContentFilterError(err) {
+			fullRequest = s.appendContentFilterGuidance(fullRequest)
+		}
 		s.trace("resume.retry_full", mergeTraceFields(traceBase, map[string]any{
 			"reason": "stream_error",
 			"error":  err.Error(),
@@ -546,6 +554,9 @@ func shouldRetryStream(r *http.Request, err error, usedImplicitResume bool) bool
 		if strings.EqualFold(strings.TrimSpace(upstreamEvent.code), "bio_policy") {
 			return false
 		}
+		if strings.EqualFold(strings.TrimSpace(upstreamEvent.code), "content_filter") {
+			return true
+		}
 		if usedImplicitResume {
 			return true
 		}
@@ -558,6 +569,34 @@ func shouldRetryStream(r *http.Request, err error, usedImplicitResume bool) bool
 		return false
 	}
 	return isRetryableTransportError(err)
+}
+
+func (s *Server) appendContentFilterGuidance(req codex.Request) codex.Request {
+	guidance := defaultContentFilterGuidance
+	for _, model := range s.cfg.Models {
+		if model.Slug != req.Model || model.ModelMessages == nil || model.ModelMessages.ContentFilterGuidance == nil {
+			continue
+		}
+		candidate := *model.ModelMessages.ContentFilterGuidance
+		if strings.TrimSpace(candidate) != "" && len(candidate) <= maxContentFilterGuidanceBytes {
+			guidance = candidate
+		}
+		break
+	}
+	req.Input = append(req.Input, codex.InputItem{
+		Type: "message",
+		Role: "developer",
+		Content: []codex.ContentPart{{
+			Type: "input_text",
+			Text: "<content_filter_guidance>\n" + guidance + "\n</content_filter_guidance>",
+		}},
+	})
+	return req
+}
+
+func isContentFilterError(err error) bool {
+	var upstreamEvent upstreamStreamEventError
+	return errors.As(err, &upstreamEvent) && strings.EqualFold(strings.TrimSpace(upstreamEvent.code), "content_filter")
 }
 
 func isFlexUnavailable(err error) bool {
@@ -738,7 +777,7 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 			// Code may submit the next tool result immediately after observing it.
 			s.recordResponseUsage(chainKey, reducer.Usage())
 		}
-		if reducer.Failed() && !wrote && (retryEarlyUpstreamErrors || isRetryableRateLimitCode(reducer.FailureCode())) {
+		if reducer.Failed() && (!wrote || strings.EqualFold(reducer.FailureCode(), "content_filter")) && (retryEarlyUpstreamErrors || isRetryableRateLimitCode(reducer.FailureCode()) || strings.EqualFold(reducer.FailureCode(), "content_filter")) {
 			retryAfter := retryDelayFromHeaders(upstreamHeaders)
 			if messageDelay := reducer.FailureRetryAfter(); messageDelay > retryAfter {
 				retryAfter = messageDelay
@@ -995,7 +1034,7 @@ func (s *Server) writeNonStreamingMessageWithSchemas(w http.ResponseWriter, body
 				"output_items": len(trace.Output),
 			}))
 		}
-		return upstreamStreamEventError{typ: reducer.FailureType(), message: reducer.FailureMessage()}
+		return upstreamStreamEventError{typ: reducer.FailureType(), code: reducer.FailureCode(), message: reducer.FailureMessage(), retryAfter: reducer.FailureRetryAfter()}
 	}
 	if !reducer.Done() {
 		s.trace("stream.incomplete", mergeTraceFields(traceBase, map[string]any{
@@ -1045,7 +1084,7 @@ func streamErrorEvent(message string) convert.AnthropicSSE {
 		Data: map[string]any{
 			"type": "error",
 			"error": map[string]any{
-				"type":    "api_error",
+				"type":    "overloaded_error",
 				"message": message,
 			},
 		},

@@ -1425,6 +1425,135 @@ func TestShouldRetryStreamRetriesTransientTransportErrors(t *testing.T) {
 	}
 }
 
+func TestContentFilterRetryUsesValidatedCatalogGuidance(t *testing.T) {
+	catalogGuidance := "Offer a permitted alternative."
+	server := New(Config{Models: []codex.ModelInfo{{
+		Slug: "gpt-5.6-terra",
+		ModelMessages: &codex.ModelMessages{
+			ContentFilterGuidance: &catalogGuidance,
+		},
+	}}})
+	req := server.appendContentFilterGuidance(codex.Request{Model: "gpt-5.6-terra"})
+	if len(req.Input) != 1 || len(req.Input[0].Content) != 1 {
+		t.Fatalf("guidance input = %#v", req.Input)
+	}
+	if got := req.Input[0].Content[0].Text; got != "<content_filter_guidance>\n"+catalogGuidance+"\n</content_filter_guidance>" {
+		t.Fatalf("guidance = %q", got)
+	}
+}
+
+func TestContentFilterRetryRejectsBlankAndOversizedCatalogGuidance(t *testing.T) {
+	for _, guidance := range []string{"   ", strings.Repeat("x", maxContentFilterGuidanceBytes+1)} {
+		server := New(Config{Models: []codex.ModelInfo{{
+			Slug: "gpt-5.6-terra",
+			ModelMessages: &codex.ModelMessages{
+				ContentFilterGuidance: &guidance,
+			},
+		}}})
+		req := server.appendContentFilterGuidance(codex.Request{Model: "gpt-5.6-terra"})
+		if got := req.Input[0].Content[0].Text; !strings.Contains(got, defaultContentFilterGuidance) {
+			t.Fatalf("invalid catalog guidance did not fall back: %q", got)
+		}
+	}
+}
+
+func TestShouldRetryStreamRetriesContentFilter(t *testing.T) {
+	err := upstreamStreamEventError{code: "content_filter", message: "blocked"}
+	if !shouldRetryStream(nil, err, false) {
+		t.Fatal("content filter should be retryable before downstream output")
+	}
+}
+
+func TestMessagesRetriesEarlyContentFilterWithCatalogGuidance(t *testing.T) {
+	t.Setenv("CLAUDODEX_DISABLE_CODEX_WEBSOCKET", "1")
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	guidance := "Offer a permitted alternative."
+	var attempts atomic.Int32
+	var retryRequest map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt := attempts.Add(1)
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("content-type", "text/event-stream")
+		if attempt == 1 {
+			_, _ = io.WriteString(w, "event: response.incomplete\n"+`data: {"type":"response.incomplete","response":{"incomplete_details":{"reason":"content_filter"}}}`+"\n\n")
+			return
+		}
+		retryRequest = request
+		_, _ = io.WriteString(w, "event: response.output_item.done\n"+`data: {"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"permitted alternative"}]}}`+"\n\n")
+		_, _ = io.WriteString(w, "event: response.completed\n"+`data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2}}}`+"\n\n")
+	}))
+	defer upstream.Close()
+	server := New(Config{
+		Home:         home,
+		CodexBaseURL: upstream.URL,
+		HTTPClient:   upstream.Client(),
+		AuthPresent:  true,
+		Models: []codex.ModelInfo{{
+			Slug: "gpt-5.6-terra",
+			ModelMessages: &codex.ModelMessages{
+				ContentFilterGuidance: &guidance,
+			},
+		}},
+	})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"x"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body := readAllString(t, resp)
+	if attempts.Load() != 2 || !strings.Contains(body, "permitted alternative") || !strings.Contains(body, "event: message_stop") {
+		t.Fatalf("attempts=%d body=%s", attempts.Load(), body)
+	}
+	encoded, err := json.Marshal(retryRequest["input"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), "content_filter_guidance") || !strings.Contains(string(encoded), guidance) {
+		t.Fatalf("retry input missing catalog guidance: %s", encoded)
+	}
+}
+
+func TestMessagesContentFilterAfterOutputEmitsRetryableStreamErrorWithoutCompletion(t *testing.T) {
+	t.Setenv("CLAUDODEX_DISABLE_CODEX_WEBSOCKET", "1")
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	var attempts atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.Header().Set("content-type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: response.output_text.delta\n"+`data: {"type":"response.output_text.delta","delta":"partial"}`+"\n\n")
+		_, _ = io.WriteString(w, "event: response.incomplete\n"+`data: {"type":"response.incomplete","response":{"incomplete_details":{"reason":"content_filter"}}}`+"\n\n")
+	}))
+	defer upstream.Close()
+	server := New(Config{Home: home, CodexBaseURL: upstream.URL, HTTPClient: upstream.Client(), AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"x"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body := readAllString(t, resp)
+	if attempts.Load() != 1 {
+		t.Fatalf("attempts = %d, want no replay after committed output", attempts.Load())
+	}
+	if !strings.Contains(body, `"type":"overloaded_error"`) || strings.Contains(body, "event: message_stop") {
+		t.Fatalf("content-filter stream termination = %s", body)
+	}
+}
+
 func TestWriteMappedStreamErrorMapsExhaustedSlowDownToRateLimit(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writeMappedStreamError(rec, upstreamStreamEventError{code: "slow_down", message: "Please try again in 0s"})
