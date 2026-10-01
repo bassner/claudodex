@@ -6,6 +6,41 @@ import (
 	"testing"
 )
 
+func TestResponsesRequestsSerializeRoutingFieldsBeforeLargeInput(t *testing.T) {
+	request := Request{
+		Model:        "gpt-5.6-terra",
+		Stream:       true,
+		ServiceTier:  "priority",
+		Instructions: strings.Repeat("i", 1<<20),
+		Input: []InputItem{{
+			Type:    "message",
+			Role:    "user",
+			Content: []ContentPart{{Type: "input_text", Text: strings.Repeat("x", 1<<20)}},
+		}},
+	}
+	for name, payload := range map[string]any{
+		"http":      request,
+		"websocket": wsCreateRequest{Type: "response.create", Request: request},
+	} {
+		t.Run(name, func(t *testing.T) {
+			encoded, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prefix := `{"model":"gpt-5.6-terra","stream":true,"service_tier":"priority"`
+			if name == "websocket" {
+				prefix = `{"type":"response.create","model":"gpt-5.6-terra","stream":true,"service_tier":"priority"`
+			}
+			if !strings.HasPrefix(string(encoded), prefix) {
+				t.Fatalf("request prefix = %.160q, want %q", encoded, prefix)
+			}
+			if inputAt, tierAt := strings.Index(string(encoded), `"input"`), strings.Index(string(encoded), `"service_tier"`); inputAt < 0 || tierAt < 0 || tierAt > inputAt {
+				t.Fatalf("service_tier offset = %d, input offset = %d", tierAt, inputAt)
+			}
+		})
+	}
+}
+
 func TestInputItemPreservesOpaqueReasoningFields(t *testing.T) {
 	raw := []byte(`{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"visible"}],"content":null,"encrypted_content":"opaque-secret","provider_extension":{"keep":true}}`)
 	var item InputItem

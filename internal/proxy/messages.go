@@ -456,6 +456,12 @@ func (s *Server) createCodexResponse(r *http.Request, req codex.Request, route c
 				if strings.TrimSpace(req.PreviousResponseID) != "" || remainingAttempts() == 0 {
 					return finish(nil, err)
 				}
+				// A rejected WebSocket upgrade can carry the same Retry-After
+				// advice as an HTTP response. Honor it before switching transports
+				// so the fallback does not immediately bypass upstream backoff.
+				if waitErr := s.waitForUpstreamRetry(r.Context(), err); waitErr != nil {
+					return finish(nil, waitErr)
+				}
 			}
 		}
 	}

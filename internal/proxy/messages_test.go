@@ -2136,6 +2136,57 @@ func TestMessagesRetriesEarlyWebSocketSlowDown(t *testing.T) {
 	}
 }
 
+func TestMessagesWaitsForWebSocketHandshakeRetryAfterBeforeHTTPFallback(t *testing.T) {
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			home := t.TempDir()
+			saveTestAuth(t, home, "access-1")
+			t.Setenv("CLAUDODEX_FORCE_CODEX_WEBSOCKET", "true")
+			var handshakeAt, fallbackAt time.Time
+			var requests atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if websocket.IsWebSocketUpgrade(r) {
+					handshakeAt = time.Now()
+					w.Header().Set("retry-after", "0.04")
+					w.WriteHeader(status)
+					_, _ = w.Write([]byte(`{"error":{"code":"slow_down"}}`))
+					return
+				}
+				fallbackAt = time.Now()
+				w.Header().Set("content-type", "text/event-stream")
+				_, _ = w.Write([]byte("event: response.output_text.delta\n" +
+					`data: {"type":"response.output_text.delta","delta":"recovered"}` + "\n\n" +
+					"event: response.completed\n" +
+					`data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1}}}` + "\n\n"))
+			}))
+			defer upstream.Close()
+
+			server := New(Config{Home: home, CodexBaseURL: upstream.URL, HTTPClient: upstream.Client(), AuthPresent: true})
+			addr, err := server.Start("127.0.0.1", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer server.Close()
+
+			resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-opus-4-6","stream":true,"messages":[{"role":"user","content":"x"}],"tools":[{"name":"Read","input_schema":{"type":"object"}}]}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			if body := readAllString(t, resp); !strings.Contains(body, "recovered") {
+				t.Fatalf("missing HTTP fallback response: %s", body)
+			}
+			if got := fallbackAt.Sub(handshakeAt); got < 30*time.Millisecond {
+				t.Fatalf("fallback delay = %s, want at least 30ms", got)
+			}
+			if got := requests.Load(); got != 2 {
+				t.Fatalf("generation attempts = %d, want one WebSocket plus one HTTP", got)
+			}
+		})
+	}
+}
+
 func TestMessagesMapsNonJSONUpstreamError(t *testing.T) {
 	home := t.TempDir()
 	saveTestAuth(t, home, "access-1")

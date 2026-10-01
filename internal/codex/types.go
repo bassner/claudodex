@@ -6,6 +6,8 @@ const DefaultBaseURL = "https://chatgpt.com/backend-api"
 
 type Request struct {
 	Model              string            `json:"model"`
+	Stream             bool              `json:"stream"`
+	ServiceTier        string            `json:"service_tier,omitempty"`
 	Instructions       string            `json:"instructions,omitempty"`
 	PreviousResponseID string            `json:"previous_response_id,omitempty"`
 	Input              []InputItem       `json:"input"`
@@ -13,9 +15,7 @@ type Request struct {
 	ToolChoice         any               `json:"tool_choice,omitempty"`
 	ParallelToolCalls  bool              `json:"parallel_tool_calls"`
 	Store              bool              `json:"store"`
-	Stream             bool              `json:"stream"`
 	Include            []string          `json:"include,omitempty"`
-	ServiceTier        string            `json:"service_tier,omitempty"`
 	Reasoning          *Reasoning        `json:"reasoning,omitempty"`
 	Text               *TextConfig       `json:"text,omitempty"`
 	PromptCacheKey     string            `json:"prompt_cache_key,omitempty"`

@@ -13,25 +13,25 @@ import (
 	"github.com/bassner/claudodex/internal/modelconfig"
 )
 
-func TestClaude284PatchRequiresExactVersionOSArchAndSHA(t *testing.T) {
-	patch := findClaudeUIPatch("2.1.284", claude284SHA)
+func TestClaude286PatchRequiresExactVersionOSArchAndSHA(t *testing.T) {
+	patch := findClaudeUIPatch("2.1.286", claude286SHA)
 	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
 		if patch == nil {
-			t.Fatal("expected verified Claude 2.1.284 darwin/arm64 patch to match")
+			t.Fatal("expected verified Claude 2.1.286 darwin/arm64 patch to match")
 		}
 	} else if patch != nil {
 		t.Fatalf("patch matched unsupported runtime %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
-	if got := findClaudeUIPatch("2.1.284", claude283SHA); got != nil {
-		t.Fatalf("Claude 2.1.284 patch matched wrong SHA: %#v", got)
+	if got := findClaudeUIPatch("2.1.286", claude284SHA); got != nil {
+		t.Fatalf("Claude 2.1.286 patch matched wrong SHA: %#v", got)
 	}
-	if got := findClaudeUIPatch("2.1.283", claude284SHA); got != nil {
-		t.Fatalf("Claude 2.1.284 SHA matched wrong version: %#v", got)
+	if got := findClaudeUIPatch("2.1.284", claude286SHA); got != nil {
+		t.Fatalf("Claude 2.1.286 SHA matched wrong version: %#v", got)
 	}
 }
 
-func TestClaude284WrongSHAFallsBackToUnpatchedExecutable(t *testing.T) {
-	claudePath := t.TempDir() + "/2.1.284"
+func TestClaude286WrongSHAFallsBackToUnpatchedExecutable(t *testing.T) {
+	claudePath := t.TempDir() + "/2.1.286"
 	if err := os.WriteFile(claudePath, []byte("not the verified binary"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -45,9 +45,9 @@ func TestClaude284WrongSHAFallsBackToUnpatchedExecutable(t *testing.T) {
 	}
 }
 
-func TestClaude284ModelPickerContainsExactlyThreeCodexTiers(t *testing.T) {
-	data := []byte(`function Kge(e=!1,n=null){` + strings.Repeat(" ", 5000) + `function d2(e,n){}`)
-	if !patchModelPickerOptions_2_1_284(data, modelconfig.Default()) {
+func TestClaude286ModelPickerContainsExactlyThreeCodexTiers(t *testing.T) {
+	data := []byte(`function The(e=!1,n=null){` + strings.Repeat(" ", 5000) + `function t3(e,n){}`)
+	if !patchModelPickerOptions_2_1_286(data, modelconfig.Default()) {
 		t.Fatal("model picker patch reported no changes")
 	}
 	got := string(data)
@@ -66,10 +66,10 @@ func TestClaude284ModelPickerContainsExactlyThreeCodexTiers(t *testing.T) {
 	}
 }
 
-func TestClaude284LogoPatchFailsClosedOnOverflow(t *testing.T) {
-	data := []byte(`function vQe(){let o=a.DEMO_VERSION??` + strings.Repeat(" ", 1000) + `function _or(o,l,t){}`)
+func TestClaude286LogoPatchFailsClosedOnOverflow(t *testing.T) {
+	data := []byte(`function GZe(){let o=a.DEMO_VERSION??` + strings.Repeat(" ", 1000) + `function Rir(o,i,t){}`)
 	original := append([]byte(nil), data...)
-	if patchLogoDisplayDataFunction_2_1_284(data, strings.Repeat("x", 4000), "2.1.284") {
+	if patchLogoDisplayDataFunction_2_1_286(data, strings.Repeat("x", 4000), "2.1.286") {
 		t.Fatal("oversized executable replacement unexpectedly succeeded")
 	}
 	if !bytes.Equal(data, original) {
@@ -77,10 +77,7 @@ func TestClaude284LogoPatchFailsClosedOnOverflow(t *testing.T) {
 	}
 }
 
-func TestClaude284PatchTargetsMaintenanceBinary(t *testing.T) {
-	if version := os.Getenv("CLAUDODEX_MAINTENANCE_CLAUDE_VERSION"); version != "" && version != "2.1.284" {
-		return
-	}
+func TestClaude286PatchTargetsMaintenanceBinary(t *testing.T) {
 	path := os.Getenv("CLAUDODEX_MAINTENANCE_CLAUDE_REALPATH")
 	if path == "" {
 		t.Skip("maintenance Claude path is unavailable")
@@ -89,42 +86,42 @@ func TestClaude284PatchTargetsMaintenanceBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sha256Hex(source); got != claude284SHA {
-		t.Fatalf("maintenance Claude SHA = %s, want %s", got, claude284SHA)
+	if got := sha256Hex(source); got != claude286SHA {
+		t.Fatalf("maintenance Claude SHA = %s, want %s", got, claude286SHA)
 	}
-	if !validateClaude209UIBrandingReplacements(source, claude284UIBrandingReplacements) {
-		for _, replacement := range claude284UIBrandingReplacements {
+	if !validateClaude209UIBrandingReplacements(source, claude286UIBrandingReplacements) {
+		for _, replacement := range claude286UIBrandingReplacements {
 			if got := bytes.Count(source, []byte(replacement.old)); got != replacement.expectedCount {
 				t.Logf("branding count for %q = %d, want %d", replacement.old, got, replacement.expectedCount)
 			}
 		}
-		t.Fatal("Claude 2.1.284 branding prerequisites do not match the maintenance binary")
+		t.Fatal("Claude 2.1.286 branding prerequisites do not match the maintenance binary")
 	}
-	records, hashes, ok := claude284EmbeddedBunModuleHashes(source)
+	records, hashes, ok := claude286EmbeddedBunModuleHashes(source)
 	if !ok {
-		t.Fatal("Claude 2.1.284 Bun module table is unavailable")
+		t.Fatal("Claude 2.1.286 Bun module table is unavailable")
 	}
-	for _, transformation := range claude284SourceTransformationsForConfig("test", "2.1.284", modelconfig.Default()) {
+	for _, transformation := range claude286SourceTransformationsForConfig("test", "2.1.286", modelconfig.Default()) {
 		candidate := append([]byte(nil), source...)
 		if !transformation.apply(candidate) {
-			t.Logf("source transformation did not match: %s", transformation.name)
+			t.Errorf("source transformation did not match: %s", transformation.name)
 		}
 	}
 	patched := append([]byte(nil), source...)
-	if !applyClaudeUIPatches_2_1_284(patched, "test", "2.1.284", modelconfig.Default()) {
-		t.Fatal("complete Claude 2.1.284 patch did not apply")
+	if !applyClaudeUIPatches_2_1_286(patched, "test", "2.1.286", modelconfig.Default()) {
+		t.Fatal("complete Claude 2.1.286 patch did not apply")
 	}
-	for _, transformation := range claude284RemoteControlTransformations() {
+	for _, transformation := range claude286RemoteControlTransformations() {
 		candidate := append([]byte(nil), source...)
 		if !transformation.apply(candidate) {
 			t.Errorf("remote-control transformation did not match: %s", transformation.name)
 		}
 	}
-	start := bytes.Index(patched, []byte("function CDX284("))
+	start := bytes.Index(patched, []byte("function CDX286("))
 	if start < 0 {
 		t.Fatal("patched model picker normalizer is missing")
 	}
-	end := bytes.Index(patched[start:], []byte("function d2("))
+	end := bytes.Index(patched[start:], []byte("function t3("))
 	if end < 0 || strings.Count(string(patched[start:start+end]), `r("`) != 3 {
 		t.Fatal("patched model picker does not contain exactly three tiers")
 	}
@@ -142,7 +139,7 @@ func TestClaude284PatchTargetsMaintenanceBinary(t *testing.T) {
 	if changedModules < 2 {
 		t.Fatalf("changed Bun module count = %d, want multiple patched modules", changedModules)
 	}
-	for _, want := range []string{"Claudodex Info", "test using Claude Code v2.1.284", "function xH(){return process.env.CLAUDE_BRIDGE_OAUTH_TOKEN}"} {
+	for _, want := range []string{"Claudodex Info", "test using Claude Code v2.1.286", "function $H(){return process.env.CLAUDE_BRIDGE_OAUTH_TOKEN}"} {
 		if !bytes.Contains(patched, []byte(want)) {
 			t.Fatalf("complete patch missing %q", want)
 		}
@@ -152,8 +149,8 @@ func TestClaude284PatchTargetsMaintenanceBinary(t *testing.T) {
 			t.Fatalf("patched picker retained forbidden fourth-tier marker %q", forbidden)
 		}
 	}
-	broken := bytes.Replace(append([]byte(nil), source...), claude284RequiredLogoAnchor(), []byte("function MISSING_TARGET(){"), 1)
-	if applyClaudeUIPatches_2_1_284(broken, "test", "2.1.284", modelconfig.Default()) {
+	broken := bytes.Replace(append([]byte(nil), source...), claude286RequiredLogoAnchor(), []byte("function MISSING_TARGET(){"), 1)
+	if applyClaudeUIPatches_2_1_286(broken, "test", "2.1.286", modelconfig.Default()) {
 		t.Fatal("patch succeeded without the required logo transformation")
 	}
 }
