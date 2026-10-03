@@ -1,6 +1,44 @@
 package codex
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestParseResponseFailureReadsEmbeddedRetryAdvice(t *testing.T) {
+	tests := []struct {
+		name         string
+		body         string
+		wantDelay    time.Duration
+		wantDelaySet bool
+		wantRetry    bool
+	}{
+		{
+			name:         "response error mixed case header",
+			body:         `{"type":"response.failed","response":{"error":{"code":"server_is_overloaded","message":"busy","headers":{"rEtRy-AfTeR":"0.04"}}}}`,
+			wantDelay:    40 * time.Millisecond,
+			wantDelaySet: true,
+		},
+		{
+			name:         "top level websocket error array header",
+			body:         `{"type":"error","code":"internal_error","message":"retryable","retryable":true,"headers":{"Retry-After":["0"]}}`,
+			wantDelaySet: true,
+			wantRetry:    true,
+		},
+		{
+			name: "malformed header",
+			body: `{"type":"response.failed","response":{"error":{"code":"slow_down","message":"retry in 25ms","headers":{"retry-after":"later"}}}}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := ParseResponseFailure([]byte(test.body))
+			if got.RetryAfter != test.wantDelay || got.RetryAfterSet != test.wantDelaySet || got.Retryable != test.wantRetry {
+				t.Fatalf("retry advice = delay %s set=%v retryable=%v", got.RetryAfter, got.RetryAfterSet, got.Retryable)
+			}
+		})
+	}
+}
 
 func TestParseResponseFailureRecognizesBioPolicyShapes(t *testing.T) {
 	for _, test := range []struct {

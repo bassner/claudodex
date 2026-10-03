@@ -65,6 +65,8 @@ type StreamReducer struct {
 	failureCode         string
 	failureMessage      string
 	failureRetryAfter   time.Duration
+	failureRetrySet     bool
+	failureRetryable    bool
 }
 
 type toolStreamState struct {
@@ -161,6 +163,14 @@ func (r *StreamReducer) FailureCode() string {
 
 func (r *StreamReducer) FailureRetryAfter() time.Duration {
 	return r.failureRetryAfter
+}
+
+func (r *StreamReducer) FailureRetryAfterSet() bool {
+	return r.failureRetrySet
+}
+
+func (r *StreamReducer) FailureRetryable() bool {
+	return r.failureRetryable
 }
 
 func (r *StreamReducer) Reduce(raw json.RawMessage) ([]AnthropicSSE, error) {
@@ -344,7 +354,7 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 			events = append(events, r.errorEvents("api_error", "Codex response ended incomplete before visible output")...)
 		}
 	case "response.failed":
-		events = append(events, r.errorEventsWithCode(failureCode(event), failureMessage(event))...)
+		events = append(events, r.errorEventsFromFailure(responseFailure(event))...)
 	default:
 		// Ignore reasoning, metadata, model-verification and rate-limit events for
 		// Anthropic visible block indexing.
@@ -1057,7 +1067,7 @@ func (r *StreamReducer) errorFromPayload(event map[string]any) []AnthropicSSE {
 	if mapped := anthropicFailureType(code); mapped != "api_error" {
 		typ = mapped
 	}
-	return r.errorEventsWithTypeAndCode(typ, code, message)
+	return r.errorEventsWithTypeAndFailure(typ, failure)
 }
 
 func (r *StreamReducer) errorEvents(typ, message string) []AnthropicSSE {
@@ -1070,6 +1080,16 @@ func (r *StreamReducer) errorEventsWithCode(code, message string) []AnthropicSSE
 }
 
 func (r *StreamReducer) errorEventsWithTypeAndCode(typ, code, message string) []AnthropicSSE {
+	return r.errorEventsWithTypeAndFailure(typ, codex.ResponseFailure{Code: code, Message: message})
+}
+
+func (r *StreamReducer) errorEventsFromFailure(failure codex.ResponseFailure) []AnthropicSSE {
+	return r.errorEventsWithTypeAndFailure(anthropicFailureType(failure.Code), failure)
+}
+
+func (r *StreamReducer) errorEventsWithTypeAndFailure(typ string, failure codex.ResponseFailure) []AnthropicSSE {
+	code := failure.Code
+	message := failure.Message
 	if typ == "" {
 		typ = "api_error"
 	}
@@ -1080,7 +1100,13 @@ func (r *StreamReducer) errorEventsWithTypeAndCode(typ, code, message string) []
 	r.failureType = typ
 	r.failureCode = code
 	r.failureMessage = message
-	r.failureRetryAfter = RetryAfterFromMessage(message)
+	r.failureRetryAfter = failure.RetryAfter
+	r.failureRetrySet = failure.RetryAfterSet
+	r.failureRetryable = failure.Retryable
+	if !r.failureRetrySet {
+		r.failureRetryAfter = RetryAfterFromMessage(message)
+		r.failureRetrySet = r.failureRetryAfter > 0
+	}
 	r.done = true
 	return []AnthropicSSE{{
 		Event: "error",

@@ -34,6 +34,8 @@ type upstreamStreamEventError struct {
 	code       string
 	message    string
 	retryAfter time.Duration
+	retrySet   bool
+	retryable  bool
 }
 
 func (e upstreamStreamEventError) Error() string {
@@ -554,19 +556,17 @@ func shouldRetryStream(r *http.Request, err error, usedImplicitResume bool) bool
 	}
 	var upstreamEvent upstreamStreamEventError
 	if errors.As(err, &upstreamEvent) {
-		if strings.EqualFold(strings.TrimSpace(upstreamEvent.code), "flex_unavailable") {
+		code := strings.ToLower(strings.TrimSpace(upstreamEvent.code))
+		if isTerminalStreamFailureCode(code) {
 			return false
 		}
-		if strings.EqualFold(strings.TrimSpace(upstreamEvent.code), "bio_policy") {
-			return false
-		}
-		if strings.EqualFold(strings.TrimSpace(upstreamEvent.code), "content_filter") {
+		if code == "content_filter" {
 			return true
 		}
 		if usedImplicitResume {
 			return true
 		}
-		return isRetryableRateLimitCode(upstreamEvent.code)
+		return upstreamEvent.retryable || upstreamEvent.retrySet || isRetryableStreamFailureCode(code)
 	}
 	if usedImplicitResume {
 		return true
@@ -620,6 +620,27 @@ func isFlexUnavailable(err error) bool {
 func isRetryableRateLimitCode(code string) bool {
 	switch strings.ToLower(strings.TrimSpace(code)) {
 	case "slow_down", "rate_limit_exceeded":
+		return true
+	default:
+		return false
+	}
+}
+
+func isRetryableStreamFailureCode(code string) bool {
+	if isRetryableRateLimitCode(code) {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(code)) {
+	case "server_is_overloaded", "server_error", "internal_error":
+		return true
+	default:
+		return false
+	}
+}
+
+func isTerminalStreamFailureCode(code string) bool {
+	switch strings.ToLower(strings.TrimSpace(code)) {
+	case "flex_unavailable", "bio_policy", "insufficient_quota", "billing_hard_limit_reached", "policy_violation", "content_policy_violation":
 		return true
 	default:
 		return false
@@ -783,12 +804,13 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 			// Code may submit the next tool result immediately after observing it.
 			s.recordResponseUsage(chainKey, reducer.Usage())
 		}
-		if reducer.Failed() && (!wrote || strings.EqualFold(reducer.FailureCode(), "content_filter")) && (retryEarlyUpstreamErrors || isRetryableRateLimitCode(reducer.FailureCode()) || strings.EqualFold(reducer.FailureCode(), "content_filter")) {
+		code := strings.ToLower(strings.TrimSpace(reducer.FailureCode()))
+		if reducer.Failed() && !isTerminalStreamFailureCode(code) && (!wrote || code == "content_filter") && (retryEarlyUpstreamErrors || reducer.FailureRetryable() || reducer.FailureRetryAfterSet() || isRetryableStreamFailureCode(code) || code == "content_filter") {
 			retryAfter := retryDelayFromHeaders(upstreamHeaders)
 			if messageDelay := reducer.FailureRetryAfter(); messageDelay > retryAfter {
 				retryAfter = messageDelay
 			}
-			return upstreamStreamEventError{typ: reducer.FailureType(), code: reducer.FailureCode(), message: reducer.FailureMessage(), retryAfter: retryAfter}
+			return upstreamStreamEventError{typ: reducer.FailureType(), code: reducer.FailureCode(), message: reducer.FailureMessage(), retryAfter: retryAfter, retrySet: reducer.FailureRetryAfterSet(), retryable: reducer.FailureRetryable()}
 		}
 		for _, anthropicEvent := range events {
 			if err := writeConvertedEvent(anthropicEvent); err != nil {
@@ -1040,7 +1062,7 @@ func (s *Server) writeNonStreamingMessageWithSchemas(w http.ResponseWriter, body
 				"output_items": len(trace.Output),
 			}))
 		}
-		return upstreamStreamEventError{typ: reducer.FailureType(), code: reducer.FailureCode(), message: reducer.FailureMessage(), retryAfter: reducer.FailureRetryAfter()}
+		return upstreamStreamEventError{typ: reducer.FailureType(), code: reducer.FailureCode(), message: reducer.FailureMessage(), retryAfter: reducer.FailureRetryAfter(), retrySet: reducer.FailureRetryAfterSet(), retryable: reducer.FailureRetryable()}
 	}
 	if !reducer.Done() {
 		s.trace("stream.incomplete", mergeTraceFields(traceBase, map[string]any{

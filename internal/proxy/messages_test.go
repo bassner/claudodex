@@ -1405,6 +1405,12 @@ func TestShouldRetryStreamRetriesTransientTransportErrors(t *testing.T) {
 	if !shouldRetryStream(nil, upstreamStreamEventError{code: "rate_limit_exceeded", message: "Please try again in 0s"}, false) {
 		t.Fatal("expected early rate_limit_exceeded event to be retryable")
 	}
+	if !shouldRetryStream(nil, upstreamStreamEventError{code: "server_is_overloaded"}, false) {
+		t.Fatal("expected server_is_overloaded event to be retryable")
+	}
+	if !shouldRetryStream(nil, upstreamStreamEventError{code: "unknown_transient", retrySet: true}, false) {
+		t.Fatal("expected embedded Retry-After advice to make a generic failure retryable")
+	}
 	if shouldRetryStream(nil, upstreamStreamEventError{typ: "api_error", message: "quota exhausted"}, false) {
 		t.Fatal("upstream event errors should not be retried without implicit resume")
 	}
@@ -1413,6 +1419,9 @@ func TestShouldRetryStreamRetriesTransientTransportErrors(t *testing.T) {
 	}
 	if shouldRetryStream(nil, upstreamStreamEventError{typ: "invalid_request_error", code: "bio_policy", message: codex.BioPolicyFallbackMessage}, true) {
 		t.Fatal("bio_policy must remain terminal even during implicit resume")
+	}
+	if shouldRetryStream(nil, upstreamStreamEventError{typ: "rate_limit_error", code: "insufficient_quota", retrySet: true}, true) {
+		t.Fatal("insufficient_quota must remain terminal even with retry advice")
 	}
 	if shouldRetryStream(nil, upstreamStreamEventError{typ: "server_error", code: "flex_unavailable", message: "Flex unavailable"}, true) {
 		t.Fatal("flex_unavailable must remain terminal even during implicit resume")
@@ -1966,17 +1975,16 @@ func TestMessagesGeneratedRouteIDsStayStableAcrossEarlyStreamRetry(t *testing.T)
 	}
 }
 
-func TestMessagesRetriesEarlySSESlowDown(t *testing.T) {
+func TestMessagesRetriesEarlySSEEmbeddedRetryAfter(t *testing.T) {
 	home := t.TempDir()
 	saveTestAuth(t, home, "access-1")
 	var attempts atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempt := attempts.Add(1)
 		w.Header().Set("content-type", "text/event-stream")
-		w.Header().Set("retry-after", "0")
 		if attempt == 1 {
 			_, _ = w.Write([]byte("event: response.failed\n" +
-				"data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"slow_down\",\"message\":\"Please try again in 0s\"}}}\n\n"))
+				"data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"server_is_overloaded\",\"message\":\"busy\",\"headers\":{\"rEtRy-AfTeR\":\"0\"}}}}\n\n"))
 			return
 		}
 		_, _ = w.Write([]byte("event: response.output_item.done\n" +
@@ -2084,7 +2092,7 @@ func TestMessagesWaitsForSlowDownMessageDelayBeforeRetrying(t *testing.T) {
 	}
 }
 
-func TestMessagesRetriesEarlyWebSocketSlowDown(t *testing.T) {
+func TestMessagesRetriesEarlyWebSocketEmbeddedRetryAfter(t *testing.T) {
 	home := t.TempDir()
 	saveTestAuth(t, home, "access-1")
 	t.Setenv("CLAUDODEX_FORCE_CODEX_WEBSOCKET", "true")
@@ -2104,7 +2112,7 @@ func TestMessagesRetriesEarlyWebSocketSlowDown(t *testing.T) {
 			if _, _, err := conn.ReadMessage(); err != nil {
 				t.Fatal(err)
 			}
-			writeWSJSON(t, conn, map[string]any{"type": "response.failed", "response": map[string]any{"error": map[string]any{"code": "slow_down", "message": "Please try again in 0s"}}})
+			writeWSJSON(t, conn, map[string]any{"type": "error", "code": "internal_error", "message": "retryable", "retryable": true, "headers": map[string]any{"Retry-After": "0"}})
 		case 2:
 			if _, _, err := conn.ReadMessage(); err != nil {
 				t.Fatal(err)

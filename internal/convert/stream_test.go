@@ -1160,6 +1160,44 @@ func TestStreamReducerMapsBioPolicyFailuresToTerminalInvalidRequest(t *testing.T
 	}
 }
 
+func TestStreamReducerPrefersEmbeddedRetryAfterAndFallsBackToMessage(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		wantDelay time.Duration
+		wantSet   bool
+	}{
+		{
+			name:      "embedded header takes precedence",
+			body:      `{"type":"response.failed","response":{"error":{"code":"server_is_overloaded","message":"retry in 10ms","headers":{"Retry-After":"0.04"}}}}`,
+			wantDelay: 40 * time.Millisecond,
+			wantSet:   true,
+		},
+		{
+			name:      "malformed embedded header falls back to message",
+			body:      `{"type":"response.failed","response":{"error":{"code":"slow_down","message":"retry in 25ms","headers":{"retry-after":"later"}}}}`,
+			wantDelay: 25 * time.Millisecond,
+			wantSet:   true,
+		},
+		{
+			name:    "terminal policy has no retry advice",
+			body:    `{"type":"response.failed","response":{"error":{"code":"bio_policy","message":"blocked","headers":{"retry-after":"invalid"}}}}`,
+			wantSet: false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reducer := NewStreamReducer("msg_retry", "claude-opus-4-6")
+			if _, err := reducer.Reduce(json.RawMessage(test.body)); err != nil {
+				t.Fatal(err)
+			}
+			if got := reducer.FailureRetryAfter(); got != test.wantDelay || reducer.FailureRetryAfterSet() != test.wantSet {
+				t.Fatalf("retry advice = %s set=%v, want %s set=%v", got, reducer.FailureRetryAfterSet(), test.wantDelay, test.wantSet)
+			}
+		})
+	}
+}
+
 func TestStreamReducerGoldenCodexSSEToAnthropicSSE(t *testing.T) {
 	input, err := os.Open("testdata/codex_text_tool.sse")
 	if err != nil {
