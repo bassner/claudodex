@@ -7,7 +7,7 @@ import (
 	"github.com/bassner/claudodex/internal/app"
 )
 
-var version = "0.3.33"
+var version = "0.3.34"
 
 func main() {
 	code := app.Run(context.Background(), app.Config{
