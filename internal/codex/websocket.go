@@ -22,6 +22,14 @@ type wsCreateRequest struct {
 	Request
 }
 
+func (r wsCreateRequest) MarshalJSON() ([]byte, error) {
+	type requestWire Request
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		requestWire
+	}{Type: r.Type, requestWire: requestWire(r.Request.withDeveloperInstructions())})
+}
+
 type WebSocketConversation struct {
 	mu     sync.Mutex
 	conn   *websocket.Conn

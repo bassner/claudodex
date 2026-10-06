@@ -69,6 +69,24 @@ type responseTrace struct {
 	itemByCallID map[string]int
 }
 
+func (t *responseTrace) appendSegment(segment responseTrace) {
+	if strings.TrimSpace(segment.ResponseID) != "" {
+		t.ResponseID = segment.ResponseID
+	}
+	t.Output = append(t.Output, segment.outputInOrder()...)
+}
+
+func continuationRequest(request codex.Request, trace responseTrace, sameWebSocket bool) codex.Request {
+	request.PreviousResponseID = ""
+	if sameWebSocket && strings.TrimSpace(trace.ResponseID) != "" {
+		request.PreviousResponseID = trace.ResponseID
+		request.Input = nil
+		return request
+	}
+	request.Input = append(append([]codex.InputItem(nil), request.Input...), trace.Output...)
+	return request
+}
+
 func (s *Server) applyImplicitResume(chainKey string, request *codex.Request) bool {
 	used, _, _, _ := s.applyImplicitResumeDetailed(chainKey, request)
 	return used

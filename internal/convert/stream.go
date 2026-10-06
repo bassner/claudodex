@@ -36,6 +36,7 @@ type StreamReducer struct {
 	initialInputUsage   Usage
 	started             bool
 	done                bool
+	needsFollowUp       bool
 	nextIndex           int
 	textActive          bool
 	textIndex           int
@@ -133,6 +134,18 @@ func NewStreamReducerWithOptions(messageID, model string, opts StreamReducerOpti
 
 func (r *StreamReducer) Done() bool {
 	return r.done
+}
+
+func (r *StreamReducer) NeedsFollowUp() bool {
+	return r.needsFollowUp
+}
+
+func (r *StreamReducer) ContinueSampling() {
+	r.needsFollowUp = false
+	r.textSawDelta = false
+	r.thinkingSawDelta = false
+	r.thinkingSawSummary = false
+	r.thinkingSummaryPart = -1
 }
 
 func (r *StreamReducer) Usage() Usage {
@@ -344,6 +357,10 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 			}
 		}
 	case "response.completed", "response.done":
+		if endTurn, present := responseEndTurn(event); present && !endTurn {
+			r.needsFollowUp = true
+			return events, nil
+		}
 		events = append(events, r.finish(event, "")...)
 	case "response.incomplete":
 		if incompleteReason(event) == "content_filter" {
@@ -360,6 +377,12 @@ func (r *StreamReducer) ReduceNamed(name string, raw json.RawMessage) ([]Anthrop
 		// Anthropic visible block indexing.
 	}
 	return events, nil
+}
+
+func responseEndTurn(event map[string]any) (bool, bool) {
+	response, _ := event["response"].(map[string]any)
+	endTurn, present := response["end_turn"].(bool)
+	return endTurn, present
 }
 
 func (r *StreamReducer) ensureStarted(event map[string]any) []AnthropicSSE {

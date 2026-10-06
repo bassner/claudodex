@@ -41,6 +41,52 @@ func TestResponsesRequestsSerializeRoutingFieldsBeforeLargeInput(t *testing.T) {
 	}
 }
 
+func TestResponsesRequestSerializesInstructionsAsStableDeveloperInput(t *testing.T) {
+	request := Request{
+		Model:          "gpt-5.6-terra",
+		Stream:         true,
+		Instructions:   "base guidance",
+		PromptCacheKey: "thread-1",
+		Input: []InputItem{{
+			Type:    "message",
+			Role:    "user",
+			Content: []ContentPart{{Type: "input_text", Text: "hello"}},
+		}},
+	}
+	encode := func() []byte {
+		encoded, err := json.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return encoded
+	}
+	first := encode()
+	second := encode()
+	if string(first) != string(second) {
+		t.Fatalf("developer input encoding is not stable:\n%s\n%s", first, second)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(first, &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := got["instructions"]; exists {
+		t.Fatalf("legacy top-level instructions field was serialized: %s", first)
+	}
+	input, _ := got["input"].([]any)
+	if len(input) != 2 {
+		t.Fatalf("input = %#v, want developer plus user", input)
+	}
+	developer, _ := input[0].(map[string]any)
+	if developer["role"] != "developer" || !strings.HasPrefix(developer["id"].(string), "msg_") {
+		t.Fatalf("leading developer item = %#v", developer)
+	}
+	content, _ := developer["content"].([]any)
+	part, _ := content[0].(map[string]any)
+	if part["text"] != "base guidance" {
+		t.Fatalf("developer text = %#v", part["text"])
+	}
+}
+
 func TestInputItemPreservesOpaqueReasoningFields(t *testing.T) {
 	raw := []byte(`{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"visible"}],"content":null,"encrypted_content":"opaque-secret","provider_extension":{"keep":true}}`)
 	var item InputItem

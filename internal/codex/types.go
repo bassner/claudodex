@@ -1,14 +1,21 @@
 package codex
 
-import "encoding/json"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"strings"
+)
 
 const DefaultBaseURL = "https://chatgpt.com/backend-api"
 
 type Request struct {
-	Model              string            `json:"model"`
-	Stream             bool              `json:"stream"`
-	ServiceTier        string            `json:"service_tier,omitempty"`
-	Instructions       string            `json:"instructions,omitempty"`
+	Model       string `json:"model"`
+	Stream      bool   `json:"stream"`
+	ServiceTier string `json:"service_tier,omitempty"`
+	// Instructions is retained for internal compatibility checks. Codex base
+	// instructions are serialized as a leading developer input item.
+	Instructions       string            `json:"-"`
 	PreviousResponseID string            `json:"previous_response_id,omitempty"`
 	Input              []InputItem       `json:"input"`
 	Tools              []Tool            `json:"tools,omitempty"`
@@ -20,6 +27,31 @@ type Request struct {
 	Text               *TextConfig       `json:"text,omitempty"`
 	PromptCacheKey     string            `json:"prompt_cache_key,omitempty"`
 	ClientMetadata     map[string]string `json:"client_metadata,omitempty"`
+}
+
+func (r Request) MarshalJSON() ([]byte, error) {
+	type wire Request
+	return json.Marshal(wire(r.withDeveloperInstructions()))
+}
+
+func (r Request) withDeveloperInstructions() Request {
+	if instructions := strings.TrimSpace(r.Instructions); instructions != "" {
+		hash := sha256.New()
+		_, _ = hash.Write([]byte(strings.TrimSpace(r.PromptCacheKey)))
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(instructions))
+		developer := InputItem{
+			ID:   "msg_" + hex.EncodeToString(hash.Sum(nil)[:16]),
+			Type: "message",
+			Role: "developer",
+			Content: []ContentPart{{
+				Type: "input_text",
+				Text: instructions,
+			}},
+		}
+		r.Input = append([]InputItem{developer}, r.Input...)
+	}
+	return r
 }
 
 type Reasoning struct {
@@ -39,6 +71,7 @@ type TextFormat struct {
 }
 
 type InputItem struct {
+	ID                                     string                                  `json:"id,omitempty"`
 	Type                                   string                                  `json:"type"`
 	Role                                   string                                  `json:"role,omitempty"`
 	Content                                []ContentPart                           `json:"content,omitempty"`
@@ -73,6 +106,7 @@ func (i *InputItem) SetCreateTimeIfMissing(createTime float64) {
 
 func (i *InputItem) UnmarshalJSON(data []byte) error {
 	type wire struct {
+		ID                                     string                                  `json:"id,omitempty"`
 		Type                                   string                                  `json:"type"`
 		Role                                   string                                  `json:"role,omitempty"`
 		Content                                []ContentPart                           `json:"content,omitempty"`
@@ -91,6 +125,7 @@ func (i *InputItem) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*i = InputItem{
+		ID:                                     decoded.ID,
 		Type:                                   decoded.Type,
 		Role:                                   decoded.Role,
 		Content:                                decoded.Content,
@@ -120,6 +155,7 @@ func (i InputItem) MarshalJSON() ([]byte, error) {
 		return json.Marshal(raw)
 	}
 	type wire struct {
+		ID                                     string                                  `json:"id,omitempty"`
 		Type                                   string                                  `json:"type"`
 		Role                                   string                                  `json:"role,omitempty"`
 		Content                                []ContentPart                           `json:"content,omitempty"`
@@ -130,6 +166,7 @@ func (i InputItem) MarshalJSON() ([]byte, error) {
 		InternalChatMessageMetadataPassthrough *InternalChatMessageMetadataPassthrough `json:"internal_chat_message_metadata_passthrough,omitempty"`
 	}
 	return json.Marshal(wire{
+		ID:                                     i.ID,
 		Type:                                   i.Type,
 		Role:                                   i.Role,
 		Content:                                i.Content,

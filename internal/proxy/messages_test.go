@@ -158,9 +158,15 @@ func TestMessagesStreamsCodexResponseAndBuildsUpstreamRequest(t *testing.T) {
 	if captured["model"] != "gpt-5.6-terra" {
 		t.Fatalf("upstream model = %#v", captured["model"])
 	}
-	instructions, _ := captured["instructions"].(string)
+	if _, exists := captured["instructions"]; exists {
+		t.Fatalf("legacy top-level instructions field was sent: %#v", captured["instructions"])
+	}
+	upstreamInput, _ := captured["input"].([]any)
+	developer := upstreamInput[0].(map[string]any)
+	developerContent := developer["content"].([]any)
+	instructions, _ := developerContent[0].(map[string]any)["text"].(string)
 	if !strings.HasPrefix(instructions, "hello\nworld\n\nClaude Code compatibility:\n") {
-		t.Fatalf("instructions = %#v", captured["instructions"])
+		t.Fatalf("developer instructions = %#v", instructions)
 	}
 	if strings.Contains(instructions, "x-anthropic-billing-header") || strings.Contains(instructions, "must-not-forward") {
 		t.Fatalf("billing header leaked into instructions: %q", instructions)
@@ -279,6 +285,7 @@ func TestMessagesHTTPToolContinuationReplaysEncryptedReasoningLosslessly(t *test
 		t.Fatalf("stateless HTTP replay unexpectedly used previous_response_id: %#v", secondRequest)
 	}
 	input, _ := secondRequest["input"].([]any)
+	input = input[1:]
 	if len(input) != 5 {
 		t.Fatalf("replayed input = %#v", input)
 	}
@@ -289,6 +296,7 @@ func TestMessagesHTTPToolContinuationReplaysEncryptedReasoningLosslessly(t *test
 		}
 	}
 	firstInput, _ := firstRequest["input"].([]any)
+	firstInput = firstInput[1:]
 	firstUser := firstInput[0].(map[string]any)
 	replayedUser := input[0].(map[string]any)
 	firstMetadata := firstUser["internal_chat_message_metadata_passthrough"].(map[string]any)
@@ -479,6 +487,9 @@ func TestMessagesUsesWebSocketPreviousResponseForMainTurnSteering(t *testing.T) 
 		t.Fatalf("previous_response_id = %#v, request %#v", secondWSRequest["previous_response_id"], secondWSRequest)
 	}
 	input, ok := secondWSRequest["input"].([]any)
+	if ok {
+		input = input[1:]
+	}
 	if !ok || len(input) != 2 {
 		t.Fatalf("websocket input = %#v, want tool output plus steering", secondWSRequest["input"])
 	}
@@ -502,6 +513,140 @@ func TestMessagesUsesWebSocketPreviousResponseForMainTurnSteering(t *testing.T) 
 	gotInput := usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens
 	if gotInput != 1 {
 		t.Fatalf("reported resumed input = %d, want authoritative upstream usage 1", gotInput)
+	}
+}
+
+func TestMessagesContinuesHTTPPartialAnswerUntilEndTurn(t *testing.T) {
+	t.Setenv("CLAUDODEX_DISABLE_CODEX_WEBSOCKET", "1")
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	var requests atomic.Int32
+	var secondRequest map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestNumber := requests.Add(1)
+		var captured map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("content-type", "text/event-stream")
+		if requestNumber == 1 {
+			_, _ = io.WriteString(w, strings.Join([]string{
+				`event: response.created`,
+				`data: {"type":"response.created","response":{"id":"resp-partial"}}`,
+				``,
+				`event: response.output_text.delta`,
+				`data: {"type":"response.output_text.delta","delta":"partial "}`,
+				``,
+				`event: response.output_item.done`,
+				`data: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg-partial","type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"partial "}]}}`,
+				``,
+				`event: response.completed`,
+				`data: {"type":"response.completed","response":{"id":"resp-partial","end_turn":false}}`,
+				``, ``,
+			}, "\n"))
+			return
+		}
+		secondRequest = captured
+		_, _ = io.WriteString(w, strings.Join([]string{
+			`event: response.created`,
+			`data: {"type":"response.created","response":{"id":"resp-final"}}`,
+			``,
+			`event: response.output_text.delta`,
+			`data: {"type":"response.output_text.delta","delta":"answer"}`,
+			``,
+			`event: response.output_item.done`,
+			`data: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg-final","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"answer"}]}}`,
+			``,
+			`event: response.completed`,
+			`data: {"type":"response.completed","response":{"id":"resp-final","end_turn":true,"usage":{"input_tokens":3,"output_tokens":2}}}`,
+			``, ``,
+		}, "\n"))
+	}))
+	defer upstream.Close()
+	server := New(Config{Home: home, CodexBaseURL: upstream.URL, HTTPClient: upstream.Client(), AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	body := `{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"continue"}]}`
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	sse := readAllString(t, resp)
+	if requests.Load() != 2 || strings.Count(sse, "event: message_stop") != 1 || !strings.Contains(sse, `"text":"partial "`) || !strings.Contains(sse, `"text":"answer"`) {
+		t.Fatalf("partial continuation failed: requests=%d\n%s", requests.Load(), sse)
+	}
+	if secondRequest["previous_response_id"] != nil {
+		t.Fatalf("HTTP continuation used previous_response_id: %#v", secondRequest)
+	}
+	input := secondRequest["input"].([]any)
+	if len(input) != 3 || input[2].(map[string]any)["phase"] != "commentary" {
+		t.Fatalf("HTTP continuation did not replay developer, user, and phased partial message: %#v", input)
+	}
+}
+
+func TestMessagesContinuesWebSocketPartialAnswerOnSameConversation(t *testing.T) {
+	t.Setenv("CLAUDODEX_FORCE_CODEX_WEBSOCKET", "1")
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	var firstRequest map[string]any
+	var secondRequest map[string]any
+	upgrader := websocket.Upgrader{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		if err := conn.ReadJSON(&firstRequest); err != nil {
+			t.Fatal(err)
+		}
+		writeWSJSON(t, conn, map[string]any{"type": "response.created", "response": map[string]any{"id": "resp-partial"}})
+		writeWSJSON(t, conn, map[string]any{"type": "response.output_text.delta", "delta": "partial "})
+		writeWSJSON(t, conn, map[string]any{"type": "response.output_item.done", "output_index": 0, "item": map[string]any{"type": "message", "role": "assistant", "phase": "commentary", "content": []any{map[string]any{"type": "output_text", "text": "partial "}}}})
+		writeWSJSON(t, conn, map[string]any{"type": "response.completed", "response": map[string]any{"id": "resp-partial", "end_turn": false}})
+		if err := conn.ReadJSON(&secondRequest); err != nil {
+			t.Fatal(err)
+		}
+		writeWSJSON(t, conn, map[string]any{"type": "response.created", "response": map[string]any{"id": "resp-final"}})
+		writeWSJSON(t, conn, map[string]any{"type": "response.output_text.delta", "delta": "answer"})
+		writeWSJSON(t, conn, map[string]any{"type": "response.output_item.done", "output_index": 0, "item": map[string]any{"type": "message", "role": "assistant", "phase": "final_answer", "content": []any{map[string]any{"type": "output_text", "text": "answer"}}}})
+		writeWSJSON(t, conn, map[string]any{"type": "response.completed", "response": map[string]any{"id": "resp-final", "end_turn": true, "usage": map[string]any{"input_tokens": 3, "output_tokens": 2}}})
+	}))
+	defer upstream.Close()
+	server := New(Config{Home: home, CodexBaseURL: upstream.URL, HTTPClient: upstream.Client(), AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	body := `{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"continue"}],"tools":[{"name":"Bash","input_schema":{"type":"object"}}]}`
+	req, err := http.NewRequest(http.MethodPost, "http://"+addr+"/v1/messages", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("content-type", "application/json")
+	req.Header.Set("x-claude-code-session-id", "partial-session")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	sse := readAllString(t, resp)
+	if strings.Count(sse, "event: message_stop") != 1 || !strings.Contains(sse, `"text":"partial "`) || !strings.Contains(sse, `"text":"answer"`) {
+		t.Fatalf("websocket partial continuation failed:\n%s", sse)
+	}
+	if firstRequest["previous_response_id"] != nil || secondRequest["previous_response_id"] != "resp-partial" {
+		t.Fatalf("websocket continuation IDs: first=%#v second=%#v", firstRequest["previous_response_id"], secondRequest["previous_response_id"])
+	}
+	input := secondRequest["input"].([]any)
+	if len(input) != 1 || input[0].(map[string]any)["role"] != "developer" {
+		t.Fatalf("same-websocket continuation should only carry stable developer input: %#v", input)
 	}
 }
 
@@ -1255,10 +1400,10 @@ func TestMessagesStreamingPreservesUpstreamUsageForLargeImage(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatal(err)
 		}
-		if len(request.Input) != 1 || len(request.Input[0].Content) != 2 {
+		if len(request.Input) != 2 || request.Input[0].Role != "developer" || len(request.Input[1].Content) != 2 {
 			t.Fatalf("input = %#v", request.Input)
 		}
-		image := request.Input[0].Content[1]
+		image := request.Input[1].Content[1]
 		if image.Type != "input_image" || !strings.HasPrefix(image.ImageURL, "data:image/png;base64,") {
 			t.Fatalf("image = %#v", image)
 		}

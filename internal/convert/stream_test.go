@@ -44,6 +44,53 @@ func TestStreamReducerStreamsReasoningSummaryAsThinking(t *testing.T) {
 	}
 }
 
+func TestStreamReducerKeepsPartialAnswerPendingUntilEndTurn(t *testing.T) {
+	reducer := NewStreamReducer("msg_1", "claude-sonnet-4-6")
+	var events []AnthropicSSE
+	for _, raw := range []string{
+		`{"type":"response.output_text.delta","delta":"partial "}`,
+		`{"type":"response.output_item.done","item":{"type":"message","phase":"commentary","content":[{"type":"output_text","text":"partial "}]}}`,
+		`{"type":"response.completed","response":{"id":"resp_partial","end_turn":false}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	if reducer.Done() || !reducer.NeedsFollowUp() {
+		t.Fatalf("partial completion state: done=%v follow_up=%v", reducer.Done(), reducer.NeedsFollowUp())
+	}
+	for _, event := range events {
+		if event.Event == "message_stop" {
+			t.Fatalf("partial completion emitted message_stop: %#v", events)
+		}
+	}
+	reducer.ContinueSampling()
+	for _, raw := range []string{
+		`{"type":"response.output_text.delta","delta":"answer"}`,
+		`{"type":"response.output_item.done","item":{"type":"message","phase":"final_answer","content":[{"type":"output_text","text":"answer"}]}}`,
+		`{"type":"response.completed","response":{"id":"resp_final","end_turn":true,"usage":{"input_tokens":2,"output_tokens":2}}}`,
+	} {
+		next, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, next...)
+	}
+	if !reducer.Done() || reducer.NeedsFollowUp() {
+		t.Fatalf("final completion state: done=%v follow_up=%v", reducer.Done(), reducer.NeedsFollowUp())
+	}
+	message, errEvent := AssembleMessage(events, "", "claude-sonnet-4-6")
+	if errEvent != nil {
+		t.Fatalf("unexpected error: %#v", errEvent)
+	}
+	content := message["content"].([]map[string]any)
+	if len(content) != 2 || content[0]["text"] != "partial " || content[1]["text"] != "answer" {
+		t.Fatalf("content = %#v", content)
+	}
+}
+
 func TestStreamReducerStreamsEveryIncrementalTextDeltaBeforeDone(t *testing.T) {
 	reducer := NewStreamReducer("msg_incremental", "claude-sonnet-4-6")
 	inputs := []string{

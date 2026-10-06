@@ -252,7 +252,9 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	if result.Stream {
 		applyRateLimitHeaders(w.Header(), upstream.Header, false)
-		err = s.streamAnthropicWithSchemas(w, upstream.Body, upstream.Header, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, result.WebSearchMaxUses, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, traceBase, usedImplicitResume)
+		err = s.streamAnthropicWithSchemas(w, upstream.Body, upstream.Header, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, result.WebSearchMaxUses, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, traceBase, usedImplicitResume, func(req codex.Request) (*http.Response, error) {
+			return createResponse(req)
+		})
 		_ = upstream.Body.Close()
 		if shouldRetryStream(r, err, usedImplicitResume) && remainingGenerationAttempts > 0 {
 			if waitErr := s.waitForStreamRetry(r.Context(), err, upstream.Header); waitErr != nil {
@@ -286,7 +288,9 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 						"implicit_resume":      false,
 						"upstream_input_items": len(fullRequest.Input),
 						"previous_response_id": "",
-					}), false)
+					}), false, func(req codex.Request) (*http.Response, error) {
+						return createResponse(req)
+					})
 					_ = upstream.Body.Close()
 				} else {
 					s.trace("upstream.create_error", mergeTraceFields(traceBase, upstreamCreateErrorTraceFields(err, map[string]any{
@@ -308,7 +312,9 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	applyRateLimitHeaders(w.Header(), upstream.Header, false)
-	err = s.writeNonStreamingMessageWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, result.WebSearchMaxUses, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, traceBase)
+	err = s.writeNonStreamingMessageWithSchemas(w, upstream.Body, upstream.Header, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, result.WebSearchMaxUses, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, traceBase, func(req codex.Request) (*http.Response, error) {
+		return createResponse(req)
+	})
 	_ = upstream.Body.Close()
 	if shouldRetryStream(r, err, usedImplicitResume) && remainingGenerationAttempts > 0 {
 		if isContentFilterError(err) {
@@ -335,11 +341,13 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 				"previous_response_id":          "",
 			}))
 			applyRateLimitHeaders(w.Header(), upstream.Header, false)
-			err = s.writeNonStreamingMessageWithSchemas(w, upstream.Body, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, result.WebSearchMaxUses, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, mergeTraceFields(traceBase, map[string]any{
+			err = s.writeNonStreamingMessageWithSchemas(w, upstream.Body, upstream.Header, result.OriginalModel, result.ToolSchemas, result.PlanFilePath, result.WebSearchMaxUses, fallbackInputTokens, initialInputUsage, chainKey, fullRequest, mergeTraceFields(traceBase, map[string]any{
 				"implicit_resume":      false,
 				"upstream_input_items": len(fullRequest.Input),
 				"previous_response_id": "",
-			}))
+			}), func(req codex.Request) (*http.Response, error) {
+				return createResponse(req)
+			})
 			_ = upstream.Body.Close()
 		} else {
 			s.trace("upstream.create_error", mergeTraceFields(traceBase, upstreamCreateErrorTraceFields(err, map[string]any{
@@ -691,10 +699,10 @@ func codexRouteForResult(result convert.Result, parentSessionID string) codex.Ro
 }
 
 func (s *Server) streamAnthropic(w http.ResponseWriter, body io.Reader, model string) {
-	_ = s.streamAnthropicWithSchemas(w, body, nil, model, nil, "", 0, 0, convert.Usage{}, "", codex.Request{}, nil, false)
+	_ = s.streamAnthropicWithSchemas(w, body, nil, model, nil, "", 0, 0, convert.Usage{}, "", codex.Request{}, nil, false, nil)
 }
 
-func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reader, upstreamHeaders http.Header, model string, toolSchemas map[string]map[string]any, planFilePath string, webSearchMaxUses int, fallbackInputTokens int, initialInputUsage convert.Usage, chainKey string, fullRequest codex.Request, traceBase map[string]any, retryEarlyUpstreamErrors bool) error {
+func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reader, upstreamHeaders http.Header, model string, toolSchemas map[string]map[string]any, planFilePath string, webSearchMaxUses int, fallbackInputTokens int, initialInputUsage convert.Usage, chainKey string, fullRequest codex.Request, traceBase map[string]any, retryEarlyUpstreamErrors bool, continueResponse func(codex.Request) (*http.Response, error)) error {
 	w.Header().Set("content-type", "text/event-stream")
 	w.Header().Set("cache-control", "no-cache")
 	w.Header().Set("connection", "keep-alive")
@@ -768,63 +776,89 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 	eventCount := 0
 	toolArgDeltaCount := 0
 	toolArgDeltaBytes := 0
-	err := codex.ReadSSE(body, func(event codex.SSEEvent) error {
-		if !wrote && isPreviousResponseNotFoundEvent(event) {
-			return errPreviousResponseNotFound
-		}
-		eventCount++
-		if event.Event == "response.function_call_arguments.delta" {
-			toolArgDeltaCount++
-			toolArgDeltaBytes += eventStringFieldLen(event.Data, "delta")
-		}
-		notifyIdle(event.Event)
-		if eventCount == 1 {
-			s.trace("stream.first_event", mergeTraceFields(traceBase, map[string]any{
-				"elapsed_ms":  traceDurationMS(streamStarted),
-				"codex_event": event.Event,
-			}))
-		}
-		if shouldTraceCodexEvent(event.Event) {
-			fields := map[string]any{
-				"elapsed_ms":  traceDurationMS(streamStarted),
-				"codex_event": event.Event,
+	currentBody := body
+	currentHeaders := upstreamHeaders
+	ownedBody := false
+	var err error
+	for {
+		var segmentTrace responseTrace
+		err = codex.ReadSSE(currentBody, func(event codex.SSEEvent) error {
+			if !wrote && isPreviousResponseNotFoundEvent(event) {
+				return errPreviousResponseNotFound
 			}
-			if msg := eventErrorMessage(event); msg != "" {
-				fields["upstream_error"] = msg
+			eventCount++
+			if event.Event == "response.function_call_arguments.delta" {
+				toolArgDeltaCount++
+				toolArgDeltaBytes += eventStringFieldLen(event.Data, "delta")
 			}
-			s.trace("stream.event", mergeTraceFields(traceBase, fields))
-		}
-		trace.observe(event)
-		events, err := reducer.ReduceNamed(event.Event, event.Data)
-		if err != nil {
-			return err
-		}
-		if reducer.Done() {
-			// Persist authoritative usage before message_stop is flushed. Claude
-			// Code may submit the next tool result immediately after observing it.
-			s.recordResponseUsage(chainKey, reducer.Usage())
-		}
-		code := strings.ToLower(strings.TrimSpace(reducer.FailureCode()))
-		if reducer.Failed() && !isTerminalStreamFailureCode(code) && (!wrote || code == "content_filter") && (retryEarlyUpstreamErrors || reducer.FailureRetryable() || reducer.FailureRetryAfterSet() || isRetryableStreamFailureCode(code) || code == "content_filter") {
-			retryAfter := retryDelayFromHeaders(upstreamHeaders)
-			if messageDelay := reducer.FailureRetryAfter(); messageDelay > retryAfter {
-				retryAfter = messageDelay
+			notifyIdle(event.Event)
+			if eventCount == 1 {
+				s.trace("stream.first_event", mergeTraceFields(traceBase, map[string]any{
+					"elapsed_ms":  traceDurationMS(streamStarted),
+					"codex_event": event.Event,
+				}))
 			}
-			return upstreamStreamEventError{typ: reducer.FailureType(), code: reducer.FailureCode(), message: reducer.FailureMessage(), retryAfter: retryAfter, retrySet: reducer.FailureRetryAfterSet(), retryable: reducer.FailureRetryable()}
-		}
-		for _, anthropicEvent := range events {
-			if err := writeConvertedEvent(anthropicEvent); err != nil {
-				return err
+			if shouldTraceCodexEvent(event.Event) {
+				fields := map[string]any{
+					"elapsed_ms":  traceDurationMS(streamStarted),
+					"codex_event": event.Event,
+				}
+				if msg := eventErrorMessage(event); msg != "" {
+					fields["upstream_error"] = msg
+				}
+				s.trace("stream.event", mergeTraceFields(traceBase, fields))
 			}
+			segmentTrace.observe(event)
+			events, reduceErr := reducer.ReduceNamed(event.Event, event.Data)
+			if reduceErr != nil {
+				return reduceErr
+			}
+			if reducer.Done() {
+				// Persist authoritative usage before message_stop is flushed. Claude
+				// Code may submit the next tool result immediately after observing it.
+				s.recordResponseUsage(chainKey, reducer.Usage())
+			}
+			code := strings.ToLower(strings.TrimSpace(reducer.FailureCode()))
+			if reducer.Failed() && !isTerminalStreamFailureCode(code) && (!wrote || code == "content_filter") && (retryEarlyUpstreamErrors || reducer.FailureRetryable() || reducer.FailureRetryAfterSet() || isRetryableStreamFailureCode(code) || code == "content_filter") {
+				retryAfter := retryDelayFromHeaders(currentHeaders)
+				if messageDelay := reducer.FailureRetryAfter(); messageDelay > retryAfter {
+					retryAfter = messageDelay
+				}
+				return upstreamStreamEventError{typ: reducer.FailureType(), code: reducer.FailureCode(), message: reducer.FailureMessage(), retryAfter: retryAfter, retrySet: reducer.FailureRetryAfterSet(), retryable: reducer.FailureRetryable()}
+			}
+			for _, anthropicEvent := range events {
+				if err := writeConvertedEvent(anthropicEvent); err != nil {
+					return err
+				}
+			}
+			// Schema-backed tool arguments remain buffered until their JSON is complete.
+			// A protocol-level ping lets Claude Code observe that Codex is still active
+			// without exposing an incomplete tool block.
+			return writeKeepaliveIfDue()
+		})
+		if ownedBody {
+			_ = currentBody.(io.Closer).Close()
 		}
-		// Schema-backed tool arguments remain buffered until their JSON is complete.
-		// A protocol-level ping lets Claude Code observe that Codex is still active
-		// without exposing an incomplete tool block.
-		if err := writeKeepaliveIfDue(); err != nil {
-			return err
+		trace.appendSegment(segmentTrace)
+		if err != nil || !reducer.NeedsFollowUp() {
+			break
 		}
-		return nil
-	})
+		if continueResponse == nil {
+			err = errors.New("Codex requested continued sampling but no continuation transport is available")
+			break
+		}
+		sameWebSocket := currentHeaders.Get("x-claudodex-transport") == "websocket" && s.hasWebSocket(chainKey)
+		nextRequest := continuationRequest(fullRequest, trace, sameWebSocket)
+		reducer.ContinueSampling()
+		nextResponse, continueErr := continueResponse(nextRequest)
+		if continueErr != nil {
+			err = continueErr
+			break
+		}
+		currentBody = nextResponse.Body
+		currentHeaders = nextResponse.Header
+		ownedBody = true
+	}
 	if err != nil {
 		s.trace("stream.error", mergeTraceFields(traceBase, map[string]any{
 			"elapsed_ms":            traceDurationMS(streamStarted),
@@ -992,10 +1026,10 @@ func usageTotalInputTokens(usage convert.Usage) int {
 }
 
 func (s *Server) writeNonStreamingMessage(w http.ResponseWriter, body io.Reader, model string) {
-	_ = s.writeNonStreamingMessageWithSchemas(w, body, model, nil, "", 0, 0, convert.Usage{}, "", codex.Request{}, nil)
+	_ = s.writeNonStreamingMessageWithSchemas(w, body, nil, model, nil, "", 0, 0, convert.Usage{}, "", codex.Request{}, nil, nil)
 }
 
-func (s *Server) writeNonStreamingMessageWithSchemas(w http.ResponseWriter, body io.Reader, model string, toolSchemas map[string]map[string]any, planFilePath string, webSearchMaxUses int, fallbackInputTokens int, initialInputUsage convert.Usage, chainKey string, fullRequest codex.Request, traceBase map[string]any) error {
+func (s *Server) writeNonStreamingMessageWithSchemas(w http.ResponseWriter, body io.Reader, upstreamHeaders http.Header, model string, toolSchemas map[string]map[string]any, planFilePath string, webSearchMaxUses int, fallbackInputTokens int, initialInputUsage convert.Usage, chainKey string, fullRequest codex.Request, traceBase map[string]any, continueResponse func(codex.Request) (*http.Response, error)) error {
 	reducer := convert.NewStreamReducerWithOptions(anthropicMessageID(traceBase), model, convert.StreamReducerOptions{
 		ToolSchemas:         toolSchemas,
 		AgentModels:         s.cfg.ModelConfig,
@@ -1010,36 +1044,65 @@ func (s *Server) writeNonStreamingMessageWithSchemas(w http.ResponseWriter, body
 	notifyIdle, stopIdle := s.startStreamIdleTrace(traceBase, streamStarted)
 	defer stopIdle()
 	eventCount := 0
-	err := codex.ReadSSE(body, func(event codex.SSEEvent) error {
-		if isPreviousResponseNotFoundEvent(event) {
-			return errPreviousResponseNotFound
-		}
-		eventCount++
-		notifyIdle(event.Event)
-		if eventCount == 1 {
-			s.trace("stream.first_event", mergeTraceFields(traceBase, map[string]any{
-				"elapsed_ms":  traceDurationMS(streamStarted),
-				"codex_event": event.Event,
-			}))
-		}
-		if shouldTraceCodexEvent(event.Event) {
-			fields := map[string]any{
-				"elapsed_ms":  traceDurationMS(streamStarted),
-				"codex_event": event.Event,
+	currentBody := body
+	currentHeaders := upstreamHeaders
+	ownedBody := false
+	var err error
+	for {
+		var segmentTrace responseTrace
+		err = codex.ReadSSE(currentBody, func(event codex.SSEEvent) error {
+			if isPreviousResponseNotFoundEvent(event) {
+				return errPreviousResponseNotFound
 			}
-			if msg := eventErrorMessage(event); msg != "" {
-				fields["upstream_error"] = msg
+			eventCount++
+			notifyIdle(event.Event)
+			if eventCount == 1 {
+				s.trace("stream.first_event", mergeTraceFields(traceBase, map[string]any{
+					"elapsed_ms":  traceDurationMS(streamStarted),
+					"codex_event": event.Event,
+				}))
 			}
-			s.trace("stream.event", mergeTraceFields(traceBase, fields))
+			if shouldTraceCodexEvent(event.Event) {
+				fields := map[string]any{
+					"elapsed_ms":  traceDurationMS(streamStarted),
+					"codex_event": event.Event,
+				}
+				if msg := eventErrorMessage(event); msg != "" {
+					fields["upstream_error"] = msg
+				}
+				s.trace("stream.event", mergeTraceFields(traceBase, fields))
+			}
+			segmentTrace.observe(event)
+			next, reduceErr := reducer.ReduceNamed(event.Event, event.Data)
+			if reduceErr != nil {
+				return reduceErr
+			}
+			events = append(events, next...)
+			return nil
+		})
+		if ownedBody {
+			_ = currentBody.(io.Closer).Close()
 		}
-		trace.observe(event)
-		next, err := reducer.ReduceNamed(event.Event, event.Data)
-		if err != nil {
-			return err
+		trace.appendSegment(segmentTrace)
+		if err != nil || !reducer.NeedsFollowUp() {
+			break
 		}
-		events = append(events, next...)
-		return nil
-	})
+		if continueResponse == nil {
+			err = errors.New("Codex requested continued sampling but no continuation transport is available")
+			break
+		}
+		sameWebSocket := currentHeaders.Get("x-claudodex-transport") == "websocket" && s.hasWebSocket(chainKey)
+		nextRequest := continuationRequest(fullRequest, trace, sameWebSocket)
+		reducer.ContinueSampling()
+		nextResponse, continueErr := continueResponse(nextRequest)
+		if continueErr != nil {
+			err = continueErr
+			break
+		}
+		currentBody = nextResponse.Body
+		currentHeaders = nextResponse.Header
+		ownedBody = true
+	}
 	if err != nil {
 		s.trace("stream.error", mergeTraceFields(traceBase, map[string]any{
 			"elapsed_ms": traceDurationMS(streamStarted),
