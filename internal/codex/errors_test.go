@@ -26,6 +26,24 @@ func TestParseResponseFailureReadsEmbeddedRetryAdvice(t *testing.T) {
 			wantRetry:    true,
 		},
 		{
+			name:         "nested websocket numeric header",
+			body:         `{"type":"error","error":{"status":429,"code":"rate_limit_exceeded","message":"busy","headers":{"Retry-After":0.025}}}`,
+			wantDelay:    25 * time.Millisecond,
+			wantDelaySet: true,
+		},
+		{
+			name:         "malformed nested header falls back to top level",
+			body:         `{"type":"error","error":{"status":"429","code":"rate_limit_exceeded","message":"busy","headers":{"Retry-After":"later"}},"headers":{"retry-after":"0.03"}}`,
+			wantDelay:    30 * time.Millisecond,
+			wantDelaySet: true,
+		},
+		{
+			name:         "case insensitive duplicate uses valid value",
+			body:         `{"type":"error","error":{"status":503,"code":"server_is_overloaded","message":"busy","headers":{"RETRY-AFTER":"invalid","retry-after":"0.02"}}}`,
+			wantDelay:    20 * time.Millisecond,
+			wantDelaySet: true,
+		},
+		{
 			name: "malformed header",
 			body: `{"type":"response.failed","response":{"error":{"code":"slow_down","message":"retry in 25ms","headers":{"retry-after":"later"}}}}`,
 		},
@@ -37,6 +55,16 @@ func TestParseResponseFailureReadsEmbeddedRetryAdvice(t *testing.T) {
 				t.Fatalf("retry advice = delay %s set=%v retryable=%v", got.RetryAfter, got.RetryAfterSet, got.Retryable)
 			}
 		})
+	}
+}
+
+func TestParseResponseFailureReadsWebSocketStatusWithoutMakingHeaderlessErrorRetryable(t *testing.T) {
+	failure := ParseResponseFailure([]byte(`{"type":"error","error":{"status":429,"code":"unknown_error","message":"terminal"}}`))
+	if failure.Status != 429 {
+		t.Fatalf("status = %d, want 429", failure.Status)
+	}
+	if failure.RetryAfterSet || failure.Retryable {
+		t.Fatalf("headerless failure unexpectedly became retryable: %#v", failure)
 	}
 }
 

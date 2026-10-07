@@ -2257,7 +2257,7 @@ func TestMessagesRetriesEarlyWebSocketEmbeddedRetryAfter(t *testing.T) {
 			if _, _, err := conn.ReadMessage(); err != nil {
 				t.Fatal(err)
 			}
-			writeWSJSON(t, conn, map[string]any{"type": "error", "code": "internal_error", "message": "retryable", "retryable": true, "headers": map[string]any{"Retry-After": "0"}})
+			writeWSJSON(t, conn, map[string]any{"type": "error", "error": map[string]any{"status": 429, "code": "rate_limit_exceeded", "message": "retryable", "headers": map[string]any{"Retry-After": 0}}})
 		case 2:
 			if _, _, err := conn.ReadMessage(); err != nil {
 				t.Fatal(err)
@@ -2286,6 +2286,50 @@ func TestMessagesRetriesEarlyWebSocketEmbeddedRetryAfter(t *testing.T) {
 	}
 	if got := handshakes.Load(); got != 2 {
 		t.Fatalf("websocket handshakes = %d, want 2", got)
+	}
+}
+
+func TestMessagesDoesNotRetryHeaderlessWebSocketError(t *testing.T) {
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	t.Setenv("CLAUDODEX_FORCE_CODEX_WEBSOCKET", "true")
+	var handshakes atomic.Int32
+	upgrader := websocket.Upgrader{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !websocket.IsWebSocketUpgrade(r) {
+			t.Fatalf("expected websocket upgrade, got %s", r.Header.Get("upgrade"))
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		if handshakes.Add(1) != 1 {
+			t.Fatal("headerless WebSocket error was retried")
+		}
+		if _, _, err := conn.ReadMessage(); err != nil {
+			t.Fatal(err)
+		}
+		writeWSJSON(t, conn, map[string]any{"type": "error", "error": map[string]any{"status": 429, "code": "unknown_error", "message": "terminal"}})
+	}))
+	defer upstream.Close()
+	server := New(Config{Home: home, CodexBaseURL: upstream.URL, HTTPClient: upstream.Client(), AuthPresent: true})
+	addr, err := server.Start("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-opus-4-6","stream":true,"messages":[{"role":"user","content":"x"}],"tools":[{"name":"Read","input_schema":{"type":"object"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if body := readAllString(t, resp); !strings.Contains(body, "terminal") {
+		t.Fatalf("missing terminal WebSocket error: %s", body)
+	}
+	if got := handshakes.Load(); got != 1 {
+		t.Fatalf("WebSocket handshakes = %d, want 1", got)
 	}
 }
 
