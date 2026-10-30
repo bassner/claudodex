@@ -13,9 +13,9 @@ untracked files. Build and test the extracted archive with `GOPROXY=off`,
 
 ```sh
 go build -o /tmp/clx-release ./cmd/clx-release
-/tmp/clx-release source --version 0.3.40 --out /tmp/clx-assets
-/tmp/clx-release formula --version 0.3.40 \
-  --source /tmp/clx-assets/claudodex-0.3.40-source.tar.gz \
+/tmp/clx-release source --version 0.4.0 --out /tmp/clx-assets
+/tmp/clx-release formula --version 0.4.0 \
+  --source /tmp/clx-assets/claudodex-0.4.0-source.tar.gz \
   --out /tmp/claudodex.rb
 ```
 
@@ -32,13 +32,13 @@ In a disposable tap/build environment, install that formula with
 
 ```sh
 brew bottle --json --no-rebuild \
-  --root-url https://github.com/bassner/claudodex/releases/download/v0.3.40 \
+  --root-url https://github.com/bassner/claudodex/releases/download/v0.4.0 \
   bassner/tap/claudodex
-/tmp/clx-release bottles --version 0.3.40 \
-  --bottle-json ./claudodex--0.3.40.arm64_sequoia.bottle.json \
+/tmp/clx-release bottles --version 0.4.0 \
+  --bottle-json ./claudodex--0.4.0.arm64_sequoia.bottle.json \
   --asset-dir . --out /tmp/clx-assets
-/tmp/clx-release formula --version 0.3.40 \
-  --source /tmp/clx-assets/claudodex-0.3.40-source.tar.gz \
+/tmp/clx-release formula --version 0.4.0 \
+  --source /tmp/clx-assets/claudodex-0.4.0-source.tar.gz \
   --bottle-json /tmp/clx-assets/claudodex-bottles.json \
   --out /tmp/claudodex-with-bottles.rb
 ```
@@ -54,12 +54,12 @@ key through `CLAUDODEX_RELEASE_SIGNING_KEY` in the protected CI step; do not put
 it in a command, argument, file in this repo, or log.
 
 ```sh
-/tmp/clx-release manifest --version 0.3.40 \
-  --notes packaging/release-notes/v0.3.40.md \
-  --source /tmp/clx-assets/claudodex-0.3.40-source.tar.gz \
+/tmp/clx-release manifest --version 0.4.0 \
+  --notes packaging/release-notes/v0.4.0.md \
+  --source /tmp/clx-assets/claudodex-0.4.0-source.tar.gz \
   --bottle-json /tmp/clx-assets/claudodex-bottles.json \
   --asset-dir /tmp/clx-assets --out /tmp/clx-signed
-/tmp/clx-release verify-manifest --version 0.3.40 \
+/tmp/clx-release verify-manifest --version 0.4.0 \
   --asset-dir /tmp/clx-assets --out /tmp/clx-signed
 ```
 
