@@ -43,10 +43,11 @@ Why not call it `claudex`? Because that name is already used in multiple places.
 - Runs your installed `claude` binary with normal Claude Code flags.
 - Authenticates to OpenAI through `claudodex clx:auth-login`.
 - Maps Claude model families to Codex models:
-  - Opus -> `gpt-5.6-sol`
-  - Sonnet -> `gpt-5.6-terra`
-  - Haiku -> `gpt-5.6-luna`
-- Maps Claude Code `max` effort to Codex `max` for GPT-5.6. Claude Code's
+  - Opus -> `gpt-6.1-sol`
+  - Sonnet -> `gpt-6.1-terra`
+  - Haiku -> `gpt-6-luna`
+  - Fable -> `gpt-6-astra`
+- Maps Claude Code `max` effort to Codex `max` for the configured GPT-6 family models. Claude Code's
   `ultracode` mode enables its workflow orchestration while still sending
   Codex `max` effort; older models fall back to their highest supported level.
 - Disables Claude Code's deferred tool-search protocol so complete tool
@@ -55,7 +56,7 @@ Why not call it `claudex`? Because that name is already used in multiple places.
   auto-compact limits.
 - Uses the token usage reported by completed OpenAI responses for Claude Code's
   context accounting. Local preflight estimates exclude base64 payload text and
-  count GPT-5.6 image tokens from the decoded pixel dimensions instead.
+  count image tokens from the decoded pixel dimensions instead.
 - Shows OpenAI reasoning summaries through Claude Code's native thinking UI,
   with each titled summary section kept as a separate thinking entry.
 - Preserves encrypted OpenAI reasoning items for lossless stateless tool-call
@@ -121,6 +122,9 @@ claude --version
 claudodex clx:version
 ```
 
+Claudodex does not install new GitHub releases automatically. To update a source
+installation, pull the latest changes, rebuild, and repeat the install step.
+
 ## Getting Started
 
 1. Log in to OpenAI:
@@ -179,7 +183,8 @@ Default model targets are centralized and can be changed at startup:
 claudodex --claudodex-opus-model gpt-opus-next
 claudodex --claudodex-sonnet-model gpt-sonnet-next --model sonnet
 claudodex --claudodex-haiku-model gpt-haiku-next
-claudodex --claudodex-models opus=gpt-opus-next,sonnet=gpt-sonnet-next,haiku=gpt-haiku-next
+claudodex --claudodex-fable-model gpt-astra-next
+claudodex --claudodex-models opus=gpt-opus-next,sonnet=gpt-sonnet-next,haiku=gpt-haiku-next,fable=gpt-astra-next
 ```
 
 Overrides affect routing, model argument rewriting, `/v1/models`, capability
@@ -192,6 +197,10 @@ metadata with context-window information.
 Claudodex uses a Claude Code compatibility sidecar under `~/.claudodex`, but
 normal Claude Code settings remain the source of truth where possible:
 
+- If another Claude wrapper saved an unrecognized provider model, Claudodex uses
+  its Opus route for that launch and leaves the shared model setting unchanged.
+- Statusline commands receive the selected Codex model name through a
+  Claudodex-owned wrapper; the original statusline script is not changed.
 - `~/.claude/` files such as settings, agents, plugins, MCP config, and project
   state are symlinked into the sidecar.
 - `~/.claude.json` is mirrored instead of symlinked because it also contains

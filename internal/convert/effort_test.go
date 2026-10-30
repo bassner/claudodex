@@ -61,3 +61,16 @@ func TestGPT56ClaudeEffortsMatchAdvertisedLevels(t *testing.T) {
 		}
 	}
 }
+
+func TestGPT6FourTierEfforts(t *testing.T) {
+	for _, model := range []string{"gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna", "gpt-6-astra"} {
+		for _, effort := range []string{"low", "medium", "high", "xhigh", "max"} {
+			if got := MapReasoningEffort(model, effort, 0); string(got) != effort {
+				t.Errorf("%s effort %s = %s", model, effort, got)
+			}
+		}
+		if got := MapReasoningEffort(model, "ultracode", 0); got != EffortMax {
+			t.Errorf("%s ultracode = %s", model, got)
+		}
+	}
+}

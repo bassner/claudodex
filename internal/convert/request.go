@@ -116,7 +116,8 @@ When the Claude Code system or agent prompt says you are a delegated agent, suba
 The actual model runtime behind this Claude Code session is OpenAI Codex. Anthropic model families and aliases such as Fable, Opus, Sonnet, Haiku, claude-fable-*, and other claude-* model IDs are not selectable subagent runtimes in this environment.
 
 For every Claude Code Agent tool call, set the model field directly to one of the configured Codex model IDs below. Choose the tier that fits the delegated task:
-- {{OPUS_MODEL}} is the strongest and most intelligent route for difficult reasoning, implementation, and review.
+- {{FABLE_MODEL}} is the strongest route for the most demanding reasoning and review.
+- {{OPUS_MODEL}} is the capable coding route for complex implementation.
 - {{SONNET_MODEL}} is the balanced middle route for ordinary work.
 - {{HAIKU_MODEL}} is the fastest, cheapest, and least capable route for simple tasks.
 Never emit Fable, Opus, Sonnet, Haiku, inherit, a claude-* model ID, or another Anthropic compatibility alias as the Agent model. Do not omit the model merely to inherit a Claude compatibility name. If an unavailable model is explicitly requested, explain the limitation and choose the closest configured Codex tier.
@@ -265,6 +266,7 @@ func withClaudeCodeCompatibilityInstructions(instructions string, ordinarySubage
 		"{{OPUS_MODEL}}", models.Opus,
 		"{{SONNET_MODEL}}", models.Sonnet,
 		"{{HAIKU_MODEL}}", models.Haiku,
+		"{{FABLE_MODEL}}", models.Fable,
 	).Replace(claudeCodeCompatibilityInstructionsTemplate)
 	if ordinarySubagent {
 		compatibilityInstructions += "\n\n" + ordinaryClaudeCodeSubagentInstructions

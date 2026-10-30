@@ -10,8 +10,8 @@ import (
 )
 
 // DefaultModelsClientVersion is the minimum Codex client protocol version used
-// for model discovery. Older catalog versions omit the GPT-5.6 family.
-const DefaultModelsClientVersion = "0.144.3"
+// for model discovery. Older catalog versions omit newer Codex model families.
+const DefaultModelsClientVersion = "0.166.0"
 
 type ModelsResponse struct {
 	Models []ModelInfo `json:"models"`

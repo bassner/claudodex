@@ -129,6 +129,8 @@ func canonicalClaudeRuntimeModel(model string, models modelconfig.Config) string
 		return "sonnet"
 	case strings.ToLower(modelconfig.StripLongContext(models.Haiku)):
 		return "haiku"
+	case strings.ToLower(modelconfig.StripLongContext(models.Fable)):
+		return "fable"
 	default:
 		return modelconfig.WithLongContext(runtimeModel)
 	}

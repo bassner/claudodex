@@ -138,6 +138,8 @@ func claudeAdditionalModelOptions(modelCfg modelconfig.Config) []map[string]stri
 func claudodexModelOptionDescription(family modelconfig.Family, target string) string {
 	target = modelconfig.StripLongContext(target)
 	switch family {
+	case modelconfig.FamilyFable:
+		return target + " - most capable model"
 	case modelconfig.FamilyOpus:
 		return target + " - default complex-work model"
 	case modelconfig.FamilySonnet:

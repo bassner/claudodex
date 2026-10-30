@@ -155,7 +155,7 @@ func TestMessagesStreamsCodexResponseAndBuildsUpstreamRequest(t *testing.T) {
 	if !strings.Contains(sse, `"text":"ok"`) || !strings.Contains(sse, "event: message_stop") {
 		t.Fatalf("missing text/stop in SSE:\n%s", sse)
 	}
-	if captured["model"] != "gpt-5.6-terra" {
+	if captured["model"] != "gpt-6.1-terra" {
 		t.Fatalf("upstream model = %#v", captured["model"])
 	}
 	if _, exists := captured["instructions"]; exists {
@@ -237,7 +237,7 @@ func TestMessagesHTTPToolContinuationReplaysEncryptedReasoningLosslessly(t *test
 		CodexBaseURL: upstream.URL,
 		HTTPClient:   upstream.Client(),
 		AuthPresent:  true,
-		Models:       []codex.ModelInfo{{Slug: "gpt-5.6-terra", SupportsReasoningSummaries: true}},
+		Models:       []codex.ModelInfo{{Slug: "gpt-6.1-terra", SupportsReasoningSummaries: true}},
 	})
 	addr, err := server.Start("127.0.0.1", 0)
 	if err != nil {
@@ -1582,12 +1582,12 @@ func TestShouldRetryStreamRetriesTransientTransportErrors(t *testing.T) {
 func TestContentFilterRetryUsesValidatedCatalogGuidance(t *testing.T) {
 	catalogGuidance := "Offer a permitted alternative."
 	server := New(Config{Models: []codex.ModelInfo{{
-		Slug: "gpt-5.6-terra",
+		Slug: "gpt-6.1-terra",
 		ModelMessages: &codex.ModelMessages{
 			ContentFilterGuidance: &catalogGuidance,
 		},
 	}}})
-	req := server.appendContentFilterGuidance(codex.Request{Model: "gpt-5.6-terra"})
+	req := server.appendContentFilterGuidance(codex.Request{Model: "gpt-6.1-terra"})
 	if len(req.Input) != 1 || len(req.Input[0].Content) != 1 {
 		t.Fatalf("guidance input = %#v", req.Input)
 	}
@@ -1599,12 +1599,12 @@ func TestContentFilterRetryUsesValidatedCatalogGuidance(t *testing.T) {
 func TestContentFilterRetryRejectsBlankAndOversizedCatalogGuidance(t *testing.T) {
 	for _, guidance := range []string{"   ", strings.Repeat("x", maxContentFilterGuidanceBytes+1)} {
 		server := New(Config{Models: []codex.ModelInfo{{
-			Slug: "gpt-5.6-terra",
+			Slug: "gpt-6.1-terra",
 			ModelMessages: &codex.ModelMessages{
 				ContentFilterGuidance: &guidance,
 			},
 		}}})
-		req := server.appendContentFilterGuidance(codex.Request{Model: "gpt-5.6-terra"})
+		req := server.appendContentFilterGuidance(codex.Request{Model: "gpt-6.1-terra"})
 		if got := req.Input[0].Content[0].Text; !strings.Contains(got, defaultContentFilterGuidance) {
 			t.Fatalf("invalid catalog guidance did not fall back: %q", got)
 		}
@@ -1647,7 +1647,7 @@ func TestMessagesRetriesEarlyContentFilterWithCatalogGuidance(t *testing.T) {
 		HTTPClient:   upstream.Client(),
 		AuthPresent:  true,
 		Models: []codex.ModelInfo{{
-			Slug: "gpt-5.6-terra",
+			Slug: "gpt-6.1-terra",
 			ModelMessages: &codex.ModelMessages{
 				ContentFilterGuidance: &guidance,
 			},

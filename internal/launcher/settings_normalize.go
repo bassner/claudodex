@@ -62,7 +62,7 @@ func normalizeClaudeSettingsModel(path string, wait time.Duration, modelCfg mode
 func codexRuntimeSettingsAlias(model string, modelCfg modelconfig.Config) (string, bool) {
 	normalized := strings.ToLower(modelconfig.StripLongContext(model))
 	if strings.Contains(normalized, "fable") || strings.Contains(normalized, "mythos") {
-		return string(modelconfig.FamilyOpus), true
+		return string(modelconfig.FamilyFable), true
 	}
 	if alias, ok := modelCfg.SettingsAliasForTarget(model); ok {
 		return alias, true

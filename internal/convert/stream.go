@@ -1012,15 +1012,16 @@ func normalizeClaudeCodeToolArgs(toolName string, args map[string]any, models mo
 		target = models.Opus
 	case normalized == strings.ToLower(models.Opus),
 		normalized == strings.ToLower(models.Sonnet),
-		normalized == strings.ToLower(models.Haiku):
+		normalized == strings.ToLower(models.Haiku),
+		normalized == strings.ToLower(models.Fable):
 		return args
 	case strings.Contains(normalized, "sonnet"):
 		target = models.Sonnet
 	case strings.Contains(normalized, "haiku"):
 		target = models.Haiku
-	case strings.Contains(normalized, "fable"),
-		strings.Contains(normalized, "mythos"),
-		strings.Contains(normalized, "opus"),
+	case strings.Contains(normalized, "fable"), strings.Contains(normalized, "mythos"):
+		target = models.Fable
+	case strings.Contains(normalized, "opus"),
 		normalized == "inherit",
 		strings.HasPrefix(normalized, "claude-"):
 		target = models.Opus

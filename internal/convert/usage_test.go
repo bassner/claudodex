@@ -74,8 +74,8 @@ func TestCodexUsageToClaudeMapsWindowsAndExtraUsage(t *testing.T) {
 	if sonnet["utilization"] != float64(50) {
 		t.Fatalf("seven_day_sonnet = %#v", sonnet)
 	}
-	if _, ok := got["seven_day_fable"]; ok {
-		t.Fatalf("retired fourth-tier quota leaked into Claude usage: %#v", got)
+	if fable := got["seven_day_fable"].(map[string]any); fable["utilization"] != float64(40) {
+		t.Fatalf("seven_day_fable = %#v", fable)
 	}
 	haiku := got["seven_day_haiku"].(map[string]any)
 	if haiku["utilization"] != float64(25) {

@@ -29,11 +29,12 @@ const (
 const StatusLineCommandName = claudodexStatuslineCommandName
 
 type statusLineSource struct {
-	UserSettingsPath    string         `json:"user_settings_path,omitempty"`
-	ProjectSettingsPath string         `json:"project_settings_path,omitempty"`
-	LocalSettingsPath   string         `json:"local_settings_path,omitempty"`
-	SettingSources      []string       `json:"setting_sources,omitempty"`
-	FlagStatusLine      map[string]any `json:"flag_status_line,omitempty"`
+	Models              modelconfig.Config `json:"models,omitempty"`
+	UserSettingsPath    string             `json:"user_settings_path,omitempty"`
+	ProjectSettingsPath string             `json:"project_settings_path,omitempty"`
+	LocalSettingsPath   string             `json:"local_settings_path,omitempty"`
+	SettingSources      []string           `json:"setting_sources,omitempty"`
+	FlagStatusLine      map[string]any     `json:"flag_status_line,omitempty"`
 }
 
 func IsStatusLineWrapperCommand(args []string) bool {
@@ -45,6 +46,11 @@ func PrepareStatusLineFlagSettings(sidecarDir string, args []string) ([]string, 
 }
 
 func prepareStatusLineFlagSettings(sidecarDir string, args []string, compatibilitySettings map[string]any) ([]string, error) {
+	return prepareStatusLineFlagSettingsForModels(sidecarDir, args, compatibilitySettings, modelconfig.Default())
+}
+
+func prepareStatusLineFlagSettingsForModels(sidecarDir string, args []string, compatibilitySettings map[string]any, models modelconfig.Config) ([]string, error) {
+	models = models.Normalize()
 	flagSettings, argsWithoutSettings, sawFlagSettings, err := extractFlagSettings(args)
 	if err != nil {
 		return nil, err
@@ -77,8 +83,23 @@ func prepareStatusLineFlagSettings(sidecarDir string, args []string, compatibili
 
 	settingsPath, sourcePath := statusLineSessionPaths(sidecarDir)
 	settings := cloneJSONMap(flagSettings)
+	if _, explicit := explicitModelArg(args); !explicit {
+		if inherited, ok := activeSettings["model"].(string); ok && strings.TrimSpace(inherited) != "" {
+			alias, known := codexRuntimeSettingsAlias(inherited, models)
+			if !known {
+				alias = string(modelconfig.FamilyOpus)
+			}
+			if inherited != alias {
+				// A different Claude wrapper may store a provider-specific model in
+				// shared settings. Adapt this launch without changing that setting.
+				settings["model"] = alias
+				needsGeneratedSettings = true
+			}
+		}
+	}
 	if hasStatusLineCommand(activeStatusLine) {
 		source := statusLineSource{
+			Models:              models,
 			UserSettingsPath:    userSettingsPath,
 			ProjectSettingsPath: projectSettingsPath,
 			LocalSettingsPath:   localSettingsPath,
@@ -107,6 +128,7 @@ func claude246ModelPickerSettings(modelCfg modelconfig.Config) map[string]any {
 			"options": []any{
 				map[string]any{"model": "opus", "label": "Opus", "description": modelCfg.Opus},
 				map[string]any{"model": "haiku", "label": "Haiku", "description": modelCfg.Haiku},
+				map[string]any{"model": "fable", "label": "Fable", "description": modelCfg.Fable},
 			},
 		},
 	}
@@ -447,7 +469,33 @@ func RunStatusLineWrapper(args []string, stdin io.Reader, stdout, stderr io.Writ
 		return 0
 	}
 	patched := patchStatusLineInput(input, statuslineContextWindow())
+	patched = patchStatusLineModel(patched, source.Models.Normalize())
 	return runStatusLineCommand(command, patched, stdout, stderr)
+}
+
+func patchStatusLineModel(input []byte, models modelconfig.Config) []byte {
+	var root map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(input))
+	decoder.UseNumber()
+	if err := decoder.Decode(&root); err != nil {
+		return input
+	}
+	model := mapValue(root["model"])
+	if model == nil {
+		return input
+	}
+	id, _ := model["id"].(string)
+	if strings.TrimSpace(id) == "" {
+		return input
+	}
+	target := models.RuntimeModel(id)
+	model["id"] = target
+	model["display_name"] = target
+	data, err := json.Marshal(root)
+	if err != nil {
+		return input
+	}
+	return data
 }
 
 func statusLineSourcePath(args []string) string {

@@ -26,7 +26,7 @@ func TestAnthropicToCodexStripsBillingAndMapsMaxEffort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Request.Model != "gpt-5.6-terra" {
+	if got.Request.Model != "gpt-6.1-terra" {
 		t.Fatalf("model = %q", got.Request.Model)
 	}
 	if got.Request.Reasoning == nil || got.Request.Reasoning.Effort != "max" {
@@ -83,7 +83,7 @@ func TestAnthropicToCodexRequestsSupportedReasoningSummaryForClaudeThinking(t *t
 		t.Fatal(err)
 	}
 	got, err := AnthropicToCodex(req, ConvertOptions{CodexModels: []codex.ModelInfo{{
-		Slug:                       "gpt-5.6-terra",
+		Slug:                       "gpt-6.1-terra",
 		SupportsReasoningSummaries: true,
 	}}})
 	if err != nil {
@@ -140,7 +140,7 @@ func TestAnthropicToCodexDoesNotRequestUnsupportedOrUnrequestedReasoningSummary(
 				t.Fatal(err)
 			}
 			got, err := AnthropicToCodex(req, ConvertOptions{CodexModels: []codex.ModelInfo{{
-				Slug:                       "gpt-5.6-terra",
+				Slug:                       "gpt-6.1-terra",
 				SupportsReasoningSummaries: test.supports,
 			}}})
 			if err != nil {
@@ -204,7 +204,7 @@ func TestAnthropicToCodexAddsCompatibilityInstructionsWithoutSystemPrompt(t *tes
 	if !strings.Contains(got.Request.Instructions, "not selectable subagent runtimes in this environment") {
 		t.Fatalf("subagent runtime limitation guidance missing: %q", got.Request.Instructions)
 	}
-	for _, model := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"} {
+	for _, model := range []string{"gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"} {
 		if !strings.Contains(got.Request.Instructions, model) {
 			t.Fatalf("configured Agent model %q missing: %q", model, got.Request.Instructions)
 		}
@@ -476,8 +476,8 @@ func TestAnthropicToCodexMapsFastSpeedToPriorityServiceTier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Request.Model != "gpt-5.6-sol" {
-		t.Fatalf("model = %q, want gpt-5.6-sol", got.Request.Model)
+	if got.Request.Model != "gpt-6.1-sol" {
+		t.Fatalf("model = %q, want gpt-6.1-sol", got.Request.Model)
 	}
 	if got.Request.ServiceTier != "priority" {
 		t.Fatalf("service_tier = %q, want priority", got.Request.ServiceTier)
@@ -647,7 +647,7 @@ func TestAnthropicToCodexConvertsToolsImagesAndResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Request.Model != "gpt-5.6-luna" {
+	if got.Request.Model != "gpt-6-luna" {
 		t.Fatalf("model = %q", got.Request.Model)
 	}
 	if got.Request.Reasoning == nil || got.Request.Reasoning.Effort != "low" {

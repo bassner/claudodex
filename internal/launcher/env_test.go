@@ -29,9 +29,10 @@ func TestBuildClaudeEnv(t *testing.T) {
 		"ANTHROPIC_DEFAULT_FABLE_MODEL_NAME=leak",
 		"ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION=leak",
 	}, 4321, "/tmp/claudodex-claude", "/tmp/claudodex-api.sock", "http://127.0.0.1:9999", "/tmp/ca.pem", []codex.ModelInfo{
-		{Slug: "gpt-5.6-sol", ContextWindow: 272000, EffectiveContextWindowPercent: 95},
-		{Slug: "gpt-5.6-terra", ContextWindow: 300000, EffectiveContextWindowPercent: 90},
-		{Slug: "gpt-5.6-luna", ContextWindow: 400000, EffectiveContextWindowPercent: 80},
+		{Slug: "gpt-6.1-sol", ContextWindow: 272000, EffectiveContextWindowPercent: 95},
+		{Slug: "gpt-6-astra", ContextWindow: 272000, EffectiveContextWindowPercent: 95},
+		{Slug: "gpt-6.1-terra", ContextWindow: 300000, EffectiveContextWindowPercent: 90},
+		{Slug: "gpt-6-luna", ContextWindow: 400000, EffectiveContextWindowPercent: 80},
 	}, modelconfig.Default())
 	got := map[string]string{}
 	for _, item := range env {
@@ -42,55 +43,60 @@ func TestBuildClaudeEnv(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"ANTHROPIC_BASE_URL":                       firstPartyAnthropicBaseURL,
-		"CLAUDE_CODE_API_BASE_URL":                 firstPartyAnthropicBaseURL,
-		"CLAUDE_CONFIG_DIR":                        "/tmp/claudodex-claude",
-		"CLAUDE_SECURESTORAGE_CONFIG_DIR":          "/tmp/claudodex-claude",
-		"CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST":     "1",
-		"ENABLE_TOOL_SEARCH":                       "false",
-		"CLAUDODEX_PRESERVE_ME":                    "yes",
-		"USER_TYPE":                                "ant",
-		"USE_LOCAL_OAUTH":                          "1",
-		"CLAUDE_LOCAL_OAUTH_API_BASE":              "http://127.0.0.1:4321",
-		"ANTHROPIC_UNIX_SOCKET":                    "/tmp/claudodex-api.sock",
-		"CLAUDE_CODE_OAUTH_TOKEN":                  localOAuthAccessToken,
-		"CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK":     "1",
-		"CLAUDE_BRIDGE_BASE_URL":                   firstPartyAnthropicBaseURL,
-		"CLAUDE_BRIDGE_SESSION_INGRESS_URL":        firstPartyAnthropicBaseURL,
-		"NO_PROXY":                                 ".anthropic.com,.example.com",
-		"NODE_EXTRA_CA_CERTS":                      "/tmp/ca.pem",
-		"CLAUDODEX_REAL_SHELL":                     "/bin/zsh",
-		"SHELL":                                    filepath.Join("/tmp/claudodex-claude", claudodexShimDirName, "zsh"),
-		"CLAUDODEX_ORIGINAL_SHELL":                 "/bin/zsh",
-		"CLAUDODEX_ORIGINAL_HTTP_PROXY":            "http://user-http",
-		"CLAUDODEX_ORIGINAL_HTTPS_PROXY":           "http://user-https",
-		"CLAUDODEX_ORIGINAL_NO_PROXY":              ".anthropic.com,.example.com",
-		"CLAUDODEX_ORIGINAL_NODE_EXTRA_CA_CERTS":   "/tmp/user-ca.pem",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL":             "gpt-5.6-sol",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL_NAME":        "gpt-5.6-sol",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION": "Default Codex route",
-		"ANTHROPIC_DEFAULT_SONNET_MODEL":           "gpt-5.6-terra",
-		"ANTHROPIC_DEFAULT_SONNET_MODEL_NAME":      "gpt-5.6-terra",
-		"ANTHROPIC_DEFAULT_HAIKU_MODEL":            "gpt-5.6-luna",
-		"ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME":       "gpt-5.6-luna",
-		"ANTHROPIC_SMALL_FAST_MODEL":               "gpt-5.6-luna",
-		"CLAUDODEX_CONTEXT_WINDOW":                 "272000",
-		"CLAUDODEX_STATUSLINE_SOURCE":              filepath.Join("/tmp/claudodex-claude", claudodexStatuslineSourceName),
-		"CLAUDE_CODE_AUTO_COMPACT_WINDOW":          "258400",
-		"CLAUDE_CODE_MAX_CONTEXT_TOKENS":           "272000",
-		"CLAUDE_CODE_FORCE_FULL_LOGO":              "1",
-		"CLAUDE_CODE_DISABLE_AGENT_VIEW":           "1",
-		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-		"DISABLE_TELEMETRY":                        "1",
-		"DO_NOT_TRACK":                             "1",
-		"DISABLE_GROWTHBOOK":                       "1",
+		"ANTHROPIC_BASE_URL":                        firstPartyAnthropicBaseURL,
+		"CLAUDE_CODE_API_BASE_URL":                  firstPartyAnthropicBaseURL,
+		"CLAUDE_CONFIG_DIR":                         "/tmp/claudodex-claude",
+		"CLAUDE_SECURESTORAGE_CONFIG_DIR":           "/tmp/claudodex-claude",
+		"CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST":      "1",
+		"ENABLE_TOOL_SEARCH":                        "false",
+		"CLAUDODEX_PRESERVE_ME":                     "yes",
+		"USER_TYPE":                                 "ant",
+		"USE_LOCAL_OAUTH":                           "1",
+		"CLAUDE_LOCAL_OAUTH_API_BASE":               "http://127.0.0.1:4321",
+		"ANTHROPIC_UNIX_SOCKET":                     "/tmp/claudodex-api.sock",
+		"CLAUDE_CODE_OAUTH_TOKEN":                   localOAuthAccessToken,
+		"CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK":      "1",
+		"CLAUDE_BRIDGE_BASE_URL":                    firstPartyAnthropicBaseURL,
+		"CLAUDE_BRIDGE_SESSION_INGRESS_URL":         firstPartyAnthropicBaseURL,
+		"NO_PROXY":                                  ".example.com,127.0.0.1,localhost",
+		"HTTPS_PROXY":                               "http://127.0.0.1:9999",
+		"https_proxy":                               "http://127.0.0.1:9999",
+		"NODE_EXTRA_CA_CERTS":                       "/tmp/ca.pem",
+		"CLAUDODEX_REAL_SHELL":                      "/bin/zsh",
+		"SHELL":                                     filepath.Join("/tmp/claudodex-claude", claudodexShimDirName, "zsh"),
+		"CLAUDODEX_ORIGINAL_SHELL":                  "/bin/zsh",
+		"CLAUDODEX_ORIGINAL_HTTP_PROXY":             "http://user-http",
+		"CLAUDODEX_ORIGINAL_HTTPS_PROXY":            "http://user-https",
+		"CLAUDODEX_ORIGINAL_NO_PROXY":               ".anthropic.com,.example.com",
+		"CLAUDODEX_ORIGINAL_NODE_EXTRA_CA_CERTS":    "/tmp/user-ca.pem",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":              "gpt-6.1-sol",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL_NAME":         "gpt-6.1-sol",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION":  "Default Codex route",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL":            "gpt-6.1-terra",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL_NAME":       "gpt-6.1-terra",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL":             "gpt-6-luna",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME":        "gpt-6-luna",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL":             "gpt-6-astra",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL_NAME":        "gpt-6-astra",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION": "Most capable Codex route",
+		"ANTHROPIC_SMALL_FAST_MODEL":                "gpt-6-luna",
+		"CLAUDODEX_CONTEXT_WINDOW":                  "272000",
+		"CLAUDODEX_STATUSLINE_SOURCE":               filepath.Join("/tmp/claudodex-claude", claudodexStatuslineSourceName),
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW":           "258400",
+		"CLAUDE_CODE_MAX_CONTEXT_TOKENS":            "272000",
+		"CLAUDE_CODE_FORCE_FULL_LOGO":               "1",
+		"CLAUDE_CODE_DISABLE_AGENT_VIEW":            "1",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":  "1",
+		"DISABLE_TELEMETRY":                         "1",
+		"DO_NOT_TRACK":                              "1",
+		"DISABLE_GROWTHBOOK":                        "1",
 	}
 	for key, value := range want {
 		if got[key] != value {
 			t.Fatalf("%s = %q, want %q", key, got[key], value)
 		}
 	}
-	for _, key := range []string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME", "ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION", "CLAUDE_CODE_OAUTH_SCOPES", "CLAUDE_CODE_OAUTH_REFRESH_TOKEN", "CLAUDE_CODE_SUBSCRIPTION_TYPE", "CLAUDE_CODE_RATE_LIMIT_TIER", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
+	for _, key := range []string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_SCOPES", "CLAUDE_CODE_OAUTH_REFRESH_TOKEN", "CLAUDE_CODE_SUBSCRIPTION_TYPE", "CLAUDE_CODE_RATE_LIMIT_TIER", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
 		if got[key] != "" {
 			t.Fatalf("%s leaked into Claude env: %q", key, got[key])
 		}
@@ -108,10 +114,10 @@ func TestBuildClaudeEnv(t *testing.T) {
 		`"tengu_ant_model_override"`,
 		`"tengu_ccr_bridge":true`,
 		`"tengu_bridge_repl_v2":true`,
-		`"defaultModel":"gpt-5.6-sol"`,
+		`"defaultModel":"gpt-6.1-sol"`,
 		`"defaultModelEffortLevel":"max"`,
 		`"alias":"opus"`,
-		`"model":"gpt-5.6-sol"`,
+		`"model":"gpt-6.1-sol"`,
 		`"defaultEffortLevel":"max"`,
 		`"contextWindow":272000`,
 		`"alias":"claude-sonnet-4-6"`,
@@ -123,13 +129,13 @@ func TestBuildClaudeEnv(t *testing.T) {
 			t.Fatalf("CLAUDE_INTERNAL_FC_OVERRIDES missing %s:\n%s", want, got["CLAUDE_INTERNAL_FC_OVERRIDES"])
 		}
 	}
-	if strings.Contains(got["CLAUDE_INTERNAL_FC_OVERRIDES"], `"model":"gpt-5.6-sol[1m]"`) {
+	if strings.Contains(got["CLAUDE_INTERNAL_FC_OVERRIDES"], `"model":"gpt-6.1-sol[1m]"`) {
 		t.Fatalf("CLAUDE_INTERNAL_FC_OVERRIDES should strip [1m] from ant model backend ids:\n%s", got["CLAUDE_INTERNAL_FC_OVERRIDES"])
 	}
 }
 
 func TestRequiredModelAutoCompactWindow(t *testing.T) {
-	configuredModels := modelconfig.Config{Opus: "custom-opus", Sonnet: "custom-sonnet", Haiku: "custom-haiku"}
+	configuredModels := modelconfig.Config{Opus: "custom-opus", Sonnet: "custom-sonnet", Haiku: "custom-haiku", Fable: "custom-fable"}
 	tests := []struct {
 		name   string
 		models []codex.ModelInfo
@@ -140,6 +146,7 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 			name: "minimum uses each models live context and percentage",
 			models: []codex.ModelInfo{
 				{Slug: "custom-opus", ContextWindow: 300_000, EffectiveContextWindowPercent: 90},
+				{Slug: "custom-fable", ContextWindow: 300_000, EffectiveContextWindowPercent: 90},
 				{Slug: "custom-sonnet", ContextWindow: 250_000, EffectiveContextWindowPercent: 100},
 				{Slug: "custom-haiku", ContextWindow: 400_000, EffectiveContextWindowPercent: 50},
 			},
@@ -150,6 +157,7 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 			name: "changed live context and percentage change threshold",
 			models: []codex.ModelInfo{
 				{Slug: "custom-opus", ContextWindow: 500_000, EffectiveContextWindowPercent: 80},
+				{Slug: "custom-fable", ContextWindow: 500_000, EffectiveContextWindowPercent: 80},
 				{Slug: "custom-sonnet", ContextWindow: 450_000, EffectiveContextWindowPercent: 70},
 				{Slug: "custom-haiku", ContextWindow: 600_000, EffectiveContextWindowPercent: 95},
 			},
@@ -160,6 +168,7 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 			name: "max context fallback",
 			models: []codex.ModelInfo{
 				{Slug: "custom-opus", MaxContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+				{Slug: "custom-fable", MaxContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 				{Slug: "custom-sonnet", MaxContextWindow: 400_000, EffectiveContextWindowPercent: 95},
 				{Slug: "custom-haiku", MaxContextWindow: 500_000, EffectiveContextWindowPercent: 95},
 			},
@@ -170,6 +179,7 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 			name: "catalog auto compact limit is an additional ceiling",
 			models: []codex.ModelInfo{
 				{Slug: "custom-opus", ContextWindow: 1_000_000, EffectiveContextWindowPercent: 95, AutoCompactTokenLimit: 900_000},
+				{Slug: "custom-fable", ContextWindow: 1_000_000, EffectiveContextWindowPercent: 95, AutoCompactTokenLimit: 900_000},
 				{Slug: "custom-sonnet", ContextWindow: 1_000_000, EffectiveContextWindowPercent: 95},
 				{Slug: "custom-haiku", ContextWindow: 1_000_000, EffectiveContextWindowPercent: 95},
 			},
@@ -180,6 +190,7 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 			name: "missing required model",
 			models: []codex.ModelInfo{
 				{Slug: "custom-opus", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+				{Slug: "custom-fable", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 				{Slug: "custom-sonnet", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 			},
 		},
@@ -187,6 +198,7 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 			name: "omitted effective percentage uses Codex default",
 			models: []codex.ModelInfo{
 				{Slug: "custom-opus", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+				{Slug: "custom-fable", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 				{Slug: "custom-sonnet", ContextWindow: 300_000},
 				{Slug: "custom-haiku", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 			},
@@ -197,6 +209,7 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 			name: "invalid effective percentage",
 			models: []codex.ModelInfo{
 				{Slug: "custom-opus", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+				{Slug: "custom-fable", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 				{Slug: "custom-sonnet", ContextWindow: 300_000, EffectiveContextWindowPercent: 101},
 				{Slug: "custom-haiku", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 			},
@@ -205,6 +218,7 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 			name: "invalid negative effective percentage",
 			models: []codex.ModelInfo{
 				{Slug: "custom-opus", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+				{Slug: "custom-fable", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 				{Slug: "custom-sonnet", ContextWindow: 300_000, EffectiveContextWindowPercent: -1},
 				{Slug: "custom-haiku", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 			},
@@ -213,6 +227,7 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 			name: "invalid negative auto compact limit",
 			models: []codex.ModelInfo{
 				{Slug: "custom-opus", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
+				{Slug: "custom-fable", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 				{Slug: "custom-sonnet", ContextWindow: 300_000, EffectiveContextWindowPercent: 95, AutoCompactTokenLimit: -1},
 				{Slug: "custom-haiku", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 			},
@@ -221,6 +236,7 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 			name: "small live context remains catalog driven",
 			models: []codex.ModelInfo{
 				{Slug: "custom-opus", ContextWindow: 64_000, EffectiveContextWindowPercent: 95},
+				{Slug: "custom-fable", ContextWindow: 64_000, EffectiveContextWindowPercent: 95},
 				{Slug: "custom-sonnet", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 				{Slug: "custom-haiku", ContextWindow: 300_000, EffectiveContextWindowPercent: 95},
 			},
@@ -241,15 +257,16 @@ func TestRequiredModelAutoCompactWindow(t *testing.T) {
 
 func TestLongContextRoutesUseLiveMaxContextWindow(t *testing.T) {
 	models := []codex.ModelInfo{
-		{Slug: "gpt-5.6-sol", ContextWindow: 272_000, MaxContextWindow: 872_000, EffectiveContextWindowPercent: 95},
-		{Slug: "gpt-5.6-terra", ContextWindow: 272_000, MaxContextWindow: 872_000, EffectiveContextWindowPercent: 95},
-		{Slug: "gpt-5.6-luna", ContextWindow: 272_000, MaxContextWindow: 872_000, EffectiveContextWindowPercent: 95},
+		{Slug: "gpt-6.1-sol", ContextWindow: 272_000, MaxContextWindow: 872_000, EffectiveContextWindowPercent: 95},
+		{Slug: "gpt-6-astra", ContextWindow: 272_000, MaxContextWindow: 872_000, EffectiveContextWindowPercent: 95},
+		{Slug: "gpt-6.1-terra", ContextWindow: 272_000, MaxContextWindow: 872_000, EffectiveContextWindowPercent: 95},
+		{Slug: "gpt-6-luna", ContextWindow: 272_000, MaxContextWindow: 872_000, EffectiveContextWindowPercent: 95},
 	}
 
-	if got := modelContextWindow(models, "gpt-5.6-terra", "sonnet"); got != 272_000 {
+	if got := modelContextWindow(models, "gpt-6.1-terra", "sonnet"); got != 272_000 {
 		t.Fatalf("normal Sonnet alias context = %d, want 272000", got)
 	}
-	if got := modelContextWindow(models, "gpt-5.6-terra", "gpt-5.6-terra[1m]"); got != 872_000 {
+	if got := modelContextWindow(models, "gpt-6.1-terra", "gpt-6.1-terra[1m]"); got != 872_000 {
 		t.Fatalf("explicit long-context Terra route = %d, want 872000", got)
 	}
 	if got := requiredModelContextWindow(models, modelconfig.Default()); got != 872_000 {
@@ -262,9 +279,10 @@ func TestLongContextRoutesUseLiveMaxContextWindow(t *testing.T) {
 
 func TestBuildClaudeEnvDropsUnsafeInheritedAutoCompactWindow(t *testing.T) {
 	env := BuildClaudeEnv([]string{"CLAUDE_CODE_AUTO_COMPACT_WINDOW=999999"}, 4321, "/tmp/claudodex-claude", "", "", "", []codex.ModelInfo{
-		{Slug: "gpt-5.6-sol", ContextWindow: 272_000, EffectiveContextWindowPercent: 95},
-		{Slug: "gpt-5.6-terra", ContextWindow: 272_000, EffectiveContextWindowPercent: 101},
-		{Slug: "gpt-5.6-luna", ContextWindow: 272_000, EffectiveContextWindowPercent: 95},
+		{Slug: "gpt-6.1-sol", ContextWindow: 272_000, EffectiveContextWindowPercent: 95},
+		{Slug: "gpt-6-astra", ContextWindow: 272_000, EffectiveContextWindowPercent: 95},
+		{Slug: "gpt-6.1-terra", ContextWindow: 272_000, EffectiveContextWindowPercent: 101},
+		{Slug: "gpt-6-luna", ContextWindow: 272_000, EffectiveContextWindowPercent: 95},
 	}, modelconfig.Default())
 
 	for _, item := range env {
@@ -294,7 +312,7 @@ func TestBuildClaudeEnvFallbackProxyDoesNotInventHTTPProxy(t *testing.T) {
 	}
 }
 
-func TestBuildClaudeEnvUnixSocketHidesProxyFromClaude(t *testing.T) {
+func TestBuildClaudeEnvUnixSocketAlsoRoutesAxiosThroughLocalProxy(t *testing.T) {
 	env := BuildClaudeEnv([]string{
 		"PATH=/bin",
 		"HTTP_PROXY=http://user-http",
@@ -308,10 +326,13 @@ func TestBuildClaudeEnvUnixSocketHidesProxyFromClaude(t *testing.T) {
 			got[key] = value
 		}
 	}
-	for _, key := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"} {
+	for _, key := range []string{"HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
 		if got[key] != "" {
 			t.Fatalf("%s visible to Claude in unix-socket mode: %#v", key, got)
 		}
+	}
+	if got["HTTPS_PROXY"] != "http://127.0.0.1:9999" || got["https_proxy"] != "http://127.0.0.1:9999" {
+		t.Fatal("Axios compatibility proxy missing")
 	}
 	if got["ANTHROPIC_UNIX_SOCKET"] != "/tmp/claudodex-api.sock" {
 		t.Fatalf("ANTHROPIC_UNIX_SOCKET = %q", got["ANTHROPIC_UNIX_SOCKET"])
@@ -347,7 +368,7 @@ func TestWithFriendlyCustomModelOptionForConfigOmitsConfiguredPickerTier(t *test
 		"ANTHROPIC_CUSTOM_MODEL_OPTION=stale",
 		"ANTHROPIC_CUSTOM_MODEL_OPTION_NAME=stale",
 		"ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION=stale",
-	}, "gpt-5.6-terra[1m]", modelconfig.Default())
+	}, "gpt-6.1-terra[1m]", modelconfig.Default())
 	got := envMap(env)
 	for _, key := range []string{
 		"ANTHROPIC_CUSTOM_MODEL_OPTION",

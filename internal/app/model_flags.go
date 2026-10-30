@@ -39,6 +39,13 @@ func extractStartupModelConfig(args []string, base modelconfig.Config) ([]string
 			}
 			models.Haiku = next
 			i += consumed
+		case "--claudodex-fable-model":
+			next, consumed, err := startupFlagValue(args, i, value, hasInlineValue, name)
+			if err != nil {
+				return nil, modelconfig.Config{}, err
+			}
+			models.Fable = next
+			i += consumed
 		case "--claudodex-models":
 			next, consumed, err := startupFlagValue(args, i, value, hasInlineValue, name)
 			if err != nil {
@@ -79,7 +86,7 @@ func applyModelMapFlag(models modelconfig.Config, value string) (modelconfig.Con
 	for _, entry := range strings.Split(value, ",") {
 		key, target, ok := strings.Cut(entry, "=")
 		if !ok {
-			return modelconfig.Config{}, fmt.Errorf("invalid --claudodex-models entry %q; want opus=model,sonnet=model,haiku=model", entry)
+			return modelconfig.Config{}, fmt.Errorf("invalid --claudodex-models entry %q; want opus=model,sonnet=model,haiku=model,fable=model", entry)
 		}
 		target = strings.TrimSpace(target)
 		if target == "" {
@@ -92,6 +99,8 @@ func applyModelMapFlag(models modelconfig.Config, value string) (modelconfig.Con
 			models.Sonnet = target
 		case "haiku":
 			models.Haiku = target
+		case "fable":
+			models.Fable = target
 		default:
 			return modelconfig.Config{}, fmt.Errorf("unknown --claudodex-models key %q", key)
 		}

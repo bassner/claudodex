@@ -268,9 +268,10 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 	}
 
 	err := WriteClaudeModelCapabilitiesCache(sidecarDir, []codex.ModelInfo{
-		{Slug: "gpt-5.6-sol", ContextWindow: 272000, MaxContextWindow: 872000},
-		{Slug: "gpt-5.6-terra", ContextWindow: 300000, MaxContextWindow: 900000},
-		{Slug: "gpt-5.6-luna", ContextWindow: 400000, MaxContextWindow: 1000000},
+		{Slug: "gpt-6.1-sol", ContextWindow: 272000, MaxContextWindow: 872000},
+		{Slug: "gpt-6-astra", ContextWindow: 272000, MaxContextWindow: 872000},
+		{Slug: "gpt-6.1-terra", ContextWindow: 300000, MaxContextWindow: 900000},
+		{Slug: "gpt-6-luna", ContextWindow: 400000, MaxContextWindow: 1000000},
 	}, modelconfig.Default())
 	if err != nil {
 		t.Fatal(err)
@@ -290,8 +291,8 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 	cachePath := filepath.Join(cacheDir, claudeModelCapabilitiesFileName)
 	cache := mustReadJSONMap(t, cachePath)
 	models := cache["models"].([]any)
-	if len(models) != 12 {
-		t.Fatalf("models length = %d, want 12: %#v", len(models), models)
+	if len(models) != 16 {
+		t.Fatalf("models length = %d, want 16: %#v", len(models), models)
 	}
 	foundSonnet := false
 	foundOpus5 := false
@@ -310,7 +311,7 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 				t.Fatalf("Opus 5 capability = %#v", model)
 			}
 		}
-		if model["id"] == "gpt-5.6-terra[1m]" {
+		if model["id"] == "gpt-6.1-terra[1m]" {
 			foundTerraLong = true
 			if model["max_input_tokens"] != float64(900000) || model["max_tokens"] != float64(128000) {
 				t.Fatalf("long-context Terra capability = %#v", model)
@@ -324,7 +325,7 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 		t.Fatalf("claude-opus-5 capability missing: %#v", models)
 	}
 	if !foundTerraLong {
-		t.Fatalf("gpt-5.6-terra[1m] capability missing: %#v", models)
+		t.Fatalf("gpt-6.1-terra[1m] capability missing: %#v", models)
 	}
 	realCache := mustReadJSONMap(t, filepath.Join(realCacheDir, claudeModelCapabilitiesFileName))
 	if len(realCache["models"].([]any)) != 0 {
@@ -336,11 +337,11 @@ func TestWriteClaudeModelCapabilitiesCacheUsesPrivateSidecarCache(t *testing.T) 
 		t.Fatalf("kelp_forest_sonnet = %#v, want 900000", clientData["kelp_forest_sonnet"])
 	}
 	options := globalConfig["additionalModelOptionsCache"].([]any)
-	if len(options) != 3 {
-		t.Fatalf("additional model options length = %d, want 3: %#v", len(options), options)
+	if len(options) != 4 {
+		t.Fatalf("additional model options length = %d, want 4: %#v", len(options), options)
 	}
 	first := options[0].(map[string]any)
-	if first["value"] != "gpt-5.6-sol[1m]" || first["label"] != "gpt-5.6-sol" {
+	if first["value"] != "gpt-6.1-sol[1m]" || first["label"] != "gpt-6.1-sol" {
 		t.Fatalf("first additional model option = %#v", first)
 	}
 	oauthAccount := globalConfig["oauthAccount"].(map[string]any)
@@ -420,7 +421,7 @@ func TestWithClaudeConfigLocksWaitsForTransientLock(t *testing.T) {
 func TestNormalizeClaudeSettingsModelMapsCodexRuntimeModels(t *testing.T) {
 	settingsPath := filepath.Join(t.TempDir(), "settings.json")
 	if err := writeJSONFile(settingsPath, map[string]any{
-		"model":       "gpt-5.6-terra[1m][1m]",
+		"model":       "gpt-6.1-terra[1m][1m]",
 		"effortLevel": "xhigh",
 	}, 0o600); err != nil {
 		t.Fatal(err)
@@ -446,8 +447,8 @@ func TestNormalizeClaudeSettingsModelMapsNativeLongContextAliases(t *testing.T) 
 	}{
 		"plain opus":        {model: "opus", want: "opus"},
 		"opus 5":            {model: "claude-opus-5", want: "opus"},
-		"retired fable":     {model: "fable", want: "opus"},
-		"versioned fable":   {model: "claude-fable-5[1m]", want: "opus"},
+		"fable":             {model: "fable", want: "fable"},
+		"versioned fable":   {model: "claude-fable-5[1m]", want: "fable"},
 		"family opus":       {model: "opus[1m]", want: "opus"},
 		"plain sonnet":      {model: "sonnet", want: "sonnet"},
 		"versioned opus":    {model: "claude-opus-4-8[1m]", want: "opus"},
@@ -851,7 +852,7 @@ func TestSyncTranscriptModelDefaultWritesSharedClaudeSetting(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	transcriptPath := filepath.Join(sessionDir, "session.jsonl")
-	line := fmt.Sprintf(`{"timestamp":%q,"message":{"content":"<local-command-stdout>Set model to \u001b[1mgpt-5.6-luna[1m]\u001b[22m and saved as your default for new sessions</local-command-stdout>"}}`+"\n", now.Format(time.RFC3339Nano))
+	line := fmt.Sprintf(`{"timestamp":%q,"message":{"content":"<local-command-stdout>Set model to \u001b[1mgpt-6-luna[1m]\u001b[22m and saved as your default for new sessions</local-command-stdout>"}}`+"\n", now.Format(time.RFC3339Nano))
 	if err := os.WriteFile(transcriptPath, []byte(line), 0o600); err != nil {
 		t.Fatal(err)
 	}

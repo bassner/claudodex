@@ -61,6 +61,16 @@ func TestInstalledClaudeLiveCodexModelEfforts(t *testing.T) {
 }
 
 func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
+	for _, route := range []struct{ requested, expected string }{
+		{"claude-opus-5", "gpt-6.1-sol"}, {"sonnet", "gpt-6.1-terra"},
+		{"haiku", "gpt-6-luna"}, {"fable", "gpt-6-astra"},
+		{"inherited-provider", "gpt-6.1-sol"},
+	} {
+		t.Run(route.requested, func(t *testing.T) { installedClaudePrintSmokeWithFakeCodexUpstream(t, route.requested, route.expected) })
+	}
+}
+
+func installedClaudePrintSmokeWithFakeCodexUpstream(t *testing.T, requested, expected string) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
 	}
@@ -72,12 +82,22 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 	saveLauncherAuth(t, home)
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
+	settingsPath := filepath.Join(userHome, ".claude", "settings.json")
+	if requested == "inherited-provider" {
+		if err := os.MkdirAll(filepath.Dir(settingsPath), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(settingsPath, []byte(`{"model":"claude-Qwen/Qwen3.8-27B"}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	debugPath := filepath.Join(t.TempDir(), "claude-debug.log")
 
 	var upstreamRequests atomic.Int32
 	var captured map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/codex/models" {
-			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-5.6-sol","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-5.6-terra","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-5.6-luna","context_window":372000,"supports_reasoning_summaries":true}]}`)
+			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-6.1-sol","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-6-astra","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-6.1-terra","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-6-luna","context_window":372000,"supports_reasoning_summaries":true}]}`)
 			return
 		}
 		if r.URL.Path != "/codex/responses" {
@@ -132,15 +152,20 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 	defer cancel()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	err := (ProcessLauncher{}).Launch(ctx, []string{
+	launchArgs := []string{
 		"-p", "say ok",
-		"--model", "claude-opus-5",
+		"--debug-file", debugPath,
+		"--effort", "max",
 		"--dangerously-skip-permissions",
 		"--max-turns", "1",
 		"--output-format", "stream-json",
 		"--verbose",
 		"--include-partial-messages",
-	}, Config{
+	}
+	if requested != "inherited-provider" {
+		launchArgs = append(launchArgs, "--model", requested)
+	}
+	err := (ProcessLauncher{}).Launch(ctx, launchArgs, Config{
 		Version:      "smoke",
 		Stdin:        strings.NewReader(""),
 		Stdout:       &stdout,
@@ -163,8 +188,19 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 	if strings.Contains(stderr.String(), "no verified UI patch") || strings.Contains(stderr.String(), "unpatched Claude Code UI") {
 		t.Fatalf("installed Claude launched without its verified UI patch\nstderr:\n%s", stderr.String())
 	}
-	if captured["model"] != "gpt-5.6-sol" {
-		t.Fatalf("upstream model = %#v, want gpt-5.6-sol; request=%#v", captured["model"], captured)
+	debugLog, _ := os.ReadFile(debugPath)
+	if bytes.Contains(debugLog, []byte("Remote settings: Fetch attempt failed")) || bytes.Contains(debugLog, []byte("Remote settings: Fetch failed")) {
+		t.Fatal("organization settings request failed; inspect isolated debug log")
+	}
+	if requested == "inherited-provider" {
+		after, err := os.ReadFile(settingsPath)
+		if err != nil || string(after) != `{"model":"claude-Qwen/Qwen3.8-27B"}` {
+			t.Fatalf("foreign provider settings changed: %s, %v", after, err)
+		}
+	}
+
+	if captured["model"] != expected {
+		t.Fatalf("upstream model = %#v, want %s; request=%#v", captured["model"], expected, captured)
 	}
 	assertCapturedReasoningEffort(t, captured, "max")
 	assertCapturedReasoningSummary(t, captured, "auto")
@@ -222,6 +258,8 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 		"Codex Plan",
 	}
 	switch claudeVersion {
+	case "2.1.314":
+		wants = append(wants, "function AT(){return process.env.CLAUDE_BRIDGE_OAUTH_TOKEN}")
 	case "2.1.296":
 		wants = append(wants, "function KL(){return process.env.CLAUDE_BRIDGE_OAUTH_TOKEN}")
 	case "2.1.295":
@@ -306,11 +344,17 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 			t.Fatalf("patched installed Claude missing %q for version=%s sha=%s", want, claudeVersion, sourceSHA)
 		}
 	}
-	if claudeVersion == "2.1.216" || claudeVersion == "2.1.218" || claudeVersion == "2.1.219" || claudeVersion == "2.1.220" || claudeVersion == "2.1.221" || claudeVersion == "2.1.222" || claudeVersion == "2.1.223" || claudeVersion == "2.1.226" || claudeVersion == "2.1.227" || claudeVersion == "2.1.228" || claudeVersion == "2.1.229" || claudeVersion == "2.1.233" || claudeVersion == "2.1.234" || claudeVersion == "2.1.245" || claudeVersion == "2.1.246" || claudeVersion == "2.1.247" || claudeVersion == "2.1.251" || claudeVersion == "2.1.252" || claudeVersion == "2.1.258" || claudeVersion == "2.1.259" || claudeVersion == "2.1.260" || claudeVersion == "2.1.261" || claudeVersion == "2.1.263" || claudeVersion == "2.1.273" || claudeVersion == "2.1.274" || claudeVersion == "2.1.276" || claudeVersion == "2.1.278" || claudeVersion == "2.1.281" || claudeVersion == "2.1.282" || claudeVersion == "2.1.283" || claudeVersion == "2.1.284" || claudeVersion == "2.1.286" || claudeVersion == "2.1.287" || claudeVersion == "2.1.288" || claudeVersion == "2.1.289" || claudeVersion == "2.1.291" || claudeVersion == "2.1.292" || claudeVersion == "2.1.294" || claudeVersion == "2.1.295" || claudeVersion == "2.1.296" {
+	if claudeVersion == "2.1.216" || claudeVersion == "2.1.218" || claudeVersion == "2.1.219" || claudeVersion == "2.1.220" || claudeVersion == "2.1.221" || claudeVersion == "2.1.222" || claudeVersion == "2.1.223" || claudeVersion == "2.1.226" || claudeVersion == "2.1.227" || claudeVersion == "2.1.228" || claudeVersion == "2.1.229" || claudeVersion == "2.1.233" || claudeVersion == "2.1.234" || claudeVersion == "2.1.245" || claudeVersion == "2.1.246" || claudeVersion == "2.1.247" || claudeVersion == "2.1.251" || claudeVersion == "2.1.252" || claudeVersion == "2.1.258" || claudeVersion == "2.1.259" || claudeVersion == "2.1.260" || claudeVersion == "2.1.261" || claudeVersion == "2.1.263" || claudeVersion == "2.1.273" || claudeVersion == "2.1.274" || claudeVersion == "2.1.276" || claudeVersion == "2.1.278" || claudeVersion == "2.1.281" || claudeVersion == "2.1.282" || claudeVersion == "2.1.283" || claudeVersion == "2.1.284" || claudeVersion == "2.1.286" || claudeVersion == "2.1.287" || claudeVersion == "2.1.288" || claudeVersion == "2.1.289" || claudeVersion == "2.1.291" || claudeVersion == "2.1.292" || claudeVersion == "2.1.294" || claudeVersion == "2.1.295" || claudeVersion == "2.1.296" || claudeVersion == "2.1.314" {
 		normalizer := "function CDX216("
 		pickerEnd := "function tAe("
 		tierCall := `n("`
+		tierCount := 3
 		switch claudeVersion {
+		case "2.1.314":
+			tierCount = 4
+			normalizer = "function CDX314("
+			pickerEnd = "function X_("
+			tierCall = `r("`
 		case "2.1.296":
 			normalizer = "function CDX296("
 			pickerEnd = "function mb("
@@ -460,15 +504,22 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 			t.Fatalf("patched installed Claude missing %s model picker end marker", claudeVersion)
 		}
 		picker := data[pickerStart : pickerStart+pickerEndRel]
-		if tiers := bytes.Count(picker, []byte(tierCall)); tiers != 3 {
-			t.Fatalf("patched installed Claude picker tier count = %d, want 3", tiers)
+		if tiers := bytes.Count(picker, []byte(tierCall)); tiers != tierCount {
+			t.Fatalf("patched installed Claude picker tier count = %d, want %d", tiers, tierCount)
 		}
-		for _, want := range []string{tierCall + `opus",`, tierCall + `sonnet",`, tierCall + `haiku",`, "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"} {
+		for _, want := range []string{tierCall + `opus",`, tierCall + `sonnet",`, tierCall + `haiku",`, "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"} {
 			if !bytes.Contains(picker, []byte(want)) {
 				t.Fatalf("patched installed Claude picker missing %q", want)
 			}
 		}
-		for _, forbidden := range []string{"fable", "Fable", "mythos", "Mythos", "ANTHROPIC_DEFAULT_FABLE_MODEL"} {
+		forbiddenMarkers := []string{"fable", "Fable", "mythos", "Mythos", "ANTHROPIC_DEFAULT_FABLE_MODEL"}
+		if claudeVersion == "2.1.314" {
+			forbiddenMarkers = []string{"mythos", "Mythos"}
+			if !bytes.Contains(picker, []byte(`r("fable",`)) || !bytes.Contains(picker, []byte(modelconfig.DefaultFableModel)) {
+				t.Fatal("Fable/Astra picker option missing")
+			}
+		}
+		for _, forbidden := range forbiddenMarkers {
 			if bytes.Contains(picker, []byte(forbidden)) {
 				t.Fatalf("patched installed Claude picker retained forbidden fourth-tier marker %q", forbidden)
 			}
@@ -500,6 +551,8 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 	}
 	var brandingReplacements []claude209UIBrandingReplacement
 	switch claudeVersion {
+	case "2.1.314":
+		brandingReplacements = claude314UIBrandingReplacements
 	case "2.1.296":
 		brandingReplacements = claude296UIBrandingReplacements
 	case "2.1.295":
@@ -632,6 +685,7 @@ func installedClaudeTargetsCoveredByLaterTest(version, target string) bool {
 		"2.1.294": 34,
 		"2.1.295": 35,
 		"2.1.296": 36,
+		"2.1.314": 37,
 	}
 	return order[version] > order[target]
 }
@@ -2282,6 +2336,10 @@ func TestInstalledClaude296PatchTargets(t *testing.T) {
 		t.Fatalf("claude binary not available: %v", err)
 	}
 	if version := detectClaudeVersion(context.Background(), claudePath); version != "2.1.296" {
+		if installedClaudeTargetsCoveredByLaterTest(version, "2.1.296") {
+			t.Logf("installed Claude %s targets are covered by its version-specific test", version)
+			return
+		}
 		t.Fatalf("installed Claude version = %s, want 2.1.296", version)
 	}
 	source, err := os.ReadFile(claudePath)
@@ -2315,6 +2373,53 @@ func TestInstalledClaude296PatchTargets(t *testing.T) {
 	t.Run("all-required-transformations-gate", func(t *testing.T) {
 		broken := bytes.Replace(append([]byte(nil), source...), claude296RequiredLogoAnchor(), []byte("function MISSING_TARGET(){"), 1)
 		if applyClaudeUIPatches_2_1_296(broken, "test", "2.1.296", modelconfig.Default()) {
+			t.Fatal("patch succeeded without the required logo transformation target")
+		}
+	})
+}
+
+func TestInstalledClaude314PatchTargets(t *testing.T) {
+	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
+		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
+	}
+	claudePath, err := exec.LookPath("claude")
+	if err != nil {
+		t.Fatalf("claude binary not available: %v", err)
+	}
+	if version := detectClaudeVersion(context.Background(), claudePath); version != "2.1.314" {
+		t.Fatalf("installed Claude version = %s, want 2.1.314", version)
+	}
+	source, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sha256Hex(source); got != claude314SHA {
+		t.Fatalf("installed Claude SHA = %s, want %s", got, claude314SHA)
+	}
+	for _, transformation := range claude314Transformations("test") {
+		t.Run(transformation.name, func(t *testing.T) {
+			data := append([]byte(nil), source...)
+			if !transformation.apply(data) {
+				t.Fatalf("%s patch target did not match installed Claude 2.1.314", transformation.name)
+			}
+		})
+	}
+	for _, transformation := range claude314RemoteControlTransformations() {
+		t.Run("remote-control/"+transformation.name, func(t *testing.T) {
+			data := append([]byte(nil), source...)
+			if !transformation.apply(data) {
+				t.Errorf("remote-control %s patch target did not match installed Claude 2.1.314", transformation.name)
+			}
+		})
+	}
+	for _, replacement := range claude314UIBrandingReplacements {
+		if got := bytes.Count(source, []byte(replacement.old)); got != replacement.expectedCount {
+			t.Errorf("branding count for %q = %d, want %d", replacement.old, got, replacement.expectedCount)
+		}
+	}
+	t.Run("all-required-transformations-gate", func(t *testing.T) {
+		broken := bytes.Replace(append([]byte(nil), source...), claude314RequiredLogoAnchor(), []byte("function MISSING_TARGET(){"), 1)
+		if applyClaudeUIPatches_2_1_314(broken, "test", "2.1.314", modelconfig.Default()) {
 			t.Fatal("patch succeeded without the required logo transformation target")
 		}
 	})
@@ -2397,7 +2502,7 @@ func TestInstalledClaudeFastModeSmokeWithFakeCodexUpstream(t *testing.T) {
 	var captured map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/codex/models" {
-			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-5.6-sol","context_window":372000},{"slug":"gpt-5.6-terra","context_window":372000},{"slug":"gpt-5.6-luna","context_window":372000}]}`)
+			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-6.1-sol","context_window":372000},{"slug":"gpt-6-astra","context_window":372000},{"slug":"gpt-6.1-terra","context_window":372000},{"slug":"gpt-6-luna","context_window":372000}]}`)
 			return
 		}
 		if r.URL.Path != "/codex/responses" {
@@ -2454,8 +2559,8 @@ func TestInstalledClaudeFastModeSmokeWithFakeCodexUpstream(t *testing.T) {
 	if upstreamRequests.Load() == 0 {
 		t.Fatalf("fake Codex upstream was not called\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
 	}
-	if captured["model"] != "gpt-5.6-sol" {
-		t.Fatalf("upstream model = %#v, want gpt-5.6-sol; request=%#v", captured["model"], captured)
+	if captured["model"] != "gpt-6.1-sol" {
+		t.Fatalf("upstream model = %#v, want gpt-6.1-sol; request=%#v", captured["model"], captured)
 	}
 	if captured["service_tier"] != "priority" {
 		t.Fatalf("service_tier = %#v, want priority", captured["service_tier"])
@@ -2498,7 +2603,7 @@ func TestInstalledClaudeSmokeWithUIPatchDisabled(t *testing.T) {
 	var captured map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/codex/models" {
-			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-5.6-sol","context_window":372000},{"slug":"gpt-5.6-terra","context_window":372000},{"slug":"gpt-5.6-luna","context_window":372000}]}`)
+			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-6.1-sol","context_window":372000},{"slug":"gpt-6-astra","context_window":372000},{"slug":"gpt-6.1-terra","context_window":372000},{"slug":"gpt-6-luna","context_window":372000}]}`)
 			return
 		}
 		if r.URL.Path != "/codex/responses" {
@@ -2557,8 +2662,8 @@ func TestInstalledClaudeSmokeWithUIPatchDisabled(t *testing.T) {
 	if !strings.Contains(stdout.String(), "ok") {
 		t.Fatalf("stdout did not include model output\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
 	}
-	if captured["model"] != "gpt-5.6-terra" {
-		t.Fatalf("upstream model = %#v, want gpt-5.6-terra; request=%#v", captured["model"], captured)
+	if captured["model"] != "gpt-6.1-terra" {
+		t.Fatalf("upstream model = %#v, want gpt-6.1-terra; request=%#v", captured["model"], captured)
 	}
 	assertCapturedReasoningEffort(t, captured, "max")
 }

@@ -114,7 +114,7 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	if claude246Compatibility {
 		compatibilitySettings = claude246ModelPickerSettings(modelCfg)
 	}
-	childArgs, err = prepareStatusLineFlagSettings(claudeConfigDir, childArgs, compatibilitySettings)
+	childArgs, err = prepareStatusLineFlagSettingsForModels(claudeConfigDir, childArgs, compatibilitySettings, modelCfg)
 	if err != nil {
 		_ = configMirror.Close()
 		return fmt.Errorf("prepare Claude Code statusline compatibility: %w", err)
@@ -147,7 +147,15 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 		_ = configMirror.Close()
 		return fmt.Errorf("local proxy did not expose a port at %s", addr)
 	}
-	apiServer, apiSocket, apiSocketDir, apiCAPath, err := startAnthropicAPIServer(serverCfg)
+	// Claude's SDK uses the Unix socket, but its organization-settings Axios
+	// client uses the normal HTTPS proxy. Both paths must reach the local API.
+	oauthProxy, err := StartOAuthProxy(fmt.Sprintf("http://127.0.0.1:%d", port))
+	if err != nil {
+		_ = configMirror.Close()
+		return fmt.Errorf("start Claude Code OAuth compatibility proxy: %w", err)
+	}
+	defer oauthProxy.Close()
+	apiServer, apiSocket, apiSocketDir, err := startAnthropicAPIServer(serverCfg, oauthProxy.serverTLS)
 	if err != nil {
 		_ = configMirror.Close()
 		return fmt.Errorf("start local Anthropic API socket: %w", err)
@@ -158,26 +166,7 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	if apiSocketDir != "" {
 		defer os.RemoveAll(apiSocketDir)
 	}
-	if apiCAPath != "" {
-		defer os.Remove(apiCAPath)
-	}
-	httpsProxy := ""
-	caPath := ""
-	var oauthProxy *OAuthProxy
-	if apiSocket == "" {
-		oauthProxy, err = StartOAuthProxy(fmt.Sprintf("http://127.0.0.1:%d", port))
-		if err != nil {
-			_ = configMirror.Close()
-			return fmt.Errorf("start Claude Code OAuth compatibility proxy: %w", err)
-		}
-		defer oauthProxy.Close()
-		httpsProxy = oauthProxy.ProxyURL()
-		caPath = oauthProxy.CAPath()
-	}
-	if apiCAPath != "" {
-		caPath = apiCAPath
-	}
-	childEnv := BuildClaudeEnv(os.Environ(), port, claudeConfigDir, apiSocket, httpsProxy, caPath, models, modelCfg)
+	childEnv := BuildClaudeEnv(os.Environ(), port, claudeConfigDir, apiSocket, oauthProxy.ProxyURL(), oauthProxy.CAPath(), models, modelCfg)
 	if claude258Compatibility {
 		childEnv = WithPrivateFeatureCache(childEnv)
 	}
@@ -190,22 +179,13 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	return errors.Join(childErr, configMirror.Close())
 }
 
-func startAnthropicAPIServer(serverCfg proxy.Config) (*proxy.Server, string, string, string, error) {
+func startAnthropicAPIServer(serverCfg proxy.Config, cert tls.Certificate) (*proxy.Server, string, string, error) {
 	if runtime.GOOS == "windows" {
-		return nil, "", "", "", nil
-	}
-	cert, caPEM, err := generateOAuthProxyCertificate()
-	if err != nil {
-		return nil, "", "", "", err
-	}
-	caPath, err := writeOAuthProxyCAFile(caPEM)
-	if err != nil {
-		return nil, "", "", "", err
+		return nil, "", "", nil
 	}
 	socketDir, err := os.MkdirTemp("", "claudodex-api-*")
 	if err != nil {
-		_ = os.Remove(caPath)
-		return nil, "", "", "", err
+		return nil, "", "", err
 	}
 	socketPath := filepath.Join(socketDir, "api.sock")
 	server := proxy.New(serverCfg)
@@ -213,10 +193,9 @@ func startAnthropicAPIServer(serverCfg proxy.Config) (*proxy.Server, string, str
 	if _, err := server.StartUnixTLS(socketPath, tlsConfig); err != nil {
 		_ = server.Close()
 		_ = os.RemoveAll(socketDir)
-		_ = os.Remove(caPath)
-		return nil, "", "", "", err
+		return nil, "", "", err
 	}
-	return server, socketPath, socketDir, caPath, nil
+	return server, socketPath, socketDir, nil
 }
 
 func FetchCodexModels(ctx context.Context, cfg Config, file auth.File) ([]codex.ModelInfo, error) {

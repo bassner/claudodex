@@ -78,15 +78,15 @@ func TestRoutes(t *testing.T) {
 			if model.MaxInputTokens != 333000 {
 				t.Fatalf("%s max_input_tokens = %d, want 333000", model.ID, model.MaxInputTokens)
 			}
-		case "gpt-5.6-sol[1m]":
+		case "gpt-6.1-sol[1m]":
 			if model.MaxInputTokens != 811000 {
 				t.Fatalf("%s max_input_tokens = %d, want 811000", model.ID, model.MaxInputTokens)
 			}
-		case "gpt-5.6-terra[1m]":
+		case "gpt-6.1-terra[1m]":
 			if model.MaxInputTokens != 822000 {
 				t.Fatalf("%s max_input_tokens = %d, want 822000", model.ID, model.MaxInputTokens)
 			}
-		case "gpt-5.6-luna[1m]":
+		case "gpt-6-luna[1m]":
 			if model.MaxInputTokens != 833000 {
 				t.Fatalf("%s max_input_tokens = %d, want 833000", model.ID, model.MaxInputTokens)
 			}
@@ -146,6 +146,7 @@ func TestModelsUseConfiguredTargets(t *testing.T) {
 		},
 		Models: []codex.ModelInfo{
 			{Slug: "gpt-opus-next", ContextWindow: 444000, MaxContextWindow: 844000},
+			{Slug: "gpt-6-astra", ContextWindow: 777000, MaxContextWindow: 877000},
 			{Slug: "gpt-sonnet-next", ContextWindow: 555000, MaxContextWindow: 855000},
 			{Slug: "gpt-haiku-next", ContextWindow: 666000, MaxContextWindow: 866000},
 		},
@@ -438,8 +439,9 @@ func testPNGBase64(t *testing.T, width, height int) string {
 
 func testModels() []codex.ModelInfo {
 	return []codex.ModelInfo{
-		{Slug: "gpt-5.6-sol", ContextWindow: 111000, MaxContextWindow: 811000},
-		{Slug: "gpt-5.6-terra", ContextWindow: 222000, MaxContextWindow: 822000},
-		{Slug: "gpt-5.6-luna", ContextWindow: 333000, MaxContextWindow: 833000},
+		{Slug: "gpt-6.1-sol", ContextWindow: 111000, MaxContextWindow: 811000},
+		{Slug: "gpt-6-astra", ContextWindow: 111000, MaxContextWindow: 811000},
+		{Slug: "gpt-6.1-terra", ContextWindow: 222000, MaxContextWindow: 822000},
+		{Slug: "gpt-6-luna", ContextWindow: 333000, MaxContextWindow: 833000},
 	}
 }

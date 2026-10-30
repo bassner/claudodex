@@ -117,7 +117,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		if got := r.URL.Query().Get("client_version"); got != "1.2.3" {
 			t.Fatalf("client_version = %q", got)
 		}
-		_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-5.6-sol","context_window":272000,"effective_context_window_percent":95},{"slug":"gpt-5.6-terra","context_window":300000,"effective_context_window_percent":90},{"slug":"gpt-5.6-luna","context_window":400000,"effective_context_window_percent":80}]}`)
+		_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-6.1-sol","context_window":272000,"effective_context_window_percent":95},{"slug":"gpt-6-astra","context_window":272000,"effective_context_window_percent":95},{"slug":"gpt-6.1-terra","context_window":300000,"effective_context_window_percent":90},{"slug":"gpt-6-luna","context_window":400000,"effective_context_window_percent":80}]}`)
 	}))
 	defer upstream.Close()
 
@@ -137,7 +137,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 	capture := string(data)
 	for _, want := range []string{
 		"args:5:--no-chrome:--effort",
-		"args_all:[--no-chrome][--effort][max][--model][gpt-5.6-terra[1m]]",
+		"args_all:[--no-chrome][--effort][max][--model][gpt-6.1-terra[1m]]",
 		"auth_token:",
 		"api_key:",
 		"claude_config:" + filepath.Join(home, ".claudodex", "claude-config"),
@@ -153,13 +153,13 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		"bridge_ingress:" + firstPartyAnthropicBaseURL,
 		"bridge_token:",
 		"fast_org_check:1",
-		"opus:gpt-5.6-sol",
-		"opus_name:gpt-5.6-sol",
-		"sonnet:gpt-5.6-terra",
-		"sonnet_name:gpt-5.6-terra",
-		"haiku:gpt-5.6-luna",
-		"haiku_name:gpt-5.6-luna",
-		"small_fast:gpt-5.6-luna",
+		"opus:gpt-6.1-sol",
+		"opus_name:gpt-6.1-sol",
+		"sonnet:gpt-6.1-terra",
+		"sonnet_name:gpt-6.1-terra",
+		"haiku:gpt-6-luna",
+		"haiku_name:gpt-6-luna",
+		"small_fast:gpt-6-luna",
 		"max_context:",
 		"claudodex_context_window:272000",
 		"claudodex_statusline_source:" + filepath.Join(home, ".claudodex", "claude-config", claudodexStatuslineSourceName),
@@ -167,9 +167,9 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		"context_tokens:272000",
 		"model_capabilities:yes",
 		`"alias":"opus"`,
-		`"defaultModel":"gpt-5.6-sol"`,
+		`"defaultModel":"gpt-6.1-sol"`,
 		`"defaultModelEffortLevel":"max"`,
-		`"model":"gpt-5.6-sol"`,
+		`"model":"gpt-6.1-sol"`,
 		`"defaultEffortLevel":"max"`,
 		`"contextWindow":272000`,
 		`"alias":"claude-sonnet-4-6"`,
@@ -189,7 +189,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 			t.Fatalf("capture missing %q:\n%s", want, capture)
 		}
 	}
-	if strings.Contains(capture, `"model":"gpt-5.6-sol[1m]"`) {
+	if strings.Contains(capture, `"model":"gpt-6.1-sol[1m]"`) {
 		t.Fatalf("capture should strip [1m] from ant model backend ids:\n%s", capture)
 	}
 	if !strings.Contains(capture, "base:"+firstPartyAnthropicBaseURL) {
@@ -201,8 +201,8 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 	if !strings.Contains(capture, "local_oauth_base:http://127.0.0.1:") {
 		t.Fatalf("capture missing local OAuth base URL:\n%s", capture)
 	}
-	if strings.Contains(capture, "https_proxy:http://127.0.0.1:") {
-		t.Fatalf("Claude process should not see HTTPS proxy in unix-socket mode:\n%s", capture)
+	if !strings.Contains(capture, "https_proxy:http://127.0.0.1:") {
+		t.Fatalf("Claude Axios requests must use the local HTTPS proxy alongside the Unix socket:\n%s", capture)
 	}
 	if !strings.Contains(capture, "ca:/") {
 		t.Fatalf("capture missing local CA path for unix-socket TLS:\n%s", capture)
@@ -220,11 +220,11 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		t.Fatalf("kelp_forest_sonnet = %#v, want 300000", got)
 	}
 	modelOptions := globalConfig["additionalModelOptionsCache"].([]any)
-	if len(modelOptions) != 3 {
-		t.Fatalf("additional model options length = %d, want 3: %#v", len(modelOptions), modelOptions)
+	if len(modelOptions) != 4 {
+		t.Fatalf("additional model options length = %d, want 4: %#v", len(modelOptions), modelOptions)
 	}
-	if got := modelOptions[0].(map[string]any)["value"]; got != "gpt-5.6-sol[1m]" {
-		t.Fatalf("first additional model option value = %#v, want gpt-5.6-sol[1m]", got)
+	if got := modelOptions[0].(map[string]any)["value"]; got != "gpt-6.1-sol[1m]" {
+		t.Fatalf("first additional model option value = %#v, want gpt-6.1-sol[1m]", got)
 	}
 	if runtime.GOOS == "darwin" {
 		wantPrefix := "path:" + filepath.Join(home, ".claudodex", "claude-config", claudodexShimDirName) + string(os.PathListSeparator)

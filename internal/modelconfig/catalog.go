@@ -7,9 +7,10 @@ import (
 )
 
 const (
-	DefaultOpusModel   = "gpt-5.6-sol"
-	DefaultSonnetModel = "gpt-5.6-terra"
-	DefaultHaikuModel  = "gpt-5.6-luna"
+	DefaultOpusModel   = "gpt-6.1-sol"
+	DefaultSonnetModel = "gpt-6.1-terra"
+	DefaultHaikuModel  = "gpt-6-luna"
+	DefaultFableModel  = "gpt-6-astra"
 
 	LongContextSuffix         = "[1m]"
 	DefaultClaudeRequestModel = "claude-opus-5"
@@ -21,12 +22,14 @@ const (
 	FamilyOpus   Family = "opus"
 	FamilySonnet Family = "sonnet"
 	FamilyHaiku  Family = "haiku"
+	FamilyFable  Family = "fable"
 )
 
 type Config struct {
 	Opus   string
 	Sonnet string
 	Haiku  string
+	Fable  string
 }
 
 type ClaudeModelSpec struct {
@@ -40,6 +43,7 @@ func Default() Config {
 		Opus:   DefaultOpusModel,
 		Sonnet: DefaultSonnetModel,
 		Haiku:  DefaultHaikuModel,
+		Fable:  DefaultFableModel,
 	}
 }
 
@@ -53,17 +57,21 @@ func (c Config) Normalize() Config {
 	if strings.TrimSpace(c.Haiku) == "" {
 		c.Haiku = DefaultHaikuModel
 	}
+	if strings.TrimSpace(c.Fable) == "" {
+		c.Fable = DefaultFableModel
+	}
 	c.Opus = cleanTargetModel(c.Opus)
 	c.Sonnet = cleanTargetModel(c.Sonnet)
 	c.Haiku = cleanTargetModel(c.Haiku)
+	c.Fable = cleanTargetModel(c.Fable)
 	return c
 }
 
 func (c Config) RequiredModels() []string {
 	c = c.Normalize()
 	seen := map[string]struct{}{}
-	out := make([]string, 0, 3)
-	for _, model := range []string{c.Opus, c.Sonnet, c.Haiku} {
+	out := make([]string, 0, 4)
+	for _, model := range []string{c.Opus, c.Sonnet, c.Haiku, c.Fable} {
 		key := strings.ToLower(model)
 		if _, ok := seen[key]; ok {
 			continue
@@ -83,6 +91,8 @@ func (c Config) Target(family Family) string {
 		return c.Sonnet
 	case FamilyHaiku:
 		return c.Haiku
+	case FamilyFable:
+		return c.Fable
 	default:
 		return c.Opus
 	}
@@ -101,14 +111,16 @@ func (c Config) MapModel(model string) string {
 		return c.Sonnet
 	case normalized == normalizeModelName(c.Haiku):
 		return c.Haiku
+	case normalized == normalizeModelName(c.Fable):
+		return c.Fable
 	case normalized == DefaultOpusModel:
 		return c.Opus
 	case normalized == DefaultSonnetModel:
 		return c.Sonnet
 	case normalized == DefaultHaikuModel:
 		return c.Haiku
-	case strings.Contains(normalized, "fable"), strings.Contains(normalized, "mythos"):
-		return c.Opus
+	case normalized == DefaultFableModel:
+		return c.Fable
 	}
 	if family, ok := FamilyForModel(model); ok {
 		return c.Target(family)
@@ -131,6 +143,8 @@ func (c Config) SettingsAliasForTarget(model string) (string, bool) {
 		return string(FamilySonnet), true
 	case normalizeModelName(c.Haiku):
 		return string(FamilyHaiku), true
+	case normalizeModelName(c.Fable):
+		return string(FamilyFable), true
 	default:
 		return "", false
 	}
@@ -141,7 +155,8 @@ func (c Config) SupportsXHigh(model string) bool {
 	normalized := normalizeModelName(model)
 	if normalized == normalizeModelName(c.Opus) ||
 		normalized == normalizeModelName(c.Sonnet) ||
-		normalized == normalizeModelName(c.Haiku) {
+		normalized == normalizeModelName(c.Haiku) ||
+		normalized == normalizeModelName(c.Fable) {
 		return true
 	}
 	switch normalized {
@@ -167,6 +182,8 @@ func ClaudeAliasSpecs(c Config) []ClaudeModelSpec {
 		{ID: "claude-opus-4-7", DisplayName: fmt.Sprintf("Opus 4.7 (%s)", c.Opus), Family: FamilyOpus},
 		{ID: "claude-sonnet-4-6", DisplayName: fmt.Sprintf("Sonnet (%s)", c.Sonnet), Family: FamilySonnet},
 		{ID: "claude-haiku-4-5", DisplayName: fmt.Sprintf("Haiku (%s)", c.Haiku), Family: FamilyHaiku},
+		{ID: "claude-fable-5", DisplayName: fmt.Sprintf("Fable (%s)", c.Fable), Family: FamilyFable},
+		{ID: "claude-fable-5-5", DisplayName: fmt.Sprintf("Fable 5.5 (%s)", c.Fable), Family: FamilyFable},
 	}
 }
 
@@ -175,6 +192,7 @@ func FamilyAliasSpecs() []ClaudeModelSpec {
 		{ID: string(FamilyOpus), DisplayName: "Opus", Family: FamilyOpus},
 		{ID: string(FamilySonnet), DisplayName: "Sonnet", Family: FamilySonnet},
 		{ID: string(FamilyHaiku), DisplayName: "Haiku", Family: FamilyHaiku},
+		{ID: string(FamilyFable), DisplayName: "Fable", Family: FamilyFable},
 	}
 }
 
@@ -184,6 +202,7 @@ func DirectModelSpecs(c Config) []ClaudeModelSpec {
 		{ID: c.Opus, DisplayName: c.Opus, Family: FamilyOpus},
 		{ID: c.Sonnet, DisplayName: c.Sonnet, Family: FamilySonnet},
 		{ID: c.Haiku, DisplayName: c.Haiku, Family: FamilyHaiku},
+		{ID: c.Fable, DisplayName: c.Fable, Family: FamilyFable},
 	}
 	return dedupeSpecs(specs)
 }
@@ -194,6 +213,7 @@ func DirectRuntimeModelSpecs(c Config) []ClaudeModelSpec {
 		{ID: WithLongContext(c.Opus), DisplayName: c.Opus, Family: FamilyOpus},
 		{ID: WithLongContext(c.Sonnet), DisplayName: c.Sonnet, Family: FamilySonnet},
 		{ID: WithLongContext(c.Haiku), DisplayName: c.Haiku, Family: FamilyHaiku},
+		{ID: WithLongContext(c.Fable), DisplayName: c.Fable, Family: FamilyFable},
 	}
 	return dedupeSpecs(specs)
 }
@@ -229,15 +249,19 @@ func normalizeModelName(model string) string {
 
 func modelFamily(normalized string) Family {
 	switch {
+	case strings.Contains(normalized, "fable"), strings.Contains(normalized, "mythos"), normalized == DefaultFableModel:
+		return FamilyFable
 	case strings.Contains(normalized, "haiku"),
+		normalized == DefaultHaikuModel, normalized == "gpt-5.6-luna",
 		strings.Contains(normalized, "small-fast"),
 		normalized == "small":
 		return FamilyHaiku
 	case strings.Contains(normalized, "opus"),
+		normalized == DefaultOpusModel, normalized == "gpt-5.6-sol",
 		normalized == "best",
 		normalized == "opusplan":
 		return FamilyOpus
-	case strings.Contains(normalized, "sonnet"):
+	case strings.Contains(normalized, "sonnet"), normalized == DefaultSonnetModel, normalized == "gpt-5.6-terra":
 		return FamilySonnet
 	default:
 		return ""

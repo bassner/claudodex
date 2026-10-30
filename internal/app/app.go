@@ -358,6 +358,7 @@ func printCodexModelUsageWindows(w io.Writer, models modelconfig.Config, mapped 
 		{key: "seven_day_opus", model: models.Target(modelconfig.FamilyOpus)},
 		{key: "seven_day_sonnet", model: models.Target(modelconfig.FamilySonnet)},
 		{key: "seven_day_haiku", model: models.Target(modelconfig.FamilyHaiku)},
+		{key: "seven_day_fable", model: models.Target(modelconfig.FamilyFable)},
 	}
 	seen := map[string]int{}
 	for _, window := range windows {

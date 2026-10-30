@@ -240,8 +240,10 @@ func (s *Server) routes(mux *http.ServeMux) {
 		case r.Method == http.MethodGet && (path == "/api/oauth/profile" || path == "/api/claude_cli_profile"):
 			writeJSON(w, http.StatusOK, claudeProfileResponse())
 		case r.Method == http.MethodGet && path == "/api/claude_code/settings":
+			w.Header().Set("request-id", "claudodex-local-settings")
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodGet && path == "/api/claude_code/policy_limits":
+			w.Header().Set("request-id", "claudodex-local-policy-limits")
 			writeJSON(w, http.StatusOK, claudePolicyLimitsResponse())
 		case r.Method == http.MethodGet && path == "/api/claude_code_penguin_mode":
 			writeJSON(w, http.StatusOK, map[string]any{"enabled": true})
@@ -388,6 +390,7 @@ func bootstrapResponse(modelCfg modelconfig.Config) map[string]any {
 			{"model": modelconfig.WithLongContext(modelCfg.Opus), "name": modelCfg.Opus, "description": modelCfg.Opus + " - default complex-work model"},
 			{"model": modelconfig.WithLongContext(modelCfg.Sonnet), "name": modelCfg.Sonnet, "description": modelCfg.Sonnet + " - everyday coding model"},
 			{"model": modelconfig.WithLongContext(modelCfg.Haiku), "name": modelCfg.Haiku, "description": modelCfg.Haiku + " - quick-answer model"},
+			{"model": modelconfig.WithLongContext(modelCfg.Fable), "name": modelCfg.Fable, "description": modelCfg.Fable + " - most capable model"},
 		},
 	}
 }

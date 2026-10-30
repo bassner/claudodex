@@ -87,7 +87,7 @@ func supportsXHigh(model string, models modelconfig.Config) bool {
 
 func supportsMax(model string) bool {
 	switch strings.ToLower(modelconfig.StripLongContext(model)) {
-	case modelconfig.DefaultOpusModel, modelconfig.DefaultSonnetModel, modelconfig.DefaultHaikuModel:
+	case modelconfig.DefaultOpusModel, modelconfig.DefaultSonnetModel, modelconfig.DefaultHaikuModel, modelconfig.DefaultFableModel, "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
 		return true
 	default:
 		return false

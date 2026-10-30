@@ -72,7 +72,7 @@ func TestFastModeSettingsResolverHonorsFlagsAndDisableEnvironment(t *testing.T) 
 	}
 }
 
-func TestPrepareStatusLineFlagSettingsAddsClaude246ThreeTierPicker(t *testing.T) {
+func TestPrepareStatusLineFlagSettingsAddsFourTierPicker(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	args, err := prepareStatusLineFlagSettings(t.TempDir(), nil, claude246ModelPickerSettings(modelconfig.Default()))
 	if err != nil {
@@ -84,8 +84,8 @@ func TestPrepareStatusLineFlagSettingsAddsClaude246ThreeTierPicker(t *testing.T)
 		t.Fatalf("modelPicker = %#v", picker)
 	}
 	options, ok := picker["options"].([]any)
-	if !ok || len(options) != 2 {
-		t.Fatalf("modelPicker options = %#v, want two curated rows plus Claude's Sonnet default row", picker["options"])
+	if !ok || len(options) != 3 {
+		t.Fatalf("modelPicker options = %#v, want three curated rows plus Claude's Sonnet default row", picker["options"])
 	}
 	if first := mapValue(options[0]); first["model"] != "opus" {
 		t.Fatalf("first modelPicker option = %#v", first)
@@ -410,4 +410,57 @@ func flagSettingsArg(t *testing.T, args []string) string {
 	}
 	t.Fatalf("missing generated --settings in %#v", args)
 	return ""
+}
+
+func TestForeignModelUsesLaunchOverlayAndPreservesSharedSettings(t *testing.T) {
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Chdir(t.TempDir())
+	path := filepath.Join(userHome, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	const original = `{"model":"claude-Qwen/Qwen3.8-27B","theme":"dark"}`
+	if err := os.WriteFile(path, []byte(original), 0600); err != nil {
+		t.Fatal(err)
+	}
+	args, err := prepareStatusLineFlagSettingsForModels(t.TempDir(), nil, nil, modelconfig.Config{Opus: "sol-custom"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := mustReadJSONMap(t, flagSettingsArg(t, args))
+	if settings["model"] != "opus" {
+		t.Fatalf("effective model = %#v", settings["model"])
+	}
+	after, _ := os.ReadFile(path)
+	if string(after) != original {
+		t.Fatalf("shared model was changed: %s", after)
+	}
+	explicit, err := prepareStatusLineFlagSettingsForModels(t.TempDir(), []string{"--model", "fable"}, nil, modelconfig.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, arg := range explicit {
+		if arg == "--settings" {
+			t.Fatalf("inherited model overlaid explicit model: %v", explicit)
+		}
+	}
+}
+
+func TestStatusLineReportsConfiguredCodexModel(t *testing.T) {
+	models := modelconfig.Config{Opus: "sol-custom", Sonnet: "terra-custom", Haiku: "luna-custom", Fable: "astra-custom"}
+	for id, want := range map[string]string{"opus": "sol-custom", "sonnet": "terra-custom", "haiku": "luna-custom", "fable": "astra-custom", "claude-Qwen/Qwen3.8-27B": "sol-custom"} {
+		raw := []byte(`{"model":{"id":"` + id + `","display_name":"stale foreign label"},"workspace":{"cwd":"/test"}}`)
+		var got map[string]any
+		if err := json.Unmarshal(patchStatusLineModel(raw, models), &got); err != nil {
+			t.Fatal(err)
+		}
+		model := mapValue(got["model"])
+		if model["id"] != want || model["display_name"] != want {
+			t.Errorf("model %q = %#v, want %s", id, model, want)
+		}
+		if mapValue(got["workspace"])["cwd"] != "/test" {
+			t.Fatal("workspace changed")
+		}
+	}
 }

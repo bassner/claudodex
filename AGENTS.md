@@ -76,10 +76,11 @@ limits, and settings normalization consistent with those defaults and overrides.
 
 Current default family mapping:
 
-- Opus routes to `gpt-5.6-sol`.
-- Sonnet routes to `gpt-5.6-terra`.
-- Haiku routes to `gpt-5.6-luna`.
-- Claude Code `max` and `ultracode` efforts map to Codex `max` for the GPT-5.6
+- Opus routes to `gpt-6.1-sol`.
+- Sonnet routes to `gpt-6.1-terra`.
+- Haiku routes to `gpt-6-luna`.
+- Fable routes to `gpt-6-astra`.
+- Claude Code `max` and `ultracode` efforts map to Codex `max` for the configured GPT-6
   family. `ultracode` workflow orchestration remains owned by Claude Code.
 
 Do not hardcode context windows such as `200k`, `272k`, or `1m` as source of

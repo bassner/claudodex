@@ -12,12 +12,12 @@ func TestMapModel(t *testing.T) {
 		"sonnet[1m]":           ModelSonnet,
 		"claude-haiku-4-5":     ModelHaiku,
 		"small-fast":           ModelHaiku,
-		"gpt-5.6-sol":          ModelOpus,
-		"gpt-5.6-sol[1m]":      ModelOpus,
-		"gpt-5.6-terra":        ModelSonnet,
-		"gpt-5.6-terra[1m]":    ModelSonnet,
-		"gpt-5.6-luna":         ModelHaiku,
-		"gpt-5.6-luna[1m]":     ModelHaiku,
+		"gpt-6.1-sol":          ModelOpus,
+		"gpt-6.1-sol[1m]":      ModelOpus,
+		"gpt-6.1-terra":        ModelSonnet,
+		"gpt-6.1-terra[1m]":    ModelSonnet,
+		"gpt-6-luna":           ModelHaiku,
+		"gpt-6-luna[1m]":       ModelHaiku,
 		"future-unknown-model": ModelOpus,
 	}
 	for input, want := range tests {

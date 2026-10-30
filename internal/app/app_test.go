@@ -73,7 +73,7 @@ func TestStartupModelFlagsPassConfiguredTargetsToLauncher(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code = %d", code)
 	}
-	if launcher.cfg.Models != (modelconfig.Config{Opus: "gpt-opus-next", Sonnet: "gpt-sonnet-next", Haiku: "gpt-haiku-next"}) {
+	if launcher.cfg.Models != (modelconfig.Config{Opus: "gpt-opus-next", Sonnet: "gpt-sonnet-next", Haiku: "gpt-haiku-next", Fable: modelconfig.DefaultFableModel}) {
 		t.Fatalf("models = %#v", launcher.cfg.Models)
 	}
 	if strings.Join(launcher.args, " ") != "--model sonnet" {
@@ -106,9 +106,10 @@ func TestServeFetchesDynamicModelMetadata(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"models": []map[string]any{
-				{"slug": "gpt-5.6-sol", "context_window": 111000},
-				{"slug": "gpt-5.6-terra", "context_window": 222000},
-				{"slug": "gpt-5.6-luna", "context_window": 333000},
+				{"slug": "gpt-6.1-sol", "context_window": 111000},
+				{"slug": "gpt-6-astra", "context_window": 111000},
+				{"slug": "gpt-6.1-terra", "context_window": 222000},
+				{"slug": "gpt-6-luna", "context_window": 333000},
 			},
 		})
 	}))
@@ -317,4 +318,13 @@ func (w cancelAfterWrite) Write(p []byte) (int, error) {
 	n, err := w.w.Write(p)
 	w.cancel()
 	return n, err
+}
+
+func TestFableStartupOverrides(t *testing.T) {
+	for _, args := range [][]string{{"--claudodex-fable-model", "astra-custom"}, {"--claudodex-models=fable=astra-custom"}} {
+		passed, cfg, err := extractStartupModelConfig(append(args, "--model", "fable"), modelconfig.Config{})
+		if err != nil || cfg.Fable != "astra-custom" || strings.Join(passed, " ") != "--model fable" {
+			t.Fatalf("Fable override: args=%v cfg=%#v err=%v", passed, cfg, err)
+		}
+	}
 }

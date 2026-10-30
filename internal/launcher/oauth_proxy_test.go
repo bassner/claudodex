@@ -204,3 +204,23 @@ func oauthProxyTestClient(t *testing.T, targetURL string) *http.Client {
 		TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
 	}}
 }
+
+func TestOAuthProxyInterceptsManagedSettings(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/claude_code/settings" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("request-id", "claudodex-local-settings")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer target.Close()
+	client := oauthProxyTestClient(t, target.URL)
+	resp, err := client.Get("https://api.anthropic.com/api/claude_code/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent || resp.Header.Get("request-id") == "" {
+		t.Fatalf("managed settings response = %d, request-id %q", resp.StatusCode, resp.Header.Get("request-id"))
+	}
+}

@@ -1004,8 +1004,8 @@ func TestStreamReducerMapsAgentModelAliasToConfiguredCodexTier(t *testing.T) {
 	}
 }
 
-func TestStreamReducerFallsBackRetiredAgentModelAliasToSol(t *testing.T) {
-	reducer := NewStreamReducerWithOptions("msg_1", "gpt-5.6-sol", StreamReducerOptions{
+func TestStreamReducerRoutesFableAgentModelToAstra(t *testing.T) {
+	reducer := NewStreamReducerWithOptions("msg_1", "gpt-6.1-sol", StreamReducerOptions{
 		ToolSchemas: map[string]map[string]any{
 			"Agent": {
 				"type":     "object",
@@ -1031,14 +1031,14 @@ func TestStreamReducerFallsBackRetiredAgentModelAliasToSol(t *testing.T) {
 		}
 		events = append(events, next...)
 	}
-	message, errEvent := AssembleMessage(events, "", "gpt-5.6-sol")
+	message, errEvent := AssembleMessage(events, "", "gpt-6.1-sol")
 	if errEvent != nil {
 		t.Fatalf("unexpected error event: %#v", errEvent)
 	}
 	content := message["content"].([]map[string]any)
 	input := content[0]["input"].(map[string]any)
-	if input["model"] != "gpt-5.6-sol" {
-		t.Fatalf("retired agent model did not fall back to sol: %#v", input)
+	if input["model"] != "gpt-6-astra" {
+		t.Fatalf("Fable agent model did not route to Astra: %#v", input)
 	}
 }
 
@@ -1047,12 +1047,13 @@ func TestNormalizeClaudeCodeToolArgsMapsAllAgentAliasesToCodexTiers(t *testing.T
 		Opus:   "gpt-sol-custom",
 		Sonnet: "gpt-terra-custom",
 		Haiku:  "gpt-luna-custom",
+		Fable:  "gpt-astra-custom",
 	}
 	tests := map[string]string{
 		"":                  "gpt-sol-custom",
 		"inherit":           "gpt-sol-custom",
-		"fable":             "gpt-sol-custom",
-		"claude-fable-5":    "gpt-sol-custom",
+		"fable":             "gpt-astra-custom",
+		"claude-fable-5":    "gpt-astra-custom",
 		"opus":              "gpt-sol-custom",
 		"claude-opus-5":     "gpt-sol-custom",
 		"sonnet":            "gpt-terra-custom",
@@ -1121,7 +1122,7 @@ func TestStreamReducerDefaultsEmptyAgentModelToSol(t *testing.T) {
 	}
 	content := message["content"].([]map[string]any)
 	input := content[0]["input"].(map[string]any)
-	if input["model"] != "gpt-5.6-sol" {
+	if input["model"] != "gpt-6.1-sol" {
 		t.Fatalf("empty agent model did not default to sol: %#v", input)
 	}
 }
