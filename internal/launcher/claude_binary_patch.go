@@ -15,13 +15,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bassner/claudodex/internal/auth"
+	"github.com/bassner/claudodex/internal/filelock"
 	"github.com/bassner/claudodex/internal/modelconfig"
 )
 
 const (
 	claudodexPatchedClaudeDirName = "patched-claude"
-	claudodexPatchSchemaVersion   = "claude-ui-patch-v123"
+	claudodexPatchSchemaVersion   = "claude-ui-patch-v125"
 )
 
 var (
@@ -109,70 +109,24 @@ func prepareClaudeExecutable(ctx context.Context, home, claudePath, claudodexVer
 }
 
 func preparePatchedClaude(ctx context.Context, home, claudePath, claudodexVersion string, modelCfg modelconfig.Config) (string, string, string, error) {
-	modelCfg = modelCfg.Normalize()
-	claudeVersion := detectClaudeVersion(ctx, claudePath)
-	sourceData, err := os.ReadFile(claudePath)
+	if resolved, err := filepath.EvalSymlinks(claudePath); err == nil {
+		claudePath = resolved
+	}
+	source, err := readClaudeSource(ctx, claudePath)
 	if err != nil {
-		return "", claudeVersion, "", err
+		return "", source.Version, source.SHA256, err
 	}
-	sourceSHA := sha256Hex(sourceData)
-	patcher := findClaudeUIPatch(claudeVersion, sourceSHA)
-	if patcher == nil {
-		return "", claudeVersion, sourceSHA, errClaudePatchUnsupported
-	}
-	patched := append([]byte(nil), sourceData...)
-	changed := patcher.Apply(patched, claudodexVersion, claudeVersion, modelCfg)
-	if !changed {
-		return "", claudeVersion, sourceSHA, errClaudePatchNoMatch
-	}
-
-	dataDir, err := auth.DataDir(home)
+	root, err := claudeCacheRoot(home)
 	if err != nil {
-		return "", claudeVersion, sourceSHA, err
+		return "", source.Version, source.SHA256, err
 	}
-	key := patchedClaudeCacheKey(sourceData, claudodexVersion, claudeVersion, modelCfg)
-	dir := filepath.Join(dataDir, claudodexPatchedClaudeDirName, key)
-	dest := filepath.Join(dir, "claude")
-	if isExecutableFile(dest) {
-		return dest, claudeVersion, sourceSHA, nil
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", claudeVersion, sourceSHA, err
-	}
-
-	mode := os.FileMode(0o755)
-	if info, err := os.Stat(claudePath); err == nil {
-		mode = info.Mode() | 0o700
-	}
-	tmp, err := os.CreateTemp(dir, ".claude-*.tmp")
+	unlock, err := filelock.Acquire(ctx, filepath.Join(root, ".lock"))
 	if err != nil {
-		return "", claudeVersion, sourceSHA, err
+		return "", source.Version, source.SHA256, err
 	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if _, err := tmp.Write(patched); err != nil {
-		_ = tmp.Close()
-		return "", claudeVersion, sourceSHA, err
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		_ = tmp.Close()
-		return "", claudeVersion, sourceSHA, err
-	}
-	if err := tmp.Close(); err != nil {
-		return "", claudeVersion, sourceSHA, err
-	}
-	if runtime.GOOS == "darwin" {
-		signCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(signCtx, "codesign", "--force", "--sign", "-", tmpName)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return "", claudeVersion, sourceSHA, fmt.Errorf("codesign patched Claude: %w: %s", err, strings.TrimSpace(string(output)))
-		}
-	}
-	if err := os.Rename(tmpName, dest); err != nil {
-		return "", claudeVersion, sourceSHA, err
-	}
-	return dest, claudeVersion, sourceSHA, nil
+	defer unlock()
+	patched, err := preparePatchedClaudeSource(ctx, root, source, claudodexVersion, modelCfg.Normalize())
+	return patched, source.Version, source.SHA256, err
 }
 
 func findClaudeUIPatch(version, sourceSHA string) *claudeUIPatchSpec {

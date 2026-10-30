@@ -22,10 +22,17 @@ func ClaudodexCommand(args []string) (string, []string, bool) {
 }
 
 func DirectClaudeFastPath(args []string) bool {
-	if len(args) != 1 {
+	if len(args) == 0 {
 		return false
 	}
-	return args[0] == "--help" || args[0] == "--version"
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h" || args[0] == "--version" || args[0] == "-v") {
+		return true
+	}
+	switch args[0] {
+	case "auth", "mcp", "doctor", "install", "update":
+		return true
+	}
+	return false
 }
 
 func RewriteClaudeModelArgs(args []string) []string {

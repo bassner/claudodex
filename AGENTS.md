@@ -132,14 +132,21 @@ Important pitfalls:
 
 ## Binary UI Patch Rules
 
-Claude Code binary patching is versioned compatibility code, not a general
-runtime dependency.
+Claude Code binary patching is versioned compatibility code. Message launches
+select a supported local original and apply the current compatibility patch.
 
 - Patch only verified OS, architecture, Claude Code version, and binary SHA
   combinations.
 - Add one patch implementation per supported Claude Code version.
-- If the version or SHA does not match, launch unpatched and print a useful
-  warning. Core routing must still work without the UI patch.
+- Select an exact verified original source and prepare its current patch before
+  auth, settings, or proxy setup. Use that source for all version decisions.
+- If installed Claude is unsupported, use a verified locally retained source
+  without changing system Claude. If none works, fail with an exact supported
+  version and install command. Only `CLAUDODEX_DISABLE_CLAUDE_PATCH=1` explicitly
+  permits an unpatched message launch. Help and administrative commands pass
+  through before this strict check.
+- Verify source and signed patched-cache hashes on reuse. Keep private source
+  snapshots and live process leases; never distribute cached Claude binaries.
 - UI patches may improve branding, model picker labels, and header text, but
   critical request routing must stay outside binary patching.
 - When updating a patch, document the exact Claude Code version and binary hash

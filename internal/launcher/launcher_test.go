@@ -42,6 +42,8 @@ func TestRunChildKillsIgnoredSigtermOnContextCancel(t *testing.T) {
 }
 
 func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
+	// This test exercises proxy setup with a shell fixture, not a registered Claude build.
+	t.Setenv("CLAUDODEX_DISABLE_CLAUDE_PATCH", "1")
 	home := t.TempDir()
 	saveLauncherAuth(t, home)
 

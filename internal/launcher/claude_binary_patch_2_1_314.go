@@ -135,6 +135,31 @@ func patchModelPickerSelectionValue_2_1_314(data []byte) bool {
 	return replaceClaude208Function(data, "function Jor(e,n){", "function kc(){", replacement)
 }
 
+func patchModelPickerDefaultFocus_2_1_314(data []byte) bool {
+	// With no explicit preference, native Claude selects a separate default row.
+	// Our four-tier picker has no such row. Resolve the native effective default
+	// through its existing Dw helper before matching a visible model option.
+	const original = `Ot=Et===null?Sb:Jor(Tt,Et)??Et`
+	const replacement = `Ot=Jor(Tt,Et??Dw(Sb))??Et??Sb`
+	if bytes.Count(data, []byte(original)) != 1 {
+		return false
+	}
+	return replaceFirstFixed(data, original, replacement)
+}
+
+func patchConfiguredModelRecognition_2_1_314(data []byte) bool {
+	// The native picker already uses kat to recognize the four configured
+	// ANTHROPIC_DEFAULT_*_MODEL targets. Its request recognizer instead calls a
+	// stub returning false, so valid Codex targets emit an unknown-model warning.
+	// Reuse native configured-target matching; unknown IDs still fail recognition.
+	const original = `function nEe(e,n=Qe(e)){return NB(n)||tG(e,n)}`
+	const replacement = `function nEe(e,n=Qe(e)){return NB(n)||kat(e)}`
+	if bytes.Count(data, []byte(original)) != 1 {
+		return false
+	}
+	return replaceFirstFixed(data, original, replacement)
+}
+
 func patchAgentModelValidator_2_1_314(data []byte) bool {
 	return replaceFirstFixed(data, `model:F(dmi).optional()`, `model:o().optional()`)
 }
@@ -242,6 +267,8 @@ func claude314SourceTransformationsForConfig(claudodexVersion, claudeVersion str
 		{"usage", patchUsageFetchFunction_2_1_314},
 		{"model-options", func(data []byte) bool { return patchModelPickerOptions_2_1_314(data, modelCfg) }},
 		{"model-selection", patchModelPickerSelectionValue_2_1_314},
+		{"model-default-focus", patchModelPickerDefaultFocus_2_1_314},
+		{"configured-model-recognition", patchConfiguredModelRecognition_2_1_314},
 		{"agent-model-validator", patchAgentModelValidator_2_1_314},
 		{"fast-mode", patchFastModeRuntimeFunctions_2_1_314},
 		{"active-fast-mode-brand", patchActiveFastModeBrand_2_1_314},

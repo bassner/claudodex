@@ -2,6 +2,14 @@ package convert
 
 import "testing"
 
+func TestUsageLimitFamilyRequiresWholeNameToken(t *testing.T) {
+	for _, c := range []struct{ name, want string }{{"gpt-6.1-sol", "opus"}, {"Codex Terra weekly", "sonnet"}, {"gpt-6-luna", "haiku"}, {"astra_weekly", "fable"}, {"console", ""}, {"solaris", ""}, {"terraform", ""}, {"miniature", ""}} {
+		if got := modelFamilyFromLimit(map[string]any{"metered_feature": c.name}); got != c.want {
+			t.Fatalf("%q mapped to %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 func TestCodexUsageToClaudeMapsWindowsAndExtraUsage(t *testing.T) {
 	raw := map[string]any{
 		"account_id": "must-not-pass-through",

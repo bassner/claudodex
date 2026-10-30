@@ -50,6 +50,10 @@ func prepareStatusLineFlagSettings(sidecarDir string, args []string, compatibili
 }
 
 func prepareStatusLineFlagSettingsForModels(sidecarDir string, args []string, compatibilitySettings map[string]any, models modelconfig.Config) ([]string, error) {
+	return prepareStatusLineFlagSettingsForHelper(sidecarDir, args, compatibilitySettings, models, func() (string, error) { return currentExecutable(), nil })
+}
+
+func prepareStatusLineFlagSettingsForHelper(sidecarDir string, args []string, compatibilitySettings map[string]any, models modelconfig.Config, helper func() (string, error)) ([]string, error) {
 	models = models.Normalize()
 	flagSettings, argsWithoutSettings, sawFlagSettings, err := extractFlagSettings(args)
 	if err != nil {
@@ -98,6 +102,10 @@ func prepareStatusLineFlagSettingsForModels(sidecarDir string, args []string, co
 		}
 	}
 	if hasStatusLineCommand(activeStatusLine) {
+		executable, err := helper()
+		if err != nil {
+			return nil, err
+		}
 		source := statusLineSource{
 			Models:              models,
 			UserSettingsPath:    userSettingsPath,
@@ -109,7 +117,7 @@ func prepareStatusLineFlagSettingsForModels(sidecarDir string, args []string, co
 		if err := writeJSONFile(sourcePath, source, 0o600); err != nil {
 			return nil, err
 		}
-		settings["statusLine"] = wrappedStatusLine(activeStatusLine, sourcePath)
+		settings["statusLine"] = wrappedStatusLineForExecutable(activeStatusLine, sourcePath, executable)
 	}
 	if !needsGeneratedSettings {
 		return withDefaultEffortArg(append([]string(nil), args...), needsDefaultEffort), nil
@@ -140,10 +148,14 @@ func statusLineSessionPaths(sidecarDir string) (string, string) {
 }
 
 func wrappedStatusLine(activeStatusLine map[string]any, sourcePath string) map[string]any {
+	return wrappedStatusLineForExecutable(activeStatusLine, sourcePath, currentExecutable())
+}
+
+func wrappedStatusLineForExecutable(activeStatusLine map[string]any, sourcePath, executable string) map[string]any {
 	padding := statusLinePadding(activeStatusLine)
 	statusLine := map[string]any{
 		"type":    "command",
-		"command": shellQuote(currentExecutable()) + " " + claudodexStatuslineCommandName + " " + shellQuote(sourcePath),
+		"command": shellQuote(executable) + " " + claudodexStatuslineCommandName + " " + shellQuote(sourcePath),
 	}
 	if padding != nil {
 		statusLine["padding"] = *padding

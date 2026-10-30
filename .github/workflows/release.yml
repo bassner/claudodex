@@ -1,0 +1,302 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: claudodex-release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+  HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+  CLAUDODEX_NO_AUTO_UPDATE: "1"
+  GOTOOLCHAIN: local
+
+jobs:
+  validate:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Check release identity and native platform
+        run: |
+          [[ "$GITHUB_REPOSITORY" == bassner/claudodex ]]
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$(uname -m)" == arm64 ]]
+          [[ "$(sw_vers -productVersion)" == 15.* ]]
+          test -s "packaging/release-notes/$GITHUB_REF_NAME.md"
+      - name: Format, test, vet, and build
+        run: |
+          test -z "$(git ls-files '*.go' | xargs gofmt -l)"
+          go test -count=1 ./...
+          go vet ./...
+          go build -o "$RUNNER_TEMP/claudodex" ./cmd/claudodex
+          go build -o "$RUNNER_TEMP/clx-release" ./cmd/clx-release
+      - name: Download and verify the exact registered Claude binary
+        run: |
+          mkdir -p "$RUNNER_TEMP/claude-bin"
+          curl --fail --location --proto '=https' --proto-redir '=https' --retry 3 \
+            https://downloads.claude.ai/claude-code-releases/2.1.314/darwin-arm64/claude \
+            --output "$RUNNER_TEMP/claude-bin/claude"
+          "$RUNNER_TEMP/clx-release" verify-claude --version 2.1.314 \
+            --os darwin --arch arm64 --file "$RUNNER_TEMP/claude-bin/claude"
+          chmod 755 "$RUNNER_TEMP/claude-bin/claude"
+          test "$("$RUNNER_TEMP/claude-bin/claude" --version)" = '2.1.314 (Claude Code)'
+      - name: Run native Claude against a local fake backend
+        env:
+          CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE: "1"
+        run: |
+          export PATH="$RUNNER_TEMP/claude-bin:$PATH"
+          go test -count=1 ./internal/launcher \
+            -run '^(TestInstalledClaudePrintSmokeWithFakeCodexUpstream|TestInstalledClaudeUIPatchSmoke)$' -v
+
+  source:
+    needs: validate
+    runs-on: macos-15
+    environment: release
+    permissions:
+      contents: write
+    timeout-minutes: 20
+    outputs:
+      sha256: ${{ steps.package.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Package clean source with vendored dependencies and test offline
+        id: package
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          go run ./cmd/clx-release source --version "$version" --out "$RUNNER_TEMP/assets"
+          source="$RUNNER_TEMP/assets/claudodex-$version-source.tar.gz"
+          echo "sha256=$(shasum -a 256 "$source" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          mkdir "$RUNNER_TEMP/offline"
+          tar -xzf "$source" -C "$RUNNER_TEMP/offline"
+          cd "$RUNNER_TEMP/offline/claudodex-$version"
+          export GOPROXY=off GOTOOLCHAIN=local GOWORK=off GOFLAGS=-mod=vendor
+          go test -count=1 ./...
+          go build -ldflags "-X main.version=$version -X main.installMethod=homebrew" \
+            -o "$RUNNER_TEMP/source-build" ./cmd/claudodex
+      - name: Publish public source without changing latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash packaging/homebrew/check-latest.sh "${GITHUB_REF_NAME#v}"
+          if gh release view "$GITHUB_REF_NAME" --repo bassner/claudodex --json isDraft,isPrerelease > "$RUNNER_TEMP/release.json"; then
+            jq -e '.isDraft == false and .isPrerelease == false' "$RUNNER_TEMP/release.json"
+          else
+            gh release create "$GITHUB_REF_NAME" --repo bassner/claudodex --verify-tag \
+              --title "$GITHUB_REF_NAME" --notes-file "packaging/release-notes/$GITHUB_REF_NAME.md" --latest=false
+          fi
+          bash packaging/homebrew/publish-asset.sh "$GITHUB_REF_NAME" "$RUNNER_TEMP/assets/"*
+
+  bottle:
+    needs: source
+    runs-on: macos-15
+    environment: release
+    permissions:
+      contents: write
+    timeout-minutes: 30
+    outputs:
+      formula_sha256: ${{ steps.package.outputs.formula_sha256 }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build, test, and bottle the public source
+        id: package
+        env:
+          SOURCE_SHA256: ${{ needs.source.outputs.sha256 }}
+        run: |
+          [[ "$(uname -m)" == arm64 ]]
+          [[ "$(sw_vers -productVersion)" == 15.* ]]
+          version=${GITHUB_REF_NAME#v}
+          root="https://github.com/bassner/claudodex/releases/download/$GITHUB_REF_NAME"
+          mkdir -p "$RUNNER_TEMP/assets" "$RUNNER_TEMP/bottles"
+          source="$RUNNER_TEMP/assets/claudodex-$version-source.tar.gz"
+          curl --fail --location --proto '=https' --proto-redir '=https' --retry 3 "$root/$(basename "$source")" --output "$source"
+          test "$(shasum -a 256 "$source" | cut -d' ' -f1)" = "$SOURCE_SHA256"
+          go build -o "$RUNNER_TEMP/clx-release" ./cmd/clx-release
+          brew tap-new bassner/tap
+          tap=$(brew --repository bassner/tap)
+          "$RUNNER_TEMP/clx-release" formula --version "$version" --source "$source" --out "$tap/Formula/claudodex.rb"
+          git -C "$tap" -c user.name='Claudodex Maintainers' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            add -- Formula/claudodex.rb
+          git -C "$tap" -c user.name='Claudodex Maintainers' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "Prepare Claudodex $version bottle" -- Formula/claudodex.rb
+          brew install --build-bottle --formula bassner/tap/claudodex
+          brew test bassner/tap/claudodex
+          go version -m "$(brew --prefix bassner/tap/claudodex)/bin/claudodex" > "$RUNNER_TEMP/buildinfo.txt"
+          grep -F "main.version=$version" "$RUNNER_TEMP/buildinfo.txt"
+          grep -F 'main.installMethod=homebrew' "$RUNNER_TEMP/buildinfo.txt"
+          cd "$RUNNER_TEMP/bottles"
+          brew bottle --json --no-rebuild --root-url "$root" bassner/tap/claudodex
+          "$RUNNER_TEMP/clx-release" bottles --version "$version" --bottle-json ./*.bottle.json --asset-dir . --out "$RUNNER_TEMP/assets"
+          "$RUNNER_TEMP/clx-release" formula --version "$version" --source "$source" \
+            --bottle-json "$RUNNER_TEMP/assets/claudodex-bottles.json" --out "$RUNNER_TEMP/assets/claudodex.rb"
+          echo "formula_sha256=$(shasum -a 256 "$RUNNER_TEMP/assets/claudodex.rb" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Upload bottles, public metadata, and formula without replacement
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash packaging/homebrew/publish-asset.sh "$GITHUB_REF_NAME" "$RUNNER_TEMP/assets/"*
+
+  sign:
+    needs: [source, bottle]
+    runs-on: macos-15
+    environment: release
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    outputs:
+      manifest_sha256: ${{ steps.sign.outputs.manifest_sha256 }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Fetch the tested public assets
+        env:
+          SOURCE_SHA256: ${{ needs.source.outputs.sha256 }}
+          FORMULA_SHA256: ${{ needs.bottle.outputs.formula_sha256 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/assets"
+          gh release download "$GITHUB_REF_NAME" --repo bassner/claudodex --dir "$RUNNER_TEMP/assets"
+          test "$(shasum -a 256 "$RUNNER_TEMP/assets/claudodex-${GITHUB_REF_NAME#v}-source.tar.gz" | cut -d' ' -f1)" = "$SOURCE_SHA256"
+          test "$(shasum -a 256 "$RUNNER_TEMP/assets/claudodex.rb" | cut -d' ' -f1)" = "$FORMULA_SHA256"
+          go build -o "$RUNNER_TEMP/clx-release" ./cmd/clx-release
+          "$RUNNER_TEMP/clx-release" formula --version "${GITHUB_REF_NAME#v}" \
+            --source "$RUNNER_TEMP/assets/claudodex-${GITHUB_REF_NAME#v}-source.tar.gz" \
+            --bottle-json "$RUNNER_TEMP/assets/claudodex-bottles.json" --out "$RUNNER_TEMP/regenerated.rb"
+          cmp "$RUNNER_TEMP/regenerated.rb" "$RUNNER_TEMP/assets/claudodex.rb"
+      - name: Sign the common update metadata
+        id: sign
+        env:
+          CLAUDODEX_RELEASE_SIGNING_KEY: ${{ secrets.CLAUDODEX_RELEASE_SIGNING_KEY }}
+        run: |
+          "$RUNNER_TEMP/clx-release" manifest --version "${GITHUB_REF_NAME#v}" \
+            --notes "packaging/release-notes/$GITHUB_REF_NAME.md" \
+            --source "$RUNNER_TEMP/assets/claudodex-${GITHUB_REF_NAME#v}-source.tar.gz" \
+            --bottle-json "$RUNNER_TEMP/assets/claudodex-bottles.json" --asset-dir "$RUNNER_TEMP/assets" \
+            --out "$RUNNER_TEMP/signed"
+          "$RUNNER_TEMP/clx-release" verify-manifest --version "${GITHUB_REF_NAME#v}" \
+            --out "$RUNNER_TEMP/signed" --asset-dir "$RUNNER_TEMP/assets"
+          echo "manifest_sha256=$(shasum -a 256 "$RUNNER_TEMP/signed/claudodex-update.json" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Publish signed metadata before changing the tap
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash packaging/homebrew/check-latest.sh "${GITHUB_REF_NAME#v}"
+          bash packaging/homebrew/publish-asset.sh "$GITHUB_REF_NAME" "$RUNNER_TEMP/signed/"*
+
+  tap:
+    needs: [bottle, sign]
+    runs-on: ubuntu-24.04
+    environment: homebrew-tap
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Fetch the tested formula
+        env:
+          FORMULA_SHA256: ${{ needs.bottle.outputs.formula_sha256 }}
+        run: |
+          curl --fail --location --proto '=https' --proto-redir '=https' --retry 3 \
+            "https://github.com/bassner/claudodex/releases/download/$GITHUB_REF_NAME/claudodex.rb" \
+            --output "$RUNNER_TEMP/claudodex.rb"
+          test "$(sha256sum "$RUNNER_TEMP/claudodex.rb" | cut -d' ' -f1)" = "$FORMULA_SHA256"
+      - name: Update only the Claudodex formula in the tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: bash packaging/homebrew/publish-tap.sh "$RUNNER_TEMP/claudodex.rb" "${GITHUB_REF_NAME#v}"
+
+  pour:
+    needs: [tap, bottle]
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - name: Pour the macOS 15 bottle from the real public tap on macOS 26
+        env:
+          FORMULA_SHA256: ${{ needs.bottle.outputs.formula_sha256 }}
+        run: |
+          [[ "$(uname -m)" == arm64 ]]
+          [[ "$(sw_vers -productVersion)" == 26.* ]]
+          brew tap bassner/tap
+          tap=$(brew --repository bassner/tap)
+          test "$(shasum -a 256 "$tap/Formula/claudodex.rb" | cut -d' ' -f1)" = "$FORMULA_SHA256"
+          brew install --formula bassner/tap/claudodex
+          brew test bassner/tap/claudodex
+          brew info --json=v2 bassner/tap/claudodex > "$RUNNER_TEMP/installed.json"
+          jq -e --arg version "${GITHUB_REF_NAME#v}" \
+            '.formulae[0].installed | length == 1 and .[0].version == $version and .[0].poured_from_bottle == true' \
+            "$RUNNER_TEMP/installed.json"
+          test "$(claudodex clx:version)" = "claudodex ${GITHUB_REF_NAME#v}"
+
+  promote:
+    needs: [source, bottle, sign, pour]
+    runs-on: macos-15
+    environment: release
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Read back signed metadata and the tested formula
+        env:
+          MANIFEST_SHA256: ${{ needs.sign.outputs.manifest_sha256 }}
+          SOURCE_SHA256: ${{ needs.source.outputs.sha256 }}
+          FORMULA_SHA256: ${{ needs.bottle.outputs.formula_sha256 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/assets"
+          gh release download "$GITHUB_REF_NAME" --repo bassner/claudodex --dir "$RUNNER_TEMP/assets"
+          test "$(shasum -a 256 "$RUNNER_TEMP/assets/claudodex-${GITHUB_REF_NAME#v}-source.tar.gz" | cut -d' ' -f1)" = "$SOURCE_SHA256"
+          test "$(shasum -a 256 "$RUNNER_TEMP/assets/claudodex.rb" | cut -d' ' -f1)" = "$FORMULA_SHA256"
+          test "$(shasum -a 256 "$RUNNER_TEMP/assets/claudodex-update.json" | cut -d' ' -f1)" = "$MANIFEST_SHA256"
+          go build -o "$RUNNER_TEMP/clx-release" ./cmd/clx-release
+          "$RUNNER_TEMP/clx-release" verify-manifest --version "${GITHUB_REF_NAME#v}" \
+            --out "$RUNNER_TEMP/assets" --asset-dir "$RUNNER_TEMP/assets"
+          "$RUNNER_TEMP/clx-release" formula --version "${GITHUB_REF_NAME#v}" \
+            --source "$RUNNER_TEMP/assets/claudodex-${GITHUB_REF_NAME#v}-source.tar.gz" \
+            --bottle-json "$RUNNER_TEMP/assets/claudodex-bottles.json" --out "$RUNNER_TEMP/regenerated.rb"
+          cmp "$RUNNER_TEMP/regenerated.rb" "$RUNNER_TEMP/assets/claudodex.rb"
+      - name: Mark the verified release latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash packaging/homebrew/check-latest.sh "${GITHUB_REF_NAME#v}"
+          gh release edit "$GITHUB_REF_NAME" --repo bassner/claudodex --latest

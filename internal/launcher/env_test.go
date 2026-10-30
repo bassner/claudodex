@@ -43,6 +43,7 @@ func TestBuildClaudeEnv(t *testing.T) {
 	}
 
 	want := map[string]string{
+		"CLAUDODEX_CHILD":                           "1",
 		"ANTHROPIC_BASE_URL":                        firstPartyAnthropicBaseURL,
 		"CLAUDE_CODE_API_BASE_URL":                  firstPartyAnthropicBaseURL,
 		"CLAUDE_CONFIG_DIR":                         "/tmp/claudodex-claude",

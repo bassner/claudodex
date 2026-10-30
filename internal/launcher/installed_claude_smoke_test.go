@@ -1,9 +1,11 @@
 package launcher
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -2681,5 +2684,203 @@ func assertCapturedReasoningSummary(t *testing.T, captured map[string]any, want 
 	reasoning, _ := captured["reasoning"].(map[string]any)
 	if reasoning["summary"] != want {
 		t.Fatalf("reasoning.summary = %#v, want %q; request=%#v", reasoning["summary"], want, captured)
+	}
+}
+
+// This opt-in test runs the real installed Claude, but both model metadata and
+// generation use a local fake Codex backend. It never calls a paid model API.
+func TestInstalledClaudeVerifiedFallbackResumesFakeCodexSession(t *testing.T) {
+	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
+		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
+	}
+	installed, err := exec.LookPath("claude")
+	if err != nil {
+		t.Skipf("claude binary not available: %v", err)
+	}
+	installed, err = filepath.EvalSymlinks(installed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, sha := requireInstalledClaudeUIPatch(t, installed)
+	if version != "2.1.314" || sha != claude314SHA {
+		t.Skip("this smoke fixture requires the registered Claude Code 2.1.314 original")
+	}
+	artifacts := os.Getenv("CLAUDODEX_NATIVE_FALLBACK_ARTIFACT_DIR")
+	if artifacts == "" {
+		artifacts = t.TempDir()
+	}
+	if err := os.MkdirAll(artifacts, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	work := t.TempDir()
+	bin := t.TempDir()
+	t.Chdir(work)
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDODEX_DISABLE_CLAUDE_PATCH", "")
+	t.Setenv("CLAUDODEX_DISABLE_REAL_CLAUDE_BRIDGE_AUTH", "1")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv("CLAUDE_SECURESTORAGE_CONFIG_DIR", "")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	saveLauncherAuth(t, home)
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	settings := []byte(`{"model":"fable","alwaysThinkingEnabled":true}`)
+	if err := os.WriteFile(settingsPath, settings, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statusScript := filepath.Join(home, ".claude", "user-statusline.sh")
+	statusBytes := []byte("#!/bin/sh\nprintf 'unchanged-user-statusline'\n")
+	if err := os.WriteFile(statusScript, statusBytes, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	claudeLink := filepath.Join(bin, "claude")
+	if err := os.Symlink(installed, claudeLink); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var requests []map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/codex/models" {
+			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-6.1-sol","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-6-astra","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-6.1-terra","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-6-luna","context_window":372000,"supports_reasoning_summaries":true}]}`)
+			return
+		}
+		if r.URL.Path != "/codex/responses" {
+			t.Errorf("unexpected fake backend path %s", r.URL.Path)
+			http.Error(w, "unexpected fake backend path", http.StatusNotFound)
+			return
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode fake backend request: %v", err)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		requests = append(requests, request)
+		n := len(requests)
+		mu.Unlock()
+		text := "first-fake-session"
+		if n > 1 {
+			text = "resumed-fake-session"
+		}
+		w.Header().Set("content-type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_fallback_%d\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"message\",\"id\":\"item_fallback_%d\"}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":%q}\n\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"id\":\"item_fallback_%d\",\"content\":[{\"type\":\"output_text\",\"text\":%q}]}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"stop_reason\":\"stop\",\"usage\":{\"input_tokens\":2,\"output_tokens\":1}}}\n\n", n, n, text, n, text)
+	}))
+	defer upstream.Close()
+	t.Setenv("CLAUDODEX_CODEX_BASE_URL", upstream.URL)
+	const session = "548211cd-9330-451b-8821-1dcf7e9e77ec"
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	launch := func(name, prompt string, extra ...string) ([]byte, []byte) {
+		t.Helper()
+		args := []string{"-p", prompt, "--model", "fable", "--effort", "max", "--dangerously-skip-permissions", "--max-turns", "1", "--output-format", "stream-json", "--verbose", "--system-prompt", "Local fake-backend fallback and resume acceptance fixture.", "--debug-file", filepath.Join(artifacts, name+"-debug.log")}
+		args = append(args, extra...)
+		var stdout, stderr bytes.Buffer
+		err := (ProcessLauncher{}).Launch(ctx, args, Config{Version: "smoke", Home: home, Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr, CodexBaseURL: upstream.URL})
+		if writeErr := os.WriteFile(filepath.Join(artifacts, name+"-stdout.jsonl"), stdout.Bytes(), 0o600); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+		if writeErr := os.WriteFile(filepath.Join(artifacts, name+"-stderr.txt"), stderr.Bytes(), 0o600); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+		if err != nil {
+			t.Fatalf("%s launch failed: %v\nstdout:\n%s\nstderr:\n%s", name, err, stdout.String(), stderr.String())
+		}
+		if strings.Contains(stderr.String(), "[claude-code:unrecognized_model]") {
+			t.Fatalf("%s launch did not recognize its configured Codex model: %s", name, stderr.String())
+		}
+		return stdout.Bytes(), stderr.Bytes()
+	}
+	first, firstErr := launch("first", "initial-user-marker", "--session-id", session)
+	if !bytes.Contains(first, []byte("first-fake-session")) || bytes.Contains(firstErr, []byte("using verified local")) {
+		t.Fatalf("initial registered launch failed or unexpectedly fell back: %s\n%s", first, firstErr)
+	}
+	root, err := claudeCacheRoot(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshots := claudeFallbackCandidates(home, filepath.Join(bin, "3.0.0"), root)
+	if len(snapshots) != 1 || !strings.HasPrefix(snapshots[0], filepath.Join(root, "sources")) {
+		t.Fatalf("initial launch did not retain one verified private source: %v", snapshots)
+	}
+	unsupported := filepath.Join(bin, "3.0.0")
+	executed := filepath.Join(bin, "unsupported-executed")
+	if err := os.WriteFile(unsupported, []byte("#!/bin/sh\necho unsupported-executed > "+shellQuote(executed)+"\nexit 99\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(claudeLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(unsupported, claudeLink); err != nil {
+		t.Fatal(err)
+	}
+	resumed, resumedErr := launch("resumed", "resume-user-marker", "--resume", session)
+	if !bytes.Contains(resumedErr, []byte("using verified local Claude Code 2.1.314")) || !bytes.Contains(resumed, []byte("resumed-fake-session")) {
+		t.Fatalf("resume did not use retained verified Claude: %s\n%s", resumed, resumedErr)
+	}
+	if _, err := os.Stat(executed); !os.IsNotExist(err) {
+		t.Fatalf("unsupported installed binary was executed: %v", err)
+	}
+	for _, output := range [][]byte{first, resumed} {
+		foundResult := false
+		scanner := bufio.NewScanner(bytes.NewReader(output))
+		scanner.Buffer(make([]byte, 4096), 2*1024*1024)
+		for scanner.Scan() {
+			var event map[string]any
+			if json.Unmarshal(scanner.Bytes(), &event) == nil && event["type"] == "result" {
+				foundResult = true
+				if event["session_id"] != session || event["is_error"] != false {
+					t.Fatalf("real Claude did not preserve session identity: %s", scanner.Text())
+				}
+			}
+		}
+		if scanner.Err() != nil || !foundResult {
+			t.Fatalf("no successful result from real Claude: %s", output)
+		}
+	}
+	mu.Lock()
+	captured := append([]map[string]any(nil), requests...)
+	mu.Unlock()
+	if len(captured) != 2 {
+		t.Fatalf("fake generation requests = %d, want exactly two", len(captured))
+	}
+	for _, request := range captured {
+		if request["model"] != modelconfig.Default().Fable {
+			t.Fatalf("fallback version's Fable route changed: %#v", request["model"])
+		}
+		assertCapturedReasoningEffort(t, request, "max")
+	}
+	resumeInput, _ := json.Marshal(captured[1]["input"])
+	for _, marker := range []string{"initial-user-marker", "first-fake-session", "resume-user-marker"} {
+		if !bytes.Contains(resumeInput, []byte(marker)) {
+			t.Fatalf("real resume lost prior history %q: %s", marker, resumeInput)
+		}
+	}
+	if !bytes.Equal(mustReadTestFile(t, settingsPath), settings) || !bytes.Equal(mustReadTestFile(t, statusScript), statusBytes) {
+		t.Fatal("isolated user settings or statusline script changed")
+	}
+	sidecar := filepath.Join(home, ".claudodex", claudeSidecarDirName)
+	flagPath, _ := statusLineSessionPaths(sidecar)
+	flagSettings, err := readJSONMap(flagPath)
+	if err != nil || mapValue(flagSettings["modelPicker"])["replaceBuiltInOptions"] != true {
+		t.Fatalf("selected-source model picker settings were not applied: %#v, %v", flagSettings, err)
+	}
+	global, err := readJSONMap(filepath.Join(sidecar, claudeGlobalConfigName))
+	features := mapValue(global["cachedGrowthBookFeatures"])
+	if err != nil || features["tengu_ccr_bridge"] != true || features["tengu_bridge_repl_v2"] != true {
+		t.Fatalf("selected-source private feature cache was not applied: %#v, %v", features, err)
+	}
+	result := map[string]any{"passed": true, "claude_version": version, "source_sha256": sha, "generation_backend": "local fake Codex HTTP server", "generation_requests": len(captured), "paid_model_requests": 0, "same_session_resumed": true, "retained_source_used": true, "unsupported_executable_ran": false, "user_settings_unchanged": true, "statusline_script_unchanged": true, "selected_source_picker_settings": true, "selected_source_feature_cache": true}
+	for name, value := range map[string]any{"result.json": result, "fake-requests.json": captured} {
+		data, err := json.MarshalIndent(value, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(artifacts, name), append(data, '\n'), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

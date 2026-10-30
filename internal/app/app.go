@@ -19,6 +19,7 @@ import (
 	"github.com/bassner/claudodex/internal/launcher"
 	"github.com/bassner/claudodex/internal/modelconfig"
 	"github.com/bassner/claudodex/internal/proxy"
+	"github.com/bassner/claudodex/internal/selfupdate"
 )
 
 type Config struct {
@@ -27,12 +28,18 @@ type Config struct {
 	Stdout  io.Writer
 	Stderr  io.Writer
 
-	Home          string
-	CodexBaseURL  string
-	TokenEndpoint string
-	HTTPClient    *http.Client
-	Launcher      Launcher
-	Models        modelconfig.Config
+	Home                 string
+	CodexBaseURL         string
+	TokenEndpoint        string
+	HTTPClient           *http.Client
+	Launcher             Launcher
+	Models               modelconfig.Config
+	Updater              Updater
+	StatusLineExecutable string
+}
+
+type Updater interface {
+	BeforeLaunch(context.Context, selfupdate.Request) (selfupdate.Result, error)
 }
 
 type Launcher interface {
@@ -56,11 +63,37 @@ func Run(ctx context.Context, cfg Config, args []string) int {
 	if launcher.IsStatusLineWrapperCommand(args) {
 		return launcher.RunStatusLineWrapper(args[1:], cfg.Stdin, cfg.Stdout, cfg.Stderr)
 	}
+	rawArgs := append([]string(nil), args...)
 	var err error
 	args, cfg.Models, err = extractStartupModelConfig(args, cfg.Models)
 	if err != nil {
 		fmt.Fprintln(cfg.Stderr, err)
 		return 2
+	}
+	manualUpdate := len(args) > 0 && args[0] == "clx:update"
+	yes := false
+	if manualUpdate {
+		if len(args) > 2 || (len(args) == 2 && args[1] != "--yes") {
+			fmt.Fprintln(cfg.Stderr, "usage: claudodex clx:update [--yes]")
+			return 2
+		}
+		yes = len(args) == 2
+	}
+	if cfg.Updater != nil {
+		result, updateErr := cfg.Updater.BeforeLaunch(ctx, selfupdate.Request{Args: rawArgs, Manual: manualUpdate, Yes: yes})
+		cfg.StatusLineExecutable = result.StatusLineExecutable
+		if updateErr != nil {
+			fmt.Fprintf(cfg.Stderr, "Claudodex update: %v\n", updateErr)
+			if manualUpdate {
+				return 1
+			}
+		}
+		if result.Reexecuted || manualUpdate {
+			return 0
+		}
+	} else if manualUpdate {
+		fmt.Fprintln(cfg.Stderr, "updates are not configured for this build")
+		return 1
 	}
 
 	if launcher.ForcePassThrough(args) {
@@ -101,15 +134,16 @@ func runCommand(ctx context.Context, cfg Config, cmd string, args []string) int 
 
 func runClaude(ctx context.Context, cfg Config, args []string) int {
 	err := cfg.Launcher.Launch(ctx, args, launcher.Config{
-		Version:      cfg.Version,
-		Stdin:        cfg.Stdin,
-		Stdout:       cfg.Stdout,
-		Stderr:       cfg.Stderr,
-		Interactive:  launcher.DetectInteractive(args, cfg.Stdin, os.Stdout),
-		Home:         cfg.Home,
-		CodexBaseURL: cfg.CodexBaseURL,
-		HTTPClient:   cfg.HTTPClient,
-		Models:       cfg.Models,
+		Version:              cfg.Version,
+		Stdin:                cfg.Stdin,
+		Stdout:               cfg.Stdout,
+		Stderr:               cfg.Stderr,
+		Interactive:          launcher.DetectInteractive(args, cfg.Stdin, os.Stdout),
+		Home:                 cfg.Home,
+		CodexBaseURL:         cfg.CodexBaseURL,
+		HTTPClient:           cfg.HTTPClient,
+		Models:               cfg.Models,
+		StatusLineExecutable: cfg.StatusLineExecutable,
 	})
 	if err == nil {
 		return 0

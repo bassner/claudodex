@@ -31,6 +31,8 @@ type Config struct {
 	CodexBaseURL string
 	HTTPClient   *http.Client
 	Models       modelconfig.Config
+	// StatusLineExecutable is an already pinned helper supplied before an update.
+	StatusLineExecutable string
 }
 
 type ProcessLauncher struct{}
@@ -75,6 +77,16 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	if DirectClaudeFastPath(args) {
 		return runChild(ctx, claudePath, args, BuildClaudePrivacyEnv(os.Environ()), stdin, stdout, stderr, false)
 	}
+	claudePath, err = filepath.EvalSymlinks(claudePath)
+	if err != nil {
+		return fmt.Errorf("resolve installed Claude Code: %w", err)
+	}
+	selected, err := selectClaudeExecutable(ctx, cfg.Home, claudePath, cfg.Version, modelCfg, stderr)
+	if err != nil {
+		return err
+	}
+	defer selected.Release()
+	claudePath = selected.SourcePath
 
 	file, err := auth.EnsureLoggedIn(ctx, cfg.Home, cfg.Interactive)
 	if err != nil {
@@ -114,7 +126,12 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	if claude246Compatibility {
 		compatibilitySettings = claude246ModelPickerSettings(modelCfg)
 	}
-	childArgs, err = prepareStatusLineFlagSettingsForModels(claudeConfigDir, childArgs, compatibilitySettings, modelCfg)
+	childArgs, err = prepareStatusLineFlagSettingsForHelper(claudeConfigDir, childArgs, compatibilitySettings, modelCfg, func() (string, error) {
+		if cfg.StatusLineExecutable != "" {
+			return cfg.StatusLineExecutable, nil
+		}
+		return PinStatusLineExecutable(cfg.Home, currentExecutable())
+	})
 	if err != nil {
 		_ = configMirror.Close()
 		return fmt.Errorf("prepare Claude Code statusline compatibility: %w", err)
@@ -174,8 +191,7 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	if runtimeModel, ok := explicitModelArg(childArgs); ok {
 		childEnv = WithFriendlyCustomModelOptionForConfig(childEnv, runtimeModel, modelCfg)
 	}
-	claudePath = prepareClaudeExecutable(ctx, cfg.Home, claudePath, cfg.Version, modelCfg, stderr)
-	childErr := runChild(ctx, claudePath, childArgs, childEnv, stdin, stdout, stderr, !cfg.Interactive)
+	childErr := runChild(ctx, selected.Executable, childArgs, childEnv, stdin, stdout, stderr, !cfg.Interactive)
 	return errors.Join(childErr, configMirror.Close())
 }
 

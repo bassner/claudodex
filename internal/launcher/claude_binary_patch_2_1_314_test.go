@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"testing"
@@ -167,5 +168,45 @@ func TestClaude314ResumeHintsChangeGeneratedCommand(t *testing.T) {
 	}
 	if bytes.Contains(data, []byte("claude --resume")) {
 		t.Fatal("a resume hint still launches Claude")
+	}
+}
+
+func TestClaude314ConfiguredModelRecognitionPreservesUnknownModels(t *testing.T) {
+	const original = `function nEe(e,n=Qe(e)){return NB(n)||tG(e,n)}function tG(e,n){return!1}`
+	data := []byte(original)
+	if !patchConfiguredModelRecognition_2_1_314(data) || len(data) != len(original) {
+		t.Fatal("configured model recognizer did not apply without changing binary size")
+	}
+	if patchConfiguredModelRecognition_2_1_314(data) {
+		t.Fatal("recognition patch accepted an already changed target")
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is unavailable for the JavaScript behavior check")
+	}
+	// The native kat helper performs exact matching of the four configured env
+	// targets. Test the changed recognizer while keeping that native contract.
+	script := `const configured=new Set(["gpt-6.1-sol","gpt-6.1-terra","gpt-6-luna","gpt-6-astra"]);function Qe(e){return e}function NB(e){return e==="claude-opus-native"}function kat(e){return configured.has(e)};` + string(data) + `;for(const model of [...configured,"claude-opus-native"]){if(!nEe(model))throw Error("configured model rejected: "+model)}for(const model of ["gpt-unconfigured","gpt-6-astra-extra","","other"]){if(nEe(model))throw Error("unknown model accepted: "+model)}`
+	if output, err := exec.Command(node, "-e", script).CombinedOutput(); err != nil {
+		t.Fatalf("configured recognition behavior failed: %v: %s", err, output)
+	}
+}
+
+func TestClaude314DefaultModelCursorMatchesResolvedModel(t *testing.T) {
+	picker := []byte(`function FFe(e=!1,n=null){` + strings.Repeat(" ", 5000) + `}function X_(e,n){}function Jor(e,n){` + strings.Repeat(" ", 500) + `}function kc(){}`)
+	if !patchModelPickerOptions_2_1_314(picker, modelconfig.Default()) || !patchModelPickerSelectionValue_2_1_314(picker) {
+		t.Fatal("picker fixture did not patch")
+	}
+	focus := []byte(`let Ot=Et===null?Sb:Jor(Tt,Et)??Et;return Ot`)
+	if !patchModelPickerDefaultFocus_2_1_314(focus) {
+		t.Fatal("default cursor target did not patch")
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node unavailable for picker behavior check")
+	}
+	script := `const i={};` + string(picker) + `;let Tt=FFe(),Sb="__NO_PREFERENCE__",effective="gpt-6.1-terra";function Dw(){return effective}function focused(Et){` + string(focus) + `}if(focused(null)!=="sonnet")throw Error("default Sonnet cursor starts elsewhere");if(focused("gpt-6.1-terra[1m]")!=="sonnet")throw Error("explicit Sonnet mapping changed");if(focused("fable")!=="fable")throw Error("explicit Fable mapping changed");effective="gpt-6-astra";if(focused(null)!=="fable")throw Error("default Fable cursor starts elsewhere");if(focused("unknown")!=="unknown")throw Error("unknown fallback changed");`
+	if output, err := exec.Command(node, "-e", script).CombinedOutput(); err != nil {
+		t.Fatalf("default cursor behavior: %v: %s", err, output)
 	}
 }

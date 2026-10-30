@@ -25,6 +25,11 @@ func TestForcePassThrough(t *testing.T) {
 }
 
 func TestDirectClaudeFastPath(t *testing.T) {
+	for _, args := range [][]string{{"auth", "status"}, {"mcp", "list"}, {"doctor"}, {"install", "2.1.314"}, {"update"}, {"-h"}, {"-v"}} {
+		if !DirectClaudeFastPath(args) {
+			t.Fatalf("administrative args %q should pass through", args)
+		}
+	}
 	if !DirectClaudeFastPath([]string{"--help"}) {
 		t.Fatal("--help should be direct claude fast path")
 	}

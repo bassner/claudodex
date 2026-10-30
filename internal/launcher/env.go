@@ -28,6 +28,8 @@ func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, anthro
 	modelCfg = modelCfg.Normalize()
 	env := envMap(base)
 	captureOriginalToolEnv(env)
+	// Preserve this marker through shell restoration and nested tool launches.
+	env["CLAUDODEX_CHILD"] = "1"
 	proxyURL := fmt.Sprintf("http://127.0.0.1:%d", proxyPort)
 	env["ANTHROPIC_BASE_URL"] = firstPartyAnthropicBaseURL
 	env["CLAUDE_CODE_API_BASE_URL"] = firstPartyAnthropicBaseURL

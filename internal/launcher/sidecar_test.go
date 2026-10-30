@@ -222,8 +222,9 @@ func TestClaudeShellShimRestoresOriginalToolEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	shimPath := filepath.Join(sidecarDir, claudodexShimDirName, "sh")
-	cmd := exec.Command(shimPath, "-c", `printf '%s\n' "$SHELL|$HTTP_PROXY|$HTTPS_PROXY|${NO_PROXY-unset}|${NODE_EXTRA_CA_CERTS-unset}|${CLAUDODEX_REAL_SHELL-unset}|${CLAUDODEX_ORIGINAL_HTTPS_PROXY-unset}"`)
+	cmd := exec.Command(shimPath, "-c", `printf '%s\n' "$SHELL|$HTTP_PROXY|$HTTPS_PROXY|${NO_PROXY-unset}|${NODE_EXTRA_CA_CERTS-unset}|${CLAUDODEX_REAL_SHELL-unset}|${CLAUDODEX_ORIGINAL_HTTPS_PROXY-unset}|$CLAUDODEX_CHILD"`)
 	cmd.Env = []string{
+		"CLAUDODEX_CHILD=1",
 		"CLAUDODEX_REAL_SHELL=/bin/sh",
 		"SHELL=/tmp/claudodex-shim/sh",
 		"HTTP_PROXY=http://claudodex-internal",
@@ -240,7 +241,7 @@ func TestClaudeShellShimRestoresOriginalToolEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.TrimSpace(string(output))
-	want := "/opt/homebrew/bin/fish|http://user-http|http://user-https|.example.com|unset|unset|unset"
+	want := "/opt/homebrew/bin/fish|http://user-http|http://user-https|.example.com|unset|unset|unset|1"
 	if got != want {
 		t.Fatalf("restored env = %q, want %q", got, want)
 	}

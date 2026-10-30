@@ -20,7 +20,7 @@ var claude245UIBrandingReplacements = func() []claude209UIBrandingReplacement {
 		`You can hit Enter while Claude is working to queue a follow-up or steer it mid-turn \u2014 no need to wait for it to finish.`:                                                                                           true,
 		`Setting a 200K auto-compact window keeps sessions trimmed automatically \u2014 Claude summarizes earlier so each turn stays cheaper without manual /compact.`:                                                           true,
 		`Approving lets Claude write to ANY file in this project without another prompt for up to 4 hours (new and changed file contents are not shown for approval). Deletes and CLAUDE.md/.claude paths still ask every time.`: true,
-		`Approving lets Claude write to ANY file in the project "`: true,
+		`Approving lets Claude write to ANY file in the project "`:                                                                                                                                                               true,
 	}
 	replacements := make([]claude209UIBrandingReplacement, 0, len(claude234UIBrandingReplacements))
 	for _, replacement := range claude234UIBrandingReplacements {

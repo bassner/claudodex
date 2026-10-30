@@ -75,18 +75,83 @@ usage mapping, settings sync, model metadata, and installed-Claude smoke tests
 are implemented. The project intentionally stays narrow: Claude Code to Codex
 subscription models only.
 
-The polished Claude Code UI branding patch is currently gated to known Claude
-Code binaries by OS, architecture, version, and SHA. Unsupported Claude Code
-versions still launch, but without UI patching. The rest of the compatibility
-layer is designed to keep working when Claude Code updates.
+Claude compatibility patches require an exact registered OS, architecture,
+version, and SHA256. The current verified platform is macOS arm64, including
+Claude Code 2.1.314. After a Claude update, Claudodex can use a verified local
+copy from its cache or Claude's retained versions without changing system Claude.
+If no supported copy works, launch stops with recovery steps. Claudodex does not
+download Claude or create patches automatically.
 
 ## Requirements
 
-- Go 1.25 or newer (matching `go.mod`).
 - A working `claude` binary on `PATH`.
 - An OpenAI account with Codex subscription access.
-- macOS arm64 for the current verified UI patch. Other platforms may run
-  unpatched, but are not the main tested path yet.
+- macOS arm64 for verified compatibility. Other platforms are unverified and
+  require the explicit `CLAUDODEX_DISABLE_CLAUDE_PATCH=1` override to launch.
+- Go 1.25 or newer for source builds. Homebrew bottles do not need Go; a
+  Homebrew source build installs Go as a build dependency.
+
+## Install With Homebrew
+
+Homebrew is the preferred macOS arm64 installation method:
+
+```sh
+brew install bassner/tap/claudodex
+claudodex clx:version
+```
+
+The formula uses a pinned source archive with vendored dependencies. Tested
+Homebrew bottles avoid compilation on supported systems. Claude Code remains a
+separate installation. An existing source installation is not migrated: check
+`command -v claudodex` to see which copy your shell uses.
+
+## Updates
+
+Top-level launches check signed GitHub release metadata before starting Claude.
+Automatic prompts require standard input, output, and error to be terminals.
+For Homebrew installations, an interactive launch shows the installed and
+available versions, signed release notes, and release URL, then asks:
+
+```text
+Update Claudodex now? [y/N]
+```
+
+The default is No. Declining, empty input, EOF, or cancellation keeps the current
+version; the next launch checks again. After Yes, Claudodex refreshes Homebrew
+metadata and runs `brew upgrade --formula --yes bassner/tap/claudodex`. Homebrew
+manages required dependencies. A source fallback may install Go and take longer.
+The accepted version takes effect in the same invocation, with the original
+Claude arguments. Running sessions keep their pinned statusline helper.
+
+Automatic checks in piped and one-shot runs only print an update notice when a
+newer version is available. They do not prompt or replace the running program.
+Tool invocations inside a Claudodex session skip the update check. Source and
+unknown installations also notify only; rebuild them manually. No scheduler is
+installed.
+
+```sh
+claudodex clx:update        # Check now and ask on a terminal
+claudodex clx:update --yes  # Explicit script consent for a Homebrew update
+```
+
+Set `CLAUDODEX_NO_AUTO_UPDATE=1` to skip launch checks. An offline or failed check
+keeps the current runtime; `clx:update` reports check errors. If signed update
+information requires a newer client, follow the displayed manual Homebrew
+upgrade command. Every supported launch still requires a verified Claude copy.
+To recover when none is available:
+
+```sh
+claude install 2.1.314
+claudodex clx:doctor
+```
+
+`CLAUDODEX_DISABLE_CLAUDE_PATCH=1 claudodex` explicitly permits unpatched Claude
+when needed; that combination is unverified. Help, version, and Claude's
+administrative subcommands remain available for repair.
+
+Update metadata uses an embedded Ed25519 public key. Install the initial package
+from the trusted tap. A lost or compromised signing key requires a separately
+verified package update; automatic key recovery is not supported.
 
 ## Install From Source
 
@@ -122,8 +187,8 @@ claude --version
 claudodex clx:version
 ```
 
-Claudodex does not install new GitHub releases automatically. To update a source
-installation, pull the latest changes, rebuild, and repeat the install step.
+Source builds show update notices and require a manual rebuild. Pull the latest
+changes, rebuild, and repeat the install step.
 
 ## Getting Started
 
@@ -167,6 +232,8 @@ claudodex clx:auth-status
 claudodex clx:auth-logout
 claudodex clx:doctor
 claudodex clx:usage
+claudodex clx:update
+claudodex clx:update --yes
 claudodex clx:reset-installation-id
 claudodex clx:serve --host 127.0.0.1 --port 0
 claudodex [normal claude args...]
@@ -237,7 +304,7 @@ such as `90s`, a number of seconds, or `off` to override that behavior.
 ## Development
 
 ```sh
-gofmt -w $(find . -path ./other_repos -prune -o -name '*.go' -print)
+git ls-files '*.go' | xargs gofmt -w
 go test -count=1 ./...
 go vet ./...
 go build -o ./claudodex ./cmd/claudodex

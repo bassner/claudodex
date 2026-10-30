@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 func CodexUsageToClaude(raw map[string]any) map[string]any {
@@ -105,15 +106,18 @@ func extraUsage(raw map[string]any) any {
 
 func modelFamilyFromLimit(limit map[string]any) string {
 	value := strings.ToLower(stringFromAny(limit["metered_feature"]) + " " + stringFromAny(limit["limit_name"]))
+	tokens := make(map[string]bool)
+	for _, token := range strings.FieldsFunc(value, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+		tokens[token] = true
+	}
 	switch {
-	case strings.Contains(value, "fable"), strings.Contains(value, "astra"):
+	case tokens["fable"], tokens["astra"]:
 		return "fable"
-	case strings.Contains(value, "opus"), strings.Contains(value, "sol"):
+	case tokens["opus"], tokens["sol"]:
 		return "opus"
-	case strings.Contains(value, "sonnet"), strings.Contains(value, "terra"):
+	case tokens["sonnet"], tokens["terra"]:
 		return "sonnet"
-	case strings.Contains(value, "haiku"), strings.Contains(value, "luna"),
-		strings.Contains(value, "mini"):
+	case tokens["haiku"], tokens["luna"], tokens["mini"]:
 		return "haiku"
 	default:
 		return ""
