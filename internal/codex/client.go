@@ -289,7 +289,10 @@ func ApplyResponsesMetadata(request *Request, installationID string, route Route
 }
 
 func (c Client) createResponse(ctx context.Context, request Request, credentials Credentials, route Route, destination responsesDestination, includeHTTPBeta bool) (*http.Response, error) {
-	client := c.responseHTTPClient(destination.routed)
+	if err := CheckCredentialDestination(credentials, destination.baseURL); err != nil {
+		return nil, err
+	}
+	client := CredentialHTTPClient(c.responseHTTPClient(destination.routed), credentials)
 	data, err := json.Marshal(request)
 	if err != nil {
 		return nil, err

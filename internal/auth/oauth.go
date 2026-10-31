@@ -156,6 +156,10 @@ func Login(ctx context.Context, opts LoginOptions) (File, error) {
 	if err := NewStore(opts.Home).Save(file); err != nil {
 		return File{}, err
 	}
+	if err := clearCodexReuseState(NewStore(opts.Home)); err != nil {
+		return File{}, err
+	}
+	file.Source = SourceDirect
 	return file, nil
 }
 

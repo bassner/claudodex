@@ -28,9 +28,12 @@ OpenAI account with Codex subscription access.
 
 ```sh
 brew install bassner/tap/claudodex
-claudodex clx:auth-login
 claudodex
 ```
+
+Claudodex reuses an eligible local Codex login when available. Otherwise an
+interactive launch opens the normal OpenAI sign-in flow. To sign in separately,
+run `claudodex clx:auth-login`.
 
 Homebrew uses a prebuilt bottle when available; otherwise it installs Go and
 builds from pinned source. Claude Code is installed separately. If your Claude
@@ -56,19 +59,20 @@ Why not call it `claudex`? Because that name is already used in multiple places.
 ## What It Does
 
 - Runs your installed `claude` binary with normal Claude Code flags.
-- Authenticates to OpenAI through `claudodex clx:auth-login`.
-- Maps Claude model families to Codex models:
-  - Opus -> `gpt-6.1-sol`
-  - Sonnet -> `gpt-6.1-terra`
-  - Haiku -> `gpt-6-luna`
-  - Fable -> `gpt-6-astra`
-- Maps Claude Code `max` effort to Codex `max` for the configured GPT-6 family models. Claude Code's
-  `ultracode` mode enables its workflow orchestration while still sending
-  Codex `max` effort; older models fall back to their highest supported level.
+- Uses a direct OpenAI login or safely reuses an eligible local Codex login.
+- Discovers the newest available numeric model generation within each family:
+  Opus -> Sol, Sonnet -> Terra, Haiku -> Luna, Fable -> Astra. Explicit model
+  choices stay pinned. All four families must be available or explicitly mapped.
+- Derives reasoning efforts from the selected model's metadata. Unsupported
+  efforts are clamped to an advertised level. Claude Code's `ultracode` keeps
+  its own workflow orchestration and requests the supported equivalent of `max`.
+  Models without fast-mode support use the standard service tier.
 - Disables Claude Code's deferred tool-search protocol so complete tool
   definitions are sent through the Codex-compatible request path.
-- Fetches live Codex model metadata for context windows, model capabilities, and
-  auto-compact limits.
+- Fetches live Codex model metadata on every launch for routing, context windows,
+  capabilities and auto-compact limits. A temporary network or server failure can
+  use this account's cached catalog for up to 24 hours, with a warning. Invalid
+  credentials, removed models and malformed responses do not use this fallback.
 - Uses the token usage reported by completed OpenAI responses for Claude Code's
   context accounting. Local preflight estimates exclude base64 payload text and
   count image tokens from the decoded pixel dimensions instead.
@@ -172,6 +176,7 @@ claudodex --continue
 
 ```sh
 claudodex clx:auth-login
+claudodex clx:auth-login --codex
 claudodex clx:auth-status
 claudodex clx:auth-logout
 claudodex clx:version
@@ -187,9 +192,28 @@ claudodex [normal claude args...]
 `claudodex --help` and `claudodex --version` intentionally execute `claude`
 directly. Use `claudodex clx:version` for the Claudodex version.
 
+## Login Reuse
+
+A direct Claudodex login takes precedence. Without one, Claudodex asks the
+installed Codex CLI for its current subscription access token. Codex keeps
+ownership of token refresh. Claudodex stores only a private reference to that
+login; it never copies its refresh token or credential file. `CODEX_HOME`, when
+set, selects the native Codex home independently of Claudodex's own state.
+
+Reuse requires a supported native credential-export method, a ChatGPT login and
+known account residency. File-backed Codex logins can supply residency through
+their matching ID-token metadata. Keyring logins without an exported residency
+signal, API-key logins and unsupported native versions use ordinary browser
+sign-in instead. Borrowed credentials can only reach the official Codex backend.
+
+`clx:auth-logout` logs out of Claudodex and disables automatic login reuse. It
+leaves Codex logged in. Run `clx:auth-login --codex` to enable reuse again or adopt
+a changed Codex account; log out of a direct Claudodex login first. Running
+sessions reject account changes and ask you to restart.
+
 ## Model Overrides
 
-Default model targets are centralized and can be changed at startup:
+Role aliases follow live model discovery. These flags pin exact targets:
 
 ```sh
 claudodex --claudodex-opus-model gpt-opus-next
@@ -202,7 +226,19 @@ claudodex --claudodex-models opus=gpt-opus-next,sonnet=gpt-sonnet-next,haiku=gpt
 Overrides affect routing, model argument rewriting, `/v1/models`, capability
 cache, statusline context, auto-compact limits, effort handling, and settings
 normalization. The selected Codex models must appear in live Codex model
-metadata with context-window information.
+metadata as visible API models with usable context and ordinary reasoning
+capabilities. Missing pins fail with a recovery message. A direct GPT ID in
+`--model`, saved settings or a resumed request also selects that exact model;
+it does not follow automatic family upgrades.
+
+Saved effort preferences and explicit flags take precedence over catalog
+defaults. If Claude's native effort controls cannot express a model's default,
+startup asks you to choose an explicit `--effort` value.
+
+Claude uses one shared auto-compaction threshold for a running session.
+Claudodex keeps it safe across selectable models and saved or resumed direct
+choices. Mixed-model sessions can therefore compact before the largest model's
+window is full. Each model still reports its own real context window.
 
 ## Settings And Privacy
 

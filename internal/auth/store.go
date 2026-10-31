@@ -21,11 +21,13 @@ type Store struct {
 }
 
 type File struct {
-	AuthMode    string    `json:"auth_mode"`
-	Issuer      string    `json:"issuer"`
-	ClientID    string    `json:"client_id"`
-	LastRefresh time.Time `json:"last_refresh"`
-	Tokens      Tokens    `json:"tokens"`
+	Source        string    `json:"-"`
+	AllowedOrigin string    `json:"-"`
+	AuthMode      string    `json:"auth_mode"`
+	Issuer        string    `json:"issuer"`
+	ClientID      string    `json:"client_id"`
+	LastRefresh   time.Time `json:"last_refresh"`
+	Tokens        Tokens    `json:"tokens"`
 }
 
 type Tokens struct {

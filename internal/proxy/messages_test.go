@@ -19,6 +19,18 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+func inlineModelInfo(slug string) codex.ModelInfo {
+	return codex.ModelInfo{
+		Slug:                     slug,
+		ContextWindow:            200000,
+		MaxContextWindow:         200000,
+		SupportedInAPI:           true,
+		Visibility:               "list",
+		DefaultReasoningLevel:    "medium",
+		SupportedReasoningLevels: []codex.ReasoningEffortPreset{{Effort: "low"}, {Effort: "medium"}, {Effort: "high"}, {Effort: "xhigh"}, {Effort: "max"}},
+	}
+}
+
 func TestAnthropicMessageIDIsUniquePerProxyRequest(t *testing.T) {
 	first := anthropicMessageID(map[string]any{"request_id": "123-1"})
 	second := anthropicMessageID(map[string]any{"request_id": "123-2"})
@@ -232,12 +244,14 @@ func TestMessagesHTTPToolContinuationReplaysEncryptedReasoningLosslessly(t *test
 	}))
 	defer upstream.Close()
 
+	model := inlineModelInfo("gpt-6.1-terra")
+	model.SupportsReasoningSummaries = true
 	server := New(Config{
 		Home:         home,
 		CodexBaseURL: upstream.URL,
 		HTTPClient:   upstream.Client(),
 		AuthPresent:  true,
-		Models:       []codex.ModelInfo{{Slug: "gpt-6.1-terra", SupportsReasoningSummaries: true}},
+		Models:       []codex.ModelInfo{model},
 	})
 	addr, err := server.Start("127.0.0.1", 0)
 	if err != nil {
@@ -1581,12 +1595,9 @@ func TestShouldRetryStreamRetriesTransientTransportErrors(t *testing.T) {
 
 func TestContentFilterRetryUsesValidatedCatalogGuidance(t *testing.T) {
 	catalogGuidance := "Offer a permitted alternative."
-	server := New(Config{Models: []codex.ModelInfo{{
-		Slug: "gpt-6.1-terra",
-		ModelMessages: &codex.ModelMessages{
-			ContentFilterGuidance: &catalogGuidance,
-		},
-	}}})
+	model := inlineModelInfo("gpt-6.1-terra")
+	model.ModelMessages = &codex.ModelMessages{ContentFilterGuidance: &catalogGuidance}
+	server := New(Config{Models: []codex.ModelInfo{model}})
 	req := server.appendContentFilterGuidance(codex.Request{Model: "gpt-6.1-terra"})
 	if len(req.Input) != 1 || len(req.Input[0].Content) != 1 {
 		t.Fatalf("guidance input = %#v", req.Input)
@@ -1598,12 +1609,9 @@ func TestContentFilterRetryUsesValidatedCatalogGuidance(t *testing.T) {
 
 func TestContentFilterRetryRejectsBlankAndOversizedCatalogGuidance(t *testing.T) {
 	for _, guidance := range []string{"   ", strings.Repeat("x", maxContentFilterGuidanceBytes+1)} {
-		server := New(Config{Models: []codex.ModelInfo{{
-			Slug: "gpt-6.1-terra",
-			ModelMessages: &codex.ModelMessages{
-				ContentFilterGuidance: &guidance,
-			},
-		}}})
+		model := inlineModelInfo("gpt-6.1-terra")
+		model.ModelMessages = &codex.ModelMessages{ContentFilterGuidance: &guidance}
+		server := New(Config{Models: []codex.ModelInfo{model}})
 		req := server.appendContentFilterGuidance(codex.Request{Model: "gpt-6.1-terra"})
 		if got := req.Input[0].Content[0].Text; !strings.Contains(got, defaultContentFilterGuidance) {
 			t.Fatalf("invalid catalog guidance did not fall back: %q", got)
@@ -1641,17 +1649,16 @@ func TestMessagesRetriesEarlyContentFilterWithCatalogGuidance(t *testing.T) {
 		_, _ = io.WriteString(w, "event: response.completed\n"+`data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2}}}`+"\n\n")
 	}))
 	defer upstream.Close()
+	model := inlineModelInfo("gpt-6.1-terra")
+	model.ModelMessages = &codex.ModelMessages{
+		ContentFilterGuidance: &guidance,
+	}
 	server := New(Config{
 		Home:         home,
 		CodexBaseURL: upstream.URL,
 		HTTPClient:   upstream.Client(),
 		AuthPresent:  true,
-		Models: []codex.ModelInfo{{
-			Slug: "gpt-6.1-terra",
-			ModelMessages: &codex.ModelMessages{
-				ContentFilterGuidance: &guidance,
-			},
-		}},
+		Models:       []codex.ModelInfo{model},
 	})
 	addr, err := server.Start("127.0.0.1", 0)
 	if err != nil {

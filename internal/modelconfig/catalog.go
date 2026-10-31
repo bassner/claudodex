@@ -25,6 +25,41 @@ const (
 	FamilyFable  Family = "fable"
 )
 
+// Pins records explicit role choices independently of Config. Config remains a
+// comparable value because verified Claude patches use it as their identity.
+type Pins uint8
+
+const (
+	PinOpus Pins = 1 << iota
+	PinSonnet
+	PinHaiku
+	PinFable
+	AllPins = PinOpus | PinSonnet | PinHaiku | PinFable
+)
+
+func (p Pins) Has(family Family) bool {
+	return p&pinForFamily(family) != 0
+}
+
+func (p Pins) With(family Family) Pins {
+	return p | pinForFamily(family)
+}
+
+func pinForFamily(family Family) Pins {
+	switch family {
+	case FamilyOpus:
+		return PinOpus
+	case FamilySonnet:
+		return PinSonnet
+	case FamilyHaiku:
+		return PinHaiku
+	case FamilyFable:
+		return PinFable
+	default:
+		return 0
+	}
+}
+
 type Config struct {
 	Opus   string
 	Sonnet string
@@ -104,6 +139,11 @@ func (c Config) MapModel(model string) string {
 		model = DefaultClaudeRequestModel
 	}
 	normalized := normalizeModelName(model)
+	// A direct GPT ID is an exact choice, including an old compiled default or
+	// an as-yet unknown successor. Catalog validation decides availability.
+	if strings.HasPrefix(normalized, "gpt-") {
+		return cleanTargetModel(model)
+	}
 	switch {
 	case normalized == normalizeModelName(c.Opus):
 		return c.Opus
@@ -112,14 +152,6 @@ func (c Config) MapModel(model string) string {
 	case normalized == normalizeModelName(c.Haiku):
 		return c.Haiku
 	case normalized == normalizeModelName(c.Fable):
-		return c.Fable
-	case normalized == DefaultOpusModel:
-		return c.Opus
-	case normalized == DefaultSonnetModel:
-		return c.Sonnet
-	case normalized == DefaultHaikuModel:
-		return c.Haiku
-	case normalized == DefaultFableModel:
 		return c.Fable
 	}
 	if family, ok := FamilyForModel(model); ok {

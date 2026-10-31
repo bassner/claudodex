@@ -236,6 +236,7 @@ type WebSearchLocation struct {
 }
 
 type Credentials struct {
+	AllowedOrigin  string
 	AccessToken    string
 	AccountID      string
 	InstallationID string

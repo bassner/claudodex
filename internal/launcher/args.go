@@ -127,6 +127,9 @@ func claudeRuntimeModel(model string, models modelconfig.Config) string {
 }
 
 func canonicalClaudeRuntimeModel(model string, models modelconfig.Config) string {
+	if isDirectCodexModel(model) {
+		return modelconfig.WithLongContext(model)
+	}
 	models = models.Normalize()
 	runtimeModel := modelconfig.StripLongContext(models.RuntimeModel(model))
 	switch strings.ToLower(runtimeModel) {

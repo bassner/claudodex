@@ -85,6 +85,8 @@ func TestAnthropicToCodexRequestsSupportedReasoningSummaryForClaudeThinking(t *t
 	got, err := AnthropicToCodex(req, ConvertOptions{CodexModels: []codex.ModelInfo{{
 		Slug:                       "gpt-6.1-terra",
 		SupportsReasoningSummaries: true,
+		SupportedInAPI:             true, Visibility: "list", ContextWindow: 222000,
+		SupportedReasoningLevels: []codex.ReasoningEffortPreset{{Effort: "medium"}},
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -142,6 +144,8 @@ func TestAnthropicToCodexDoesNotRequestUnsupportedOrUnrequestedReasoningSummary(
 			got, err := AnthropicToCodex(req, ConvertOptions{CodexModels: []codex.ModelInfo{{
 				Slug:                       "gpt-6.1-terra",
 				SupportsReasoningSummaries: test.supports,
+				SupportedInAPI:             true, Visibility: "list", ContextWindow: 222000,
+				SupportedReasoningLevels: []codex.ReasoningEffortPreset{{Effort: "medium"}},
 			}}})
 			if err != nil {
 				t.Fatal(err)
@@ -481,6 +485,68 @@ func TestAnthropicToCodexMapsFastSpeedToPriorityServiceTier(t *testing.T) {
 	}
 	if got.Request.ServiceTier != "priority" {
 		t.Fatalf("service_tier = %q, want priority", got.Request.ServiceTier)
+	}
+}
+
+func catalogRequestModel(slug string) codex.ModelInfo {
+	return codex.ModelInfo{Slug: slug, SupportedInAPI: true, Visibility: "list", ContextWindow: 345678,
+		DefaultReasoningLevel: "high", SupportedReasoningLevels: []codex.ReasoningEffortPreset{{Effort: "low"}, {Effort: "high"}, {Effort: "max"}}}
+}
+
+func TestAnthropicToCodexPreservesDirectModelAndItsCapabilities(t *testing.T) {
+	models := modelconfig.Config{Opus: "gpt-7-sol"}.Normalize()
+	for _, slug := range []string{"gpt-6.1-sol", "gpt-99-sol-preview", "gpt-99-unfamiliar"} {
+		t.Run(slug, func(t *testing.T) {
+			req := AnthropicRequest{Model: slug + "[1m]", OutputConfig: OutputConfig{Effort: "xhigh"}, Messages: []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"hello"`)}}}
+			got, err := AnthropicToCodex(req, ConvertOptions{Models: models, CodexModels: []codex.ModelInfo{catalogRequestModel(slug)}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Request.Model != slug || got.Request.Reasoning.Effort != "high" {
+				t.Fatalf("request = model %q effort %q; want exact model and advertised clamp", got.Request.Model, got.Request.Reasoning.Effort)
+			}
+		})
+	}
+}
+
+func TestAnthropicToCodexRejectsUnavailableDirectModel(t *testing.T) {
+	req := AnthropicRequest{Model: "gpt-missing", Messages: []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"hello"`)}}}
+	_, err := AnthropicToCodex(req, ConvertOptions{CodexModels: []codex.ModelInfo{catalogRequestModel("gpt-6.1-sol")}})
+	var badRequest BadRequestError
+	if !errors.As(err, &badRequest) || !strings.Contains(err.Error(), "gpt-missing") {
+		t.Fatalf("missing direct model = %v, want actionable bad request", err)
+	}
+}
+
+func TestAnthropicToCodexFastModeRequiresAdvertisedPriority(t *testing.T) {
+	for _, supported := range []bool{false, true} {
+		model := catalogRequestModel("gpt-6-luna")
+		if supported {
+			model.ServiceTiers = []codex.ModelServiceTier{{ID: "priority", Name: "Fast"}}
+		}
+		req := AnthropicRequest{Model: model.Slug, Speed: "fast", Messages: []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"hello"`)}}}
+		got, err := AnthropicToCodex(req, ConvertOptions{CodexModels: []codex.ModelInfo{model}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.FastModeFallback == supported || (got.Request.ServiceTier == "priority") != supported {
+			t.Fatalf("supported=%t service_tier=%q fallback=%t", supported, got.Request.ServiceTier, got.FastModeFallback)
+		}
+		if got.Request.Reasoning.Effort != "high" {
+			t.Fatalf("advertised default ignored: %#v", got.Request.Reasoning)
+		}
+	}
+}
+
+func TestAnthropicToCodexValidatesActualDiscoveryVersion(t *testing.T) {
+	model := catalogRequestModel("gpt-99-sol")
+	model.MinimalClientVersion = "0.200.0"
+	req := AnthropicRequest{Model: model.Slug}
+	if _, err := AnthropicToCodex(req, ConvertOptions{CodexModels: []codex.ModelInfo{model}}); err == nil {
+		t.Fatal("target requiring a newer client was accepted")
+	}
+	if _, err := AnthropicToCodex(req, ConvertOptions{CodexModels: []codex.ModelInfo{model}, ClientVersion: "0.200.0"}); err != nil {
+		t.Fatal(err)
 	}
 }
 

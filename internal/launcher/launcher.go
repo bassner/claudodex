@@ -12,25 +12,30 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/bassner/claudodex/internal/auth"
 	"github.com/bassner/claudodex/internal/codex"
+	"github.com/bassner/claudodex/internal/filelock"
+	"github.com/bassner/claudodex/internal/modelcatalog"
 	"github.com/bassner/claudodex/internal/modelconfig"
 	"github.com/bassner/claudodex/internal/proxy"
 )
 
 type Config struct {
-	Version      string
-	Stdin        io.Reader
-	Stdout       io.Writer
-	Stderr       io.Writer
-	Interactive  bool
-	Home         string
-	CodexBaseURL string
-	HTTPClient   *http.Client
-	Models       modelconfig.Config
+	Version       string
+	Stdin         io.Reader
+	Stdout        io.Writer
+	Stderr        io.Writer
+	Interactive   bool
+	Home          string
+	CodexBaseURL  string
+	HTTPClient    *http.Client
+	TokenEndpoint string
+	Models        modelconfig.Config
+	ModelPins     modelconfig.Pins
 	// StatusLineExecutable is an already pinned helper supplied before an update.
 	StatusLineExecutable string
 }
@@ -81,20 +86,54 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	if err != nil {
 		return fmt.Errorf("resolve installed Claude Code: %w", err)
 	}
-	selected, err := selectClaudeExecutable(ctx, cfg.Home, claudePath, cfg.Version, modelCfg, stderr)
+	selected, err := selectClaudeExecutableWithRetention(ctx, cfg.Home, claudePath, cfg.Version, modelCfg, stderr, false)
 	if err != nil {
 		return err
 	}
 	defer selected.Release()
-	claudePath = selected.SourcePath
-
-	file, err := auth.EnsureLoggedIn(ctx, cfg.Home, cfg.Interactive)
+	if cfg.CodexBaseURL == "" {
+		cfg.CodexBaseURL = os.Getenv("CLAUDODEX_CODEX_BASE_URL")
+	}
+	cfg.CodexBaseURL, err = modelcatalog.NormalizeBaseURL(cfg.CodexBaseURL)
 	if err != nil {
 		return err
 	}
-	models, err := FetchCodexModels(ctx, cfg, file)
+	provider := auth.NewProvider(auth.NewStore(cfg.Home), cfg.HTTPClient, cfg.TokenEndpoint)
+	file, err := provider.EnsureLoggedIn(ctx, cfg.Interactive)
 	if err != nil {
 		return err
+	}
+	cfg.Stderr = stderr
+	snapshot, err := ResolveCodexModels(ctx, cfg, file, provider)
+	if err != nil {
+		return err
+	}
+	models := snapshot.Models
+	if snapshot.Config != modelCfg {
+		final, err := selectClaudeExecutableWithRetention(ctx, cfg.Home, selected.SourcePath, cfg.Version, snapshot.Config, stderr, true)
+		if err != nil {
+			return fmt.Errorf("prepare Claude Code for discovered model labels: %w; update Claudodex or select models with --claudodex-models", err)
+		}
+		defer final.Release()
+		selected = final
+	} else if strings.TrimSpace(os.Getenv("CLAUDODEX_DISABLE_CLAUDE_PATCH")) != "1" {
+		root, err := claudeCacheRoot(cfg.Home)
+		if err != nil {
+			return err
+		}
+		unlock, err := filelock.Acquire(ctx, filepath.Join(root, ".lock"))
+		if err != nil {
+			return err
+		}
+		retainClaudeSources(ctx, root, cfg.Version, snapshot.Config)
+		unlock()
+	}
+	modelCfg = snapshot.Config
+	claudePath = selected.SourcePath
+	if requested, ok := explicitModelArg(args); ok && isDirectCodexModel(requested) {
+		if _, err := modelcatalog.ValidateTarget(models, modelconfig.StripLongContext(requested), cfg.Version); err != nil {
+			return err
+		}
 	}
 	claude246Compatibility := claudeFastModeSettingsFallbackRequired(ctx, claudePath)
 	claude258Compatibility := claudeThreeTierPickerArgsRequired(ctx, claudePath)
@@ -126,7 +165,7 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	if claude246Compatibility {
 		compatibilitySettings = claude246ModelPickerSettings(modelCfg)
 	}
-	childArgs, err = prepareStatusLineFlagSettingsForHelper(claudeConfigDir, childArgs, compatibilitySettings, modelCfg, func() (string, error) {
+	childArgs, err = prepareStatusLineFlagSettingsForCatalog(claudeConfigDir, childArgs, compatibilitySettings, modelCfg, models, cfg.Version, func() (string, error) {
 		if cfg.StatusLineExecutable != "" {
 			return cfg.StatusLineExecutable, nil
 		}
@@ -139,14 +178,18 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	childArgs = DisableClaudeChrome(childArgs)
 
 	serverCfg := proxy.Config{
-		Version:      cfg.Version,
-		Interactive:  cfg.Interactive,
-		AuthPresent:  true,
-		Home:         cfg.Home,
-		CodexBaseURL: cfg.CodexBaseURL,
-		HTTPClient:   cfg.HTTPClient,
-		Models:       models,
-		ModelConfig:  modelCfg,
+		Version:       cfg.Version,
+		Interactive:   cfg.Interactive,
+		AuthPresent:   true,
+		Home:          cfg.Home,
+		CodexBaseURL:  cfg.CodexBaseURL,
+		HTTPClient:    cfg.HTTPClient,
+		TokenEndpoint: cfg.TokenEndpoint,
+		Models:        models,
+		ModelConfig:   modelCfg,
+		AuthProvider:  provider,
+		AuthAccountID: file.Tokens.AccountID,
+		AuthUserID:    file.Tokens.UserID,
 	}
 	if claude246Compatibility {
 		serverCfg.FastModeEnabledFallback = fastModeSettingsResolver(childArgs)
@@ -195,6 +238,10 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	return errors.Join(childErr, configMirror.Close())
 }
 
+func isDirectCodexModel(model string) bool {
+	return strings.HasPrefix(strings.ToLower(modelconfig.StripLongContext(model)), "gpt-")
+}
+
 func startAnthropicAPIServer(serverCfg proxy.Config, cert tls.Certificate) (*proxy.Server, string, string, error) {
 	if runtime.GOOS == "windows" {
 		return nil, "", "", nil
@@ -215,26 +262,52 @@ func startAnthropicAPIServer(serverCfg proxy.Config, cert tls.Certificate) (*pro
 }
 
 func FetchCodexModels(ctx context.Context, cfg Config, file auth.File) ([]codex.ModelInfo, error) {
-	modelCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
+	snapshot, err := ResolveCodexModels(ctx, cfg, file)
+	return snapshot.Models, err
+}
+
+// Production callers share their authentication provider so an access-token
+// rejection during discovery can refresh once before the proxies exist.
+// Metadata-only compatibility helpers may omit it.
+func ResolveCodexModels(ctx context.Context, cfg Config, file auth.File, providers ...*auth.Provider) (modelcatalog.Snapshot, error) {
 	installationID, err := auth.InstallationID(cfg.Home)
 	if err != nil {
-		return nil, err
+		return modelcatalog.Snapshot{}, err
 	}
-	client := codex.Client{BaseURL: cfg.CodexBaseURL, HTTPClient: cfg.HTTPClient, Version: cfg.Version}
-	models, err := client.FetchModels(modelCtx, codex.Credentials{
-		AccessToken:    file.Tokens.AccessToken,
-		AccountID:      file.Tokens.AccountID,
-		InstallationID: installationID,
-		FedRAMP:        file.Tokens.ChatGPTAccountIsFedRAMP,
-	})
+	baseURL := cfg.CodexBaseURL
+	if baseURL == "" {
+		baseURL = os.Getenv("CLAUDODEX_CODEX_BASE_URL")
+	}
+	options := modelcatalog.Options{
+		Home: cfg.Home, BaseURL: baseURL, Version: cfg.Version,
+		UserID: file.Tokens.UserID, Issuer: file.Issuer, HTTPClient: cfg.HTTPClient,
+		Requested: cfg.Models, Pins: cfg.ModelPins, Warnings: cfg.Stderr,
+		Credentials: codex.Credentials{
+			AccessToken:    file.Tokens.AccessToken,
+			AccountID:      file.Tokens.AccountID,
+			InstallationID: installationID,
+			FedRAMP:        file.Tokens.ChatGPTAccountIsFedRAMP,
+			AllowedOrigin:  file.AllowedOrigin,
+		},
+	}
+	snapshot, err := modelcatalog.Load(ctx, options)
+	var upstream *codex.UpstreamError
+	if err == nil || len(providers) == 0 || providers[0] == nil || !errors.As(err, &upstream) || upstream.Status != http.StatusUnauthorized {
+		return snapshot, err
+	}
+	refreshed, err := providers[0].Refresh(ctx, file.Tokens.AccessToken)
 	if err != nil {
-		return nil, fmt.Errorf("fetch Codex model metadata: %w", err)
+		return modelcatalog.Snapshot{}, err
 	}
-	if !requiredCodexModelsHaveContextWindows(models, cfg.Models.Normalize()) {
-		return nil, fmt.Errorf("Codex model metadata missing context windows for required models")
+	if refreshed.Tokens.UserID != file.Tokens.UserID || refreshed.Tokens.AccountID != file.Tokens.AccountID {
+		return modelcatalog.Snapshot{}, fmt.Errorf("login changed during model discovery; restart this session after signing in")
 	}
-	return models, nil
+	options.UserID, options.Issuer = refreshed.Tokens.UserID, refreshed.Issuer
+	options.Credentials.AccessToken = refreshed.Tokens.AccessToken
+	options.Credentials.AccountID = refreshed.Tokens.AccountID
+	options.Credentials.FedRAMP = refreshed.Tokens.ChatGPTAccountIsFedRAMP
+	options.Credentials.AllowedOrigin = refreshed.AllowedOrigin
+	return modelcatalog.Load(ctx, options)
 }
 
 func requiredCodexModelsHaveContextWindows(models []codex.ModelInfo, modelCfg modelconfig.Config) bool {

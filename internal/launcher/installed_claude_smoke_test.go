@@ -21,6 +21,7 @@ import (
 
 	"github.com/bassner/claudodex/internal/auth"
 	"github.com/bassner/claudodex/internal/convert"
+	"github.com/bassner/claudodex/internal/modelcatalog"
 	"github.com/bassner/claudodex/internal/modelconfig"
 )
 
@@ -34,32 +35,30 @@ func TestInstalledClaudeLiveCodexModelEfforts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load fresh Claudodex auth: %v", err)
 	}
-	models, err := FetchCodexModels(ctx, Config{Version: "dev", Models: modelconfig.Default()}, file)
+	snapshot, err := ResolveCodexModels(ctx, Config{Version: "dev", Models: modelconfig.Default()}, file)
 	if err != nil {
 		t.Fatalf("fetch live Codex model metadata: %v", err)
 	}
-	wantEfforts := []string{"low", "medium", "high", "xhigh", "max"}
-	for _, slug := range modelconfig.Default().RequiredModels() {
-		model, ok := catalogModel(models, slug)
+	wantEfforts := []string{"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultracode", "auto"}
+	for _, slug := range snapshot.Config.RequiredModels() {
+		model, ok := catalogModel(snapshot.Models, slug)
 		if !ok {
 			t.Fatalf("live Codex model metadata missing %s", slug)
 		}
 		t.Logf("target=%s context=%d max_context=%d summaries=%t efforts=%v", slug, model.ContextWindow, model.MaxContextWindow, model.SupportsReasoningSummaries, model.SupportedReasoningLevels)
 		advertised := make(map[string]bool, len(model.SupportedReasoningLevels))
-		for _, level := range model.SupportedReasoningLevels {
-			advertised[level.Effort] = true
+		for _, level := range modelcatalog.OrdinaryReasoningLevels(model) {
+			advertised[level] = true
 		}
 		for _, effort := range wantEfforts {
-			if !advertised[effort] {
-				t.Fatalf("live Codex model %s does not advertise Claude effort %s", slug, effort)
-			}
-			mapped := convert.MapReasoningEffort(slug, effort, 0)
-			if !advertised[string(mapped)] {
-				t.Fatalf("Claude effort %s maps to unadvertised %s level %s", effort, slug, mapped)
+			mapped, err := convert.MapReasoningEffortForModel(model, effort, 0)
+			if err != nil || !advertised[string(mapped)] {
+				t.Fatalf("Claude effort %s maps to unadvertised %s level %s: %v", effort, slug, mapped, err)
 			}
 		}
-		if mapped := convert.MapReasoningEffort(slug, "ultracode", 0); mapped != convert.EffortMax || !advertised[string(mapped)] {
-			t.Fatalf("Claude ultracode maps to %s for %s, want advertised max", mapped, slug)
+		levels := modelcatalog.OrdinaryReasoningLevels(model)
+		if mapped, err := convert.MapReasoningEffortForModel(model, "ultracode", 0); err != nil || string(mapped) != levels[len(levels)-1] {
+			t.Fatalf("Claude ultracode maps to %s for %s, want highest advertised ordinary effort: %v", mapped, slug, err)
 		}
 	}
 }
@@ -101,7 +100,7 @@ func installedClaudePrintSmokeWithFakeCodexUpstream(t *testing.T, requested, exp
 	var captured map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/codex/models" {
-			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-6.1-sol","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-6-astra","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-6.1-terra","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-6-luna","context_window":372000,"supports_reasoning_summaries":true}]}`)
+			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-6.1-sol","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}],"supports_reasoning_summaries":true},{"slug":"gpt-6-astra","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}],"supports_reasoning_summaries":true},{"slug":"gpt-6.1-terra","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}],"supports_reasoning_summaries":true},{"slug":"gpt-6-luna","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}],"supports_reasoning_summaries":true}]}`)
 			return
 		}
 		if r.URL.Path != "/codex/responses" {
@@ -2567,7 +2566,7 @@ func TestInstalledClaudeFastModeSmokeWithFakeCodexUpstream(t *testing.T) {
 	var captured map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/codex/models" {
-			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-6.1-sol","context_window":372000},{"slug":"gpt-6-astra","context_window":372000},{"slug":"gpt-6.1-terra","context_window":372000},{"slug":"gpt-6-luna","context_window":372000}]}`)
+			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-6.1-sol","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}],"service_tiers":[{"id":"priority","name":"Fast"}],"additional_speed_tiers":["fast"]},{"slug":"gpt-6-astra","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}],"service_tiers":[{"id":"priority","name":"Fast"}],"additional_speed_tiers":["fast"]},{"slug":"gpt-6.1-terra","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}],"service_tiers":[{"id":"priority","name":"Fast"}],"additional_speed_tiers":["fast"]},{"slug":"gpt-6-luna","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}],"service_tiers":[{"id":"priority","name":"Fast"}],"additional_speed_tiers":["fast"]}]}`)
 			return
 		}
 		if r.URL.Path != "/codex/responses" {
@@ -2668,7 +2667,7 @@ func TestInstalledClaudeSmokeWithUIPatchDisabled(t *testing.T) {
 	var captured map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/codex/models" {
-			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-6.1-sol","context_window":372000},{"slug":"gpt-6-astra","context_window":372000},{"slug":"gpt-6.1-terra","context_window":372000},{"slug":"gpt-6-luna","context_window":372000}]}`)
+			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-6.1-sol","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}]},{"slug":"gpt-6-astra","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}]},{"slug":"gpt-6.1-terra","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}]},{"slug":"gpt-6-luna","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}]}]}`)
 			return
 		}
 		if r.URL.Path != "/codex/responses" {
@@ -2730,14 +2729,14 @@ func TestInstalledClaudeSmokeWithUIPatchDisabled(t *testing.T) {
 	if captured["model"] != "gpt-6.1-terra" {
 		t.Fatalf("upstream model = %#v, want gpt-6.1-terra; request=%#v", captured["model"], captured)
 	}
-	assertCapturedReasoningEffort(t, captured, "max")
+	assertCapturedReasoningEffort(t, captured, "medium")
 }
 
 func assertCapturedReasoningEffort(t *testing.T, captured map[string]any, want string) {
 	t.Helper()
 	reasoning, _ := captured["reasoning"].(map[string]any)
 	if reasoning["effort"] != want {
-		t.Fatalf("reasoning.effort = %#v, want %q; request=%#v", reasoning["effort"], want, captured)
+		t.Fatalf("reasoning.effort = %#v, want %q", reasoning["effort"], want)
 	}
 }
 
@@ -2806,7 +2805,7 @@ func TestInstalledClaudeVerifiedFallbackResumesFakeCodexSession(t *testing.T) {
 	var requests []map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/codex/models" {
-			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-6.1-sol","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-6-astra","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-6.1-terra","context_window":372000,"supports_reasoning_summaries":true},{"slug":"gpt-6-luna","context_window":372000,"supports_reasoning_summaries":true}]}`)
+			_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-6.1-sol","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}],"supports_reasoning_summaries":true},{"slug":"gpt-6-astra","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}],"supports_reasoning_summaries":true},{"slug":"gpt-6.1-terra","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}],"supports_reasoning_summaries":true},{"slug":"gpt-6-luna","context_window":372000,"max_context_window":372000,"supported_in_api":true,"visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}],"supports_reasoning_summaries":true}]}`)
 			return
 		}
 		if r.URL.Path != "/codex/responses" {

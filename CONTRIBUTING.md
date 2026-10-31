@@ -75,18 +75,20 @@ The public bottle `root_url` is the same non-latest release as the source
 archive. After the pour, CI reads back and verifies the signed manifest, its
 assets, and the tested formula before promoting the release to latest.
 
-Initial maintainer setup requires explicit publication approval:
+Initial maintainer setup:
 
 - Create the public `bassner/homebrew-tap` repository, with its default branch.
-- Protect release tags (`v*`) and the `release` and `homebrew-tap` environments
-  with trusted release permissions and required reviewers. Never expose secrets
-  to pull request or fork workflows.
+- Protect release tags (`v*`) with trusted release permissions. Restrict the
+  `release` and `homebrew-tap` environments to those tags, with no required
+  human reviewers: the maintenance release must finish unattended after its
+  automated checks pass. Never expose secrets to pull request or fork workflows.
 - Set `CLAUDODEX_RELEASE_SIGNING_KEY` in the protected `release` environment to
   a base64 Ed25519 seed or private key matching the embedded trust root. Generate
   and store it privately; the helper rejects a different key without printing it.
 - Set `HOMEBREW_TAP_TOKEN` in `homebrew-tap`, scoped to Contents write on only
   `bassner/homebrew-tap`. The tap job has no release signing key.
-- Review `packaging/release-notes/v<VERSION>.md`, then approve and push the tag.
+- Review `packaging/release-notes/v<VERSION>.md`, then push the tag. The release
+  workflow validates, signs, installs and promotes it without a manual gate.
 
 Every channel uses signed metadata; no standalone payload installer or native
 rollback channel is shipped. A trust-root change must first ship in a verified

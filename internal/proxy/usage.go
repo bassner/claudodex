@@ -3,7 +3,6 @@ package proxy
 import (
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/bassner/claudodex/internal/auth"
 	"github.com/bassner/claudodex/internal/codex"
@@ -20,8 +19,7 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) fetchCodexUsage(r *http.Request) (map[string]any, error) {
-	store := auth.NewStore(s.cfg.Home)
-	file, err := auth.NewRefresher(store, s.cfg.HTTPClient, s.cfg.TokenEndpoint).EnsureFresh(r.Context(), 5*time.Minute)
+	file, err := s.freshAuth(r.Context())
 	if err != nil {
 		return nil, err
 	}
@@ -35,6 +33,7 @@ func (s *Server) fetchCodexUsage(r *http.Request) (map[string]any, error) {
 		AccountID:      file.Tokens.AccountID,
 		InstallationID: installationID,
 		FedRAMP:        file.Tokens.ChatGPTAccountIsFedRAMP,
+		AllowedOrigin:  file.AllowedOrigin,
 	}
 	raw, err := client.FetchUsage(r.Context(), credentials)
 	if err == nil {
@@ -44,12 +43,13 @@ func (s *Server) fetchCodexUsage(r *http.Request) (map[string]any, error) {
 	if !errors.As(err, &upstream) || upstream.Status != http.StatusUnauthorized {
 		return nil, err
 	}
-	file, refreshErr := auth.NewRefresher(store, s.cfg.HTTPClient, s.cfg.TokenEndpoint).Refresh(r.Context())
+	file, refreshErr := s.refreshAuth(r.Context(), credentials.AccessToken)
 	if refreshErr != nil {
 		return nil, refreshErr
 	}
 	credentials.AccessToken = file.Tokens.AccessToken
 	credentials.AccountID = file.Tokens.AccountID
 	credentials.FedRAMP = file.Tokens.ChatGPTAccountIsFedRAMP
+	credentials.AllowedOrigin = file.AllowedOrigin
 	return client.FetchUsage(r.Context(), credentials)
 }

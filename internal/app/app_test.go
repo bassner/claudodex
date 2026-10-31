@@ -76,8 +76,43 @@ func TestStartupModelFlagsPassConfiguredTargetsToLauncher(t *testing.T) {
 	if launcher.cfg.Models != (modelconfig.Config{Opus: "gpt-opus-next", Sonnet: "gpt-sonnet-next", Haiku: "gpt-haiku-next", Fable: modelconfig.DefaultFableModel}) {
 		t.Fatalf("models = %#v", launcher.cfg.Models)
 	}
+	wantPins := modelconfig.PinOpus | modelconfig.PinSonnet | modelconfig.PinHaiku
+	if launcher.cfg.ModelPins != wantPins {
+		t.Fatalf("model pins = %04b, want %04b", launcher.cfg.ModelPins, wantPins)
+	}
 	if strings.Join(launcher.args, " ") != "--model sonnet" {
 		t.Fatalf("args = %#v", launcher.args)
+	}
+}
+
+func TestStartupModelFlagEqualToCompiledDefaultIsPinned(t *testing.T) {
+	launcher := &fakeLauncher{}
+	code := Run(context.Background(), Config{Launcher: launcher}, []string{
+		"--claudodex-opus-model", modelconfig.DefaultOpusModel,
+	})
+	if code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	if launcher.cfg.Models.Opus != modelconfig.DefaultOpusModel {
+		t.Fatalf("opus model = %q, want %q", launcher.cfg.Models.Opus, modelconfig.DefaultOpusModel)
+	}
+	if launcher.cfg.ModelPins != modelconfig.PinOpus {
+		t.Fatalf("model pins = %04b, want %04b", launcher.cfg.ModelPins, modelconfig.PinOpus)
+	}
+}
+
+func TestCallerModelConfigOverridesArePinned(t *testing.T) {
+	launcher := &fakeLauncher{}
+	callerModels := modelconfig.Config{Sonnet: "gpt-6.2-terra"}
+	code := Run(context.Background(), Config{Launcher: launcher, Models: callerModels}, []string{"--model", "sonnet"})
+	if code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	if launcher.cfg.Models.Sonnet != callerModels.Sonnet {
+		t.Fatalf("sonnet model = %q, want caller override %q", launcher.cfg.Models.Sonnet, callerModels.Sonnet)
+	}
+	if launcher.cfg.ModelPins != modelconfig.PinSonnet {
+		t.Fatalf("model pins = %04b, want %04b", launcher.cfg.ModelPins, modelconfig.PinSonnet)
 	}
 }
 
@@ -106,10 +141,10 @@ func TestServeFetchesDynamicModelMetadata(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"models": []map[string]any{
-				{"slug": "gpt-6.1-sol", "context_window": 111000},
-				{"slug": "gpt-6-astra", "context_window": 111000},
-				{"slug": "gpt-6.1-terra", "context_window": 222000},
-				{"slug": "gpt-6-luna", "context_window": 333000},
+				appCatalogEntry("gpt-6.1-sol", 111000),
+				appCatalogEntry("gpt-6-astra", 111000),
+				appCatalogEntry("gpt-6.1-terra", 222000),
+				appCatalogEntry("gpt-6-luna", 333000),
 			},
 		})
 	}))
@@ -306,6 +341,18 @@ func saveAppAuth(t *testing.T, home string) {
 		},
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func appCatalogEntry(slug string, contextWindow int64) map[string]any {
+	return map[string]any{
+		"slug":                       slug,
+		"context_window":             contextWindow,
+		"max_context_window":         contextWindow,
+		"supported_in_api":           true,
+		"visibility":                 "list",
+		"default_reasoning_level":    "medium",
+		"supported_reasoning_levels": []map[string]string{{"effort": "low"}, {"effort": "medium"}, {"effort": "high"}, {"effort": "xhigh"}, {"effort": "max"}},
 	}
 }
 

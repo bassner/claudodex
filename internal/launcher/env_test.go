@@ -440,3 +440,66 @@ func TestWithPrivateFeatureCacheKeepsPrivacyTrafficFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestAutoCompactIncludesSelectableDirectCatalogModels(t *testing.T) {
+	cfg := modelconfig.Default()
+	var models []codex.ModelInfo
+	for _, slug := range cfg.RequiredModels() {
+		models = append(models, codex.ModelInfo{Slug: slug, ContextWindow: 872000, MaxContextWindow: 872000})
+	}
+	direct := codex.ModelInfo{Slug: "gpt-5-sol", SupportedInAPI: true, Visibility: "list", ContextWindow: 500000, MaxContextWindow: 872000, AutoCompactTokenLimit: 200000, EffectiveContextWindowPercent: 90,
+		SupportedReasoningLevels: []codex.ReasoningEffortPreset{{Effort: "medium"}}}
+	models = append(models, direct)
+	if limit, ok := requiredModelAutoCompactWindow(models, cfg); !ok || limit != 200000 {
+		t.Fatalf("shared direct-model compaction = (%d,%t), want 200000", limit, ok)
+	}
+	env := envMap(BuildClaudeEnv(nil, 1234, t.TempDir(), "", "", "", models, cfg))
+	if env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] != "200000" || env["CLAUDODEX_CONTEXT_WINDOW"] != "872000" || env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] != "872000" {
+		t.Fatalf("compaction changed true context or ignored direct cap: %#v", env)
+	}
+	if got := modelContextWindow(models, direct.Slug, modelconfig.WithLongContext(direct.Slug)); got != 872000 {
+		t.Fatalf("direct UI context was reduced to compaction limit: %d", got)
+	}
+	direct.AutoCompactTokenLimit = 0
+	direct.EffectiveContextWindowPercent = 20
+	models[len(models)-1] = direct
+	if limit, ok := requiredModelAutoCompactWindow(models, cfg); !ok || limit != 100000 {
+		t.Fatalf("direct-model ordinary effective context = (%d,%t), want 100000", limit, ok)
+	}
+}
+
+func TestAutoCompactIgnoresUnselectableDirectCatalogEntries(t *testing.T) {
+	cfg := modelconfig.Default()
+	var models []codex.ModelInfo
+	for _, slug := range cfg.RequiredModels() {
+		models = append(models, codex.ModelInfo{Slug: slug, ContextWindow: 872000, MaxContextWindow: 872000})
+	}
+	for _, entry := range []codex.ModelInfo{
+		{Slug: "hidden", SupportedInAPI: true, Visibility: "hide", ContextWindow: 1000, SupportedReasoningLevels: []codex.ReasoningEffortPreset{{Effort: "low"}}},
+		{Slug: "not-api", Visibility: "list", ContextWindow: 1000, SupportedReasoningLevels: []codex.ReasoningEffortPreset{{Effort: "low"}}},
+		{Slug: "workflow-only", SupportedInAPI: true, Visibility: "list", ContextWindow: 1000, SupportedReasoningLevels: []codex.ReasoningEffortPreset{{Effort: "ultra"}}},
+		{Slug: "no-context", SupportedInAPI: true, Visibility: "list", SupportedReasoningLevels: []codex.ReasoningEffortPreset{{Effort: "low"}}},
+	} {
+		models = append(models, entry)
+	}
+	if limit, ok := requiredModelAutoCompactWindow(models, cfg); !ok || limit != 828400 {
+		t.Fatalf("unselectable entry reduced shared compaction limit: (%d,%t)", limit, ok)
+	}
+}
+
+func TestAutoCompactCoversBareRoleTargetAsDirectSelection(t *testing.T) {
+	cfg := modelconfig.Default()
+	var models []codex.ModelInfo
+	for _, slug := range cfg.RequiredModels() {
+		model := codex.ModelInfo{Slug: slug, ContextWindow: 872000, MaxContextWindow: 872000}
+		if slug == cfg.Opus {
+			model.SupportedInAPI, model.Visibility = true, "list"
+			model.ContextWindow, model.EffectiveContextWindowPercent = 500000, 90
+			model.SupportedReasoningLevels = []codex.ReasoningEffortPreset{{Effort: "low"}}
+		}
+		models = append(models, model)
+	}
+	if limit, ok := requiredModelAutoCompactWindow(models, cfg); !ok || limit != 450000 {
+		t.Fatalf("bare role target compaction = (%d,%t), want 450000", limit, ok)
+	}
+}

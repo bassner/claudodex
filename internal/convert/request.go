@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bassner/claudodex/internal/codex"
+	"github.com/bassner/claudodex/internal/modelcatalog"
 	"github.com/bassner/claudodex/internal/modelconfig"
 )
 
@@ -61,9 +62,10 @@ type OutputConfig struct {
 }
 
 type ConvertOptions struct {
-	SessionID   string
-	Models      modelconfig.Config
-	CodexModels []codex.ModelInfo
+	SessionID     string
+	Models        modelconfig.Config
+	CodexModels   []codex.ModelInfo
+	ClientVersion string
 }
 
 type Result struct {
@@ -76,6 +78,7 @@ type Result struct {
 	ParentThreadID   string
 	Subagent         string
 	WebSearchMaxUses int
+	FastModeFallback bool
 }
 
 type BadRequestError struct {
@@ -143,6 +146,14 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		model = modelconfig.DefaultClaudeRequestModel
 	}
 	codexModel := models.MapModel(model)
+	var target codex.ModelInfo
+	if opts.CodexModels != nil {
+		var err error
+		target, err = modelcatalog.ValidateTarget(opts.CodexModels, codexModel, opts.ClientVersion)
+		if err != nil {
+			return Result{}, BadRequestError{Message: err.Error()}
+		}
+	}
 	input, messageInstructions, err := convertMessages(req.Messages)
 	if err != nil {
 		return Result{}, err
@@ -174,7 +185,22 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		routeSessionID = deriveSubagentSessionID(routeSessionID, instructions, input)
 		subagent = "collab_spawn"
 	}
-	effort := MapReasoningEffortWithConfig(codexModel, req.OutputConfig.Effort, req.Thinking.BudgetTokens, models)
+	var effort ReasoningEffort
+	if opts.CodexModels != nil {
+		var err error
+		effort, err = MapReasoningEffortForModel(target, req.OutputConfig.Effort, req.Thinking.BudgetTokens)
+		if err != nil {
+			return Result{}, BadRequestError{Message: err.Error()}
+		}
+	} else {
+		effort = MapReasoningEffortWithConfig(codexModel, req.OutputConfig.Effort, req.Thinking.BudgetTokens, models)
+	}
+	serviceTier := mapServiceTier(req.Speed)
+	fastModeFallback := false
+	if serviceTier != "" && opts.CodexModels != nil && !modelcatalog.SupportsFast(target) {
+		serviceTier = ""
+		fastModeFallback = true
+	}
 	reasoning := &codex.Reasoning{Effort: string(effort)}
 	if requestsThinking(req.Thinking) && supportsReasoningSummaries(opts.CodexModels, codexModel) {
 		reasoning.Summary = "auto"
@@ -189,7 +215,7 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		Store:             false,
 		Stream:            true,
 		Include:           responseIncludes(req.Tools),
-		ServiceTier:       mapServiceTier(req.Speed),
+		ServiceTier:       serviceTier,
 		Reasoning:         reasoning,
 		Text:              convertOutputFormat(req.OutputConfig.Format),
 		PromptCacheKey:    routeSessionID,
@@ -204,6 +230,7 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		ParentThreadID:   parentThreadID,
 		Subagent:         subagent,
 		WebSearchMaxUses: webSearchMaxUses(req.Tools),
+		FastModeFallback: fastModeFallback,
 	}, nil
 }
 

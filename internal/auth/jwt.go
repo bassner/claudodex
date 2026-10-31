@@ -8,6 +8,7 @@ import (
 )
 
 type jwtPayload struct {
+	Issuer  string `json:"iss"`
 	Email   string `json:"email"`
 	Profile struct {
 		Email string `json:"email"`
@@ -17,18 +18,20 @@ type jwtPayload struct {
 		UserID    string `json:"chatgpt_user_id"`
 		AltUserID string `json:"user_id"`
 		AccountID string `json:"chatgpt_account_id"`
-		FedRAMP   bool   `json:"chatgpt_account_is_fedramp"`
+		FedRAMP   *bool  `json:"chatgpt_account_is_fedramp"`
 	} `json:"https://api.openai.com/auth"`
 	Exp int64 `json:"exp"`
 }
 
 type Claims struct {
-	Email     string
-	PlanType  string
-	UserID    string
-	AccountID string
-	FedRAMP   bool
-	Exp       int64
+	Issuer       string
+	FedRAMPKnown bool
+	Email        string
+	PlanType     string
+	UserID       string
+	AccountID    string
+	FedRAMP      bool
+	Exp          int64
 }
 
 func ParseClaims(token string) (Claims, error) {
@@ -53,12 +56,14 @@ func ParseClaims(token string) (Claims, error) {
 		userID = decoded.Auth.AltUserID
 	}
 	return Claims{
-		Email:     email,
-		PlanType:  decoded.Auth.PlanType,
-		UserID:    userID,
-		AccountID: decoded.Auth.AccountID,
-		FedRAMP:   decoded.Auth.FedRAMP,
-		Exp:       decoded.Exp,
+		Issuer:       decoded.Issuer,
+		FedRAMPKnown: decoded.Auth.FedRAMP != nil,
+		Email:        email,
+		PlanType:     decoded.Auth.PlanType,
+		UserID:       userID,
+		AccountID:    decoded.Auth.AccountID,
+		FedRAMP:      decoded.Auth.FedRAMP != nil && *decoded.Auth.FedRAMP,
+		Exp:          decoded.Exp,
 	}, nil
 }
 

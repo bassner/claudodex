@@ -7,11 +7,11 @@ func TestConfigMapModelUsesOverrides(t *testing.T) {
 	tests := map[string]string{
 		"opus":              "gpt-opus-next",
 		"claude-opus-5":     "gpt-opus-next",
-		"gpt-6.1-sol":       "gpt-opus-next",
+		"gpt-6.1-sol":       "gpt-6.1-sol",
 		"claude-sonnet-4-6": "gpt-sonnet-next",
-		"gpt-6.1-terra[1m]": "gpt-sonnet-next",
+		"gpt-6.1-terra[1m]": "gpt-6.1-terra",
 		"small-fast":        "gpt-haiku-next",
-		"gpt-6-luna":        "gpt-haiku-next",
+		"gpt-6-luna":        "gpt-6-luna",
 		"gpt-haiku-next":    "gpt-haiku-next",
 		"claude-fable-5":    "gpt-fable-next",
 		"mythos-5":          "gpt-fable-next",
@@ -120,10 +120,35 @@ func TestDefaultFourTierRoutes(t *testing.T) {
 		t.Fatal("four distinct default models must supply live metadata")
 	}
 	overridden := Config{Fable: "astra-custom"}.Normalize()
-	if overridden.MapModel("fable") != "astra-custom" || overridden.MapModel("gpt-6-astra") != "astra-custom" {
-		t.Fatal("Fable override is not used by aliases and direct default IDs")
+	if overridden.MapModel("fable") != "astra-custom" || overridden.MapModel("gpt-6-astra") != "gpt-6-astra" {
+		t.Fatal("Fable alias override or exact direct model selection was lost")
 	}
 	if alias, ok := overridden.SettingsAliasForTarget("astra-custom[1m]"); !ok || alias != "fable" {
 		t.Fatal("Fable override cannot round-trip through settings")
+	}
+}
+
+func TestDirectModelsRemainExactWhenRolesAdvance(t *testing.T) {
+	cfg := Config{Opus: "gpt-7-sol", Sonnet: "gpt-7-terra", Haiku: "gpt-7-luna", Fable: "gpt-7-astra"}
+	for _, direct := range []string{"gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna", "gpt-6-astra", "gpt-9.2-unrecognized", "gpt-9-sol-fast"} {
+		if got := cfg.MapModel(direct + "[1m]"); got != direct {
+			t.Errorf("MapModel(%q) = %q, want exact direct target", direct, got)
+		}
+	}
+	if got := cfg.MapModel("claude-Qwen/Qwen3.8-27B"); got != cfg.Opus {
+		t.Fatalf("unknown Claude model = %q, want existing Opus fallback", got)
+	}
+}
+
+func TestPinsAreIndependentAndComparable(t *testing.T) {
+	pins := Pins(0).With(FamilyOpus).With(FamilyHaiku)
+	if !pins.Has(FamilyOpus) || !pins.Has(FamilyHaiku) || pins.Has(FamilySonnet) || pins.Has(FamilyFable) {
+		t.Fatalf("unexpected pins: %v", pins)
+	}
+	if pins.With(Family("unknown")) != pins || !AllPins.Has(FamilyFable) {
+		t.Fatal("invalid or complete pin handling failed")
+	}
+	if Default() != Default() { // Config must remain valid as patch-map identity.
+		t.Fatal("default model config is not stable")
 	}
 }

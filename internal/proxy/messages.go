@@ -64,9 +64,10 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	sessionID := sessionIDFromRequest(r)
 	result, err := convert.AnthropicToCodex(anthropicReq, convert.ConvertOptions{
-		SessionID:   sessionID,
-		Models:      s.cfg.ModelConfig,
-		CodexModels: s.cfg.Models,
+		SessionID:     sessionID,
+		Models:        s.cfg.ModelConfig,
+		CodexModels:   s.cfg.Models,
+		ClientVersion: s.cfg.Version,
 	})
 	if err != nil {
 		var bad convert.BadRequestError
@@ -87,27 +88,28 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	upstreamRequest := result.Request
 	codex.ApplyResponsesMetadata(&upstreamRequest, "", route)
 	traceBase := map[string]any{
-		"request_id":                 traceID,
-		"session_id":                 sessionID,
-		"thread_id":                  route.ThreadID,
-		"parent_thread_id":           route.ParentThreadID,
-		"subagent":                   route.Subagent,
-		"turn_id":                    route.TurnID,
-		"root_turn_id":               route.RootTurnID,
-		"chain_key":                  chainKey,
-		"model":                      result.Request.Model,
-		"original_model":             result.OriginalModel,
-		"stream":                     result.Stream,
-		"body_bytes":                 len(body),
-		"full_input_items":           len(fullRequest.Input),
-		"anthropic_messages":         len(anthropicReq.Messages),
-		"anthropic_max_tokens":       anthropicReq.MaxTokens,
-		"anthropic_system_bytes":     len(anthropicReq.System),
-		"queued_steering_markers":    strings.Count(string(body), "The user sent a new message while you were working:"),
-		"queued_steering_locations":  queuedSteeringLocations(anthropicReq),
-		"converted_steering_items":   countConvertedSteeringItems(fullRequest.Input),
-		"claude_auto_compact_window": os.Getenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW"),
-		"claude_max_context_tokens":  os.Getenv("CLAUDE_CODE_MAX_CONTEXT_TOKENS"),
+		"request_id":                  traceID,
+		"session_id":                  sessionID,
+		"thread_id":                   route.ThreadID,
+		"parent_thread_id":            route.ParentThreadID,
+		"subagent":                    route.Subagent,
+		"turn_id":                     route.TurnID,
+		"root_turn_id":                route.RootTurnID,
+		"chain_key":                   chainKey,
+		"model":                       result.Request.Model,
+		"original_model":              result.OriginalModel,
+		"fast_mode_metadata_fallback": result.FastModeFallback,
+		"stream":                      result.Stream,
+		"body_bytes":                  len(body),
+		"full_input_items":            len(fullRequest.Input),
+		"anthropic_messages":          len(anthropicReq.Messages),
+		"anthropic_max_tokens":        anthropicReq.MaxTokens,
+		"anthropic_system_bytes":      len(anthropicReq.System),
+		"queued_steering_markers":     strings.Count(string(body), "The user sent a new message while you were working:"),
+		"queued_steering_locations":   queuedSteeringLocations(anthropicReq),
+		"converted_steering_items":    countConvertedSteeringItems(fullRequest.Input),
+		"claude_auto_compact_window":  os.Getenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW"),
+		"claude_max_context_tokens":   os.Getenv("CLAUDE_CODE_MAX_CONTEXT_TOKENS"),
 	}
 	replayedStateless, replayReason, replayTrimItems, replayInputItems := s.applyStatelessReplayDetailed(chainKey, &fullRequest)
 	usedImplicitResume := false
@@ -429,9 +431,9 @@ func (s *Server) createCodexResponse(r *http.Request, req codex.Request, route c
 		attemptsUsed += used
 	}
 
-	store := auth.NewStore(s.cfg.Home)
-	file, err := auth.NewRefresher(store, s.cfg.HTTPClient, s.cfg.TokenEndpoint).EnsureFresh(r.Context(), 5*time.Minute)
+	file, err := s.freshAuth(r.Context())
 	if err != nil {
+		s.closeWebSocket(route.ThreadID)
 		return finish(nil, err)
 	}
 	installationID, err := auth.InstallationID(s.cfg.Home)
@@ -446,33 +448,64 @@ func (s *Server) createCodexResponse(r *http.Request, req codex.Request, route c
 		AccountID:      file.Tokens.AccountID,
 		InstallationID: installationID,
 		FedRAMP:        file.Tokens.ChatGPTAccountIsFedRAMP,
+		AllowedOrigin:  file.AllowedOrigin,
+	}
+	authRefreshed := false
+	refreshCredentials := func() error {
+		file, err := s.refreshAuth(r.Context(), credentials.AccessToken)
+		if err != nil {
+			s.closeWebSocket(route.ThreadID)
+			return err
+		}
+		credentials.AccessToken = file.Tokens.AccessToken
+		credentials.AccountID = file.Tokens.AccountID
+		credentials.FedRAMP = file.Tokens.ChatGPTAccountIsFedRAMP
+		credentials.AllowedOrigin = file.AllowedOrigin
+		authRefreshed = true
+		return nil
 	}
 	if s.shouldUseCodexWebSocket(req, route) {
-		reused := s.hasWebSocket(route.ThreadID)
-		if conversation := s.websocketConversation(route.ThreadID); conversation != nil {
-			waitForWebSocket := strings.TrimSpace(req.PreviousResponseID) != ""
-			resp, err := conversation.CreateResponse(r.Context(), client, req, credentials, route, waitForWebSocket)
-			if err == nil {
-				attemptsUsed++
-				resp.Header.Set("x-claudodex-transport", "websocket")
-				resp.Header.Set("x-claudodex-ws-reused", strconv.FormatBool(reused))
-				return finish(resp, nil)
-			}
-			if errors.Is(err, codex.ErrWebSocketBusy) && strings.TrimSpace(req.PreviousResponseID) == "" {
-				// No request was sent: preserve the full budget for the HTTP fallback.
-			} else {
-				attemptsUsed++
-				s.closeWebSocket(route.ThreadID)
-				if strings.TrimSpace(req.PreviousResponseID) != "" || remainingAttempts() == 0 {
-					return finish(nil, err)
+		for {
+			reused := s.hasWebSocket(route.ThreadID)
+			if conversation := s.websocketConversation(route.ThreadID); conversation != nil {
+				waitForWebSocket := strings.TrimSpace(req.PreviousResponseID) != ""
+				resp, err := conversation.CreateResponse(r.Context(), client, req, credentials, route, waitForWebSocket)
+				if err == nil {
+					attemptsUsed++
+					resp.Header.Set("x-claudodex-transport", "websocket")
+					resp.Header.Set("x-claudodex-ws-reused", strconv.FormatBool(reused))
+					return finish(resp, nil)
 				}
-				// A rejected WebSocket upgrade can carry the same Retry-After
-				// advice as an HTTP response. Honor it before switching transports
-				// so the fallback does not immediately bypass upstream backoff.
-				if waitErr := s.waitForUpstreamRetry(r.Context(), err); waitErr != nil {
-					return finish(nil, waitErr)
+				if errors.Is(err, codex.ErrWebSocketBusy) && strings.TrimSpace(req.PreviousResponseID) == "" {
+					// No request was sent: preserve the full budget for the HTTP fallback.
+				} else {
+					attemptsUsed++
+					s.closeWebSocket(route.ThreadID)
+					var upstream *codex.UpstreamError
+					if !authRefreshed && remainingAttempts() > 0 && errors.As(err, &upstream) && upstream.Status == http.StatusUnauthorized {
+						if refreshErr := refreshCredentials(); refreshErr != nil {
+							return finish(nil, refreshErr)
+						}
+						// Resumed responses require their WebSocket transport. Refresh
+						// through the same authority before reconnecting, within the
+						// original generation budget.
+						if strings.TrimSpace(req.PreviousResponseID) != "" {
+							continue
+						}
+						break
+					}
+					if strings.TrimSpace(req.PreviousResponseID) != "" || remainingAttempts() == 0 {
+						return finish(nil, err)
+					}
+					// A rejected WebSocket upgrade can carry the same Retry-After
+					// advice as an HTTP response. Honor it before switching transports
+					// so the fallback does not immediately bypass upstream backoff.
+					if waitErr := s.waitForUpstreamRetry(r.Context(), err); waitErr != nil {
+						return finish(nil, waitErr)
+					}
 				}
 			}
+			break
 		}
 	}
 	if remainingAttempts() == 0 {
@@ -489,17 +522,13 @@ func (s *Server) createCodexResponse(r *http.Request, req codex.Request, route c
 	if !errors.As(err, &upstream) || upstream.Status != http.StatusUnauthorized {
 		return finish(nil, err)
 	}
-	if remainingAttempts() == 0 {
+	if authRefreshed || remainingAttempts() == 0 {
 		return finish(nil, err)
 	}
 
-	file, refreshErr := auth.NewRefresher(store, s.cfg.HTTPClient, s.cfg.TokenEndpoint).Refresh(r.Context())
-	if refreshErr != nil {
+	if refreshErr := refreshCredentials(); refreshErr != nil {
 		return finish(nil, refreshErr)
 	}
-	credentials.AccessToken = file.Tokens.AccessToken
-	credentials.AccountID = file.Tokens.AccountID
-	credentials.FedRAMP = file.Tokens.ChatGPTAccountIsFedRAMP
 	client.ResponseHeaderAttempts = remainingAttempts()
 	resp, err = client.CreateResponse(r.Context(), req, credentials, route)
 	observeHTTPAttempt(resp, err)

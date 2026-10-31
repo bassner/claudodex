@@ -46,6 +46,9 @@ func normalizeClaudeSettingsModel(path string, wait time.Duration, modelCfg mode
 			return err
 		}
 		model, _ := settings["model"].(string)
+		if isDirectCodexModel(model) {
+			return nil
+		}
 		alias, ok := codexRuntimeSettingsAlias(model, modelCfg)
 		if !ok {
 			return nil

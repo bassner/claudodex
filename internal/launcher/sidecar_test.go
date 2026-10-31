@@ -419,22 +419,23 @@ func TestWithClaudeConfigLocksWaitsForTransientLock(t *testing.T) {
 	}
 }
 
-func TestNormalizeClaudeSettingsModelMapsCodexRuntimeModels(t *testing.T) {
+func TestNormalizeClaudeSettingsModelPreservesDirectCodexModelWhenTargetsMove(t *testing.T) {
 	settingsPath := filepath.Join(t.TempDir(), "settings.json")
 	if err := writeJSONFile(settingsPath, map[string]any{
-		"model":       "gpt-6.1-terra[1m][1m]",
+		"model":       modelconfig.DefaultSonnetModel + modelconfig.LongContextSuffix,
 		"effortLevel": "xhigh",
 	}, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := normalizeClaudeSettingsModel(settingsPath, time.Second, modelconfig.Default()); err != nil {
+	if err := normalizeClaudeSettingsModel(settingsPath, time.Second, modelconfig.Config{Sonnet: "gpt-6.2-terra"}); err != nil {
 		t.Fatal(err)
 	}
 
 	settings := mustReadJSONMap(t, settingsPath)
-	if settings["model"] != "sonnet" {
-		t.Fatalf("model = %#v, want sonnet", settings["model"])
+	wantModel := modelconfig.DefaultSonnetModel + modelconfig.LongContextSuffix
+	if settings["model"] != wantModel {
+		t.Fatalf("model = %#v, want preserved direct model %q", settings["model"], wantModel)
 	}
 	if settings["effortLevel"] != "xhigh" {
 		t.Fatalf("effortLevel was changed: %#v", settings)
@@ -478,7 +479,7 @@ func TestNormalizeClaudeSettingsModelMapsNativeLongContextAliases(t *testing.T) 
 	}
 }
 
-func TestNormalizeClaudeSettingsModelUsesConfiguredTargets(t *testing.T) {
+func TestNormalizeClaudeSettingsModelPreservesConfiguredDirectModel(t *testing.T) {
 	settingsPath := filepath.Join(t.TempDir(), "settings.json")
 	if err := writeJSONFile(settingsPath, map[string]any{
 		"model": "gpt-sonnet-next[1m]",
@@ -491,8 +492,8 @@ func TestNormalizeClaudeSettingsModelUsesConfiguredTargets(t *testing.T) {
 	}
 
 	settings := mustReadJSONMap(t, settingsPath)
-	if settings["model"] != "sonnet" {
-		t.Fatalf("model = %#v, want sonnet", settings["model"])
+	if settings["model"] != "gpt-sonnet-next[1m]" {
+		t.Fatalf("model = %#v, want preserved configured model gpt-sonnet-next[1m]", settings["model"])
 	}
 }
 
@@ -833,7 +834,7 @@ func TestClaudeConfigMirrorCatchesUpAfterClaudeLockContention(t *testing.T) {
 	})
 }
 
-func TestSyncTranscriptModelDefaultWritesSharedClaudeSetting(t *testing.T) {
+func TestSyncTranscriptModelDefaultPreservesDirectCodexModel(t *testing.T) {
 	userHome := t.TempDir()
 	sidecarDir := t.TempDir()
 	settingsPath := filepath.Join(userHome, ".claude", "settings.json")
@@ -858,7 +859,7 @@ func TestSyncTranscriptModelDefaultWritesSharedClaudeSetting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cursor, err := syncTranscriptModelDefault(sidecarDir, userHome, time.Second, modelconfig.Default(), now.Add(-time.Second))
+	cursor, err := syncTranscriptModelDefault(sidecarDir, userHome, time.Second, modelconfig.Config{Haiku: "gpt-6.2-luna"}, now.Add(-time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -867,8 +868,9 @@ func TestSyncTranscriptModelDefaultWritesSharedClaudeSetting(t *testing.T) {
 	}
 
 	settings := mustReadJSONMap(t, settingsPath)
-	if settings["model"] != "haiku" {
-		t.Fatalf("model = %#v, want haiku", settings["model"])
+	wantModel := modelconfig.DefaultHaikuModel + modelconfig.LongContextSuffix
+	if settings["model"] != wantModel {
+		t.Fatalf("model = %#v, want preserved direct model %q", settings["model"], wantModel)
 	}
 	if settings["effortLevel"] != "xhigh" {
 		t.Fatalf("effortLevel was changed: %#v", settings)

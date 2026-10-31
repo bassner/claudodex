@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bassner/claudodex/internal/auth"
 	"github.com/bassner/claudodex/internal/codex"
 	"github.com/bassner/claudodex/internal/convert"
 	"github.com/bassner/claudodex/internal/modelconfig"
@@ -29,6 +30,9 @@ type Config struct {
 	HTTPClient              *http.Client
 	Models                  []codex.ModelInfo
 	ModelConfig             modelconfig.Config
+	AuthProvider            *auth.Provider
+	AuthAccountID           string
+	AuthUserID              string
 	FastModeEnabledFallback func() bool
 }
 
@@ -57,6 +61,9 @@ func New(cfg Config) *Server {
 		cfg.CodexBaseURL = codex.DefaultBaseURL
 	}
 	cfg.ModelConfig = cfg.ModelConfig.Normalize()
+	if cfg.AuthProvider == nil {
+		cfg.AuthProvider = auth.NewProvider(auth.NewStore(cfg.Home), cfg.HTTPClient, cfg.TokenEndpoint)
+	}
 	return &Server{
 		cfg:    cfg,
 		chains: make(map[string]responseChain),
@@ -358,6 +365,23 @@ func modelsResponse(models []codex.ModelInfo, modelCfg modelconfig.Config) (map[
 			"max_input_tokens": contextWindow,
 			"max_tokens":       128000,
 		})
+	}
+	seen := make(map[string]bool)
+	for _, item := range data {
+		seen[item["id"].(string)] = true
+	}
+	for _, model := range models {
+		if !model.SupportedInAPI || model.Visibility != "list" {
+			continue
+		}
+		for _, id := range []string{model.Slug, modelconfig.WithLongContext(model.Slug)} {
+			window, ok := modelContextWindow(models, model.Slug, id)
+			if !seen[id] && ok {
+				data = append(data, map[string]any{"id": id, "type": "model", "display_name": model.Slug,
+					"max_input_tokens": window, "max_tokens": 128000})
+				seen[id] = true
+			}
+		}
 	}
 	return map[string]any{
 		"data": data,

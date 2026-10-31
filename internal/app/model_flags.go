@@ -8,6 +8,20 @@ import (
 )
 
 func extractStartupModelConfig(args []string, base modelconfig.Config) ([]string, modelconfig.Config, error) {
+	args, models, _, err := extractStartupModelConfigWithPins(args, base)
+	return args, models, err
+}
+
+func extractStartupModelConfigWithPins(args []string, base modelconfig.Config) ([]string, modelconfig.Config, modelconfig.Pins, error) {
+	var pins modelconfig.Pins
+	for family, value := range map[modelconfig.Family]string{
+		modelconfig.FamilyOpus: base.Opus, modelconfig.FamilySonnet: base.Sonnet,
+		modelconfig.FamilyHaiku: base.Haiku, modelconfig.FamilyFable: base.Fable,
+	} {
+		if strings.TrimSpace(value) != "" {
+			pins = pins.With(family)
+		}
+	}
 	models := base.Normalize()
 	out := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
@@ -21,47 +35,55 @@ func extractStartupModelConfig(args []string, base modelconfig.Config) ([]string
 		case "--claudodex-opus-model":
 			next, consumed, err := startupFlagValue(args, i, value, hasInlineValue, name)
 			if err != nil {
-				return nil, modelconfig.Config{}, err
+				return nil, modelconfig.Config{}, 0, err
 			}
 			models.Opus = next
+			pins = pins.With(modelconfig.FamilyOpus)
 			i += consumed
 		case "--claudodex-sonnet-model":
 			next, consumed, err := startupFlagValue(args, i, value, hasInlineValue, name)
 			if err != nil {
-				return nil, modelconfig.Config{}, err
+				return nil, modelconfig.Config{}, 0, err
 			}
 			models.Sonnet = next
+			pins = pins.With(modelconfig.FamilySonnet)
 			i += consumed
 		case "--claudodex-haiku-model":
 			next, consumed, err := startupFlagValue(args, i, value, hasInlineValue, name)
 			if err != nil {
-				return nil, modelconfig.Config{}, err
+				return nil, modelconfig.Config{}, 0, err
 			}
 			models.Haiku = next
+			pins = pins.With(modelconfig.FamilyHaiku)
 			i += consumed
 		case "--claudodex-fable-model":
 			next, consumed, err := startupFlagValue(args, i, value, hasInlineValue, name)
 			if err != nil {
-				return nil, modelconfig.Config{}, err
+				return nil, modelconfig.Config{}, 0, err
 			}
 			models.Fable = next
+			pins = pins.With(modelconfig.FamilyFable)
 			i += consumed
 		case "--claudodex-models":
 			next, consumed, err := startupFlagValue(args, i, value, hasInlineValue, name)
 			if err != nil {
-				return nil, modelconfig.Config{}, err
+				return nil, modelconfig.Config{}, 0, err
 			}
 			var mapErr error
 			models, mapErr = applyModelMapFlag(models, next)
 			if mapErr != nil {
-				return nil, modelconfig.Config{}, mapErr
+				return nil, modelconfig.Config{}, 0, mapErr
+			}
+			for _, entry := range strings.Split(next, ",") {
+				family, _, _ := strings.Cut(entry, "=")
+				pins = pins.With(modelconfig.Family(strings.ToLower(strings.TrimSpace(family))))
 			}
 			i += consumed
 		default:
 			out = append(out, arg)
 		}
 	}
-	return out, models.Normalize(), nil
+	return out, models.Normalize(), pins, nil
 }
 
 func startupFlagValue(args []string, index int, inlineValue string, hasInlineValue bool, name string) (string, int, error) {

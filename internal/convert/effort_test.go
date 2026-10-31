@@ -1,6 +1,10 @@
 package convert
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/bassner/claudodex/internal/codex"
+)
 
 func TestMapReasoningEffort(t *testing.T) {
 	tests := []struct {
@@ -72,5 +76,55 @@ func TestGPT6FourTierEfforts(t *testing.T) {
 		if got := MapReasoningEffort(model, "ultracode", 0); got != EffortMax {
 			t.Errorf("%s ultracode = %s", model, got)
 		}
+	}
+}
+
+func TestMapReasoningEffortUsesActualAdvertisedLevels(t *testing.T) {
+	model := codex.ModelInfo{Slug: "gpt-99-sol", DefaultReasoningLevel: "low", SupportedReasoningLevels: []codex.ReasoningEffortPreset{
+		{Effort: "low"}, {Effort: "high"}, {Effort: "max"}, {Effort: "ultra"}, {Effort: "unknown"},
+	}}
+	for _, test := range []struct {
+		effort string
+		budget int
+		want   ReasoningEffort
+	}{
+		{"", 0, EffortLow}, {"auto", 0, EffortLow}, {"auto", 32000, EffortLow},
+		{"minimal", 0, EffortLow}, {"medium", 0, EffortLow}, {"xhigh", 0, EffortHigh},
+		{"max", 0, EffortMax}, {"ultracode", 0, EffortMax}, {"ultra", 0, EffortLow},
+		{"", 1000, EffortLow}, {"", 8000, EffortLow}, {"", 20000, EffortHigh}, {"", 32000, EffortHigh},
+	} {
+		got, err := MapReasoningEffortForModel(model, test.effort, test.budget)
+		if err != nil || got != test.want {
+			t.Errorf("effort %q budget %d = %q, %v; want %q", test.effort, test.budget, got, err, test.want)
+		}
+	}
+}
+
+func TestMapReasoningEffortSupportsNoneAndMinimal(t *testing.T) {
+	model := codex.ModelInfo{Slug: "gpt-99-luna", DefaultReasoningLevel: "none", SupportedReasoningLevels: []codex.ReasoningEffortPreset{{Effort: "none"}, {Effort: "minimal"}, {Effort: "high"}}}
+	for input, want := range map[string]ReasoningEffort{"": EffortNone, "auto": EffortNone, "none": EffortNone, "minimal": EffortMinimal, "medium": EffortMinimal, "max": EffortHigh} {
+		got, err := MapReasoningEffortForModel(model, input, 0)
+		if err != nil || got != want {
+			t.Errorf("%q = %q, %v; want %q", input, got, err, want)
+		}
+	}
+}
+
+func TestMapReasoningEffortUnknownDefaultsAndMinimumClamp(t *testing.T) {
+	for _, test := range []struct {
+		levels []codex.ReasoningEffortPreset
+		want   ReasoningEffort
+	}{
+		{[]codex.ReasoningEffortPreset{{Effort: "low"}, {Effort: "max"}}, EffortLow},
+		{[]codex.ReasoningEffortPreset{{Effort: "xhigh"}, {Effort: "max"}}, EffortXHigh},
+	} {
+		model := codex.ModelInfo{Slug: "gpt-99-sol", DefaultReasoningLevel: "ultra", SupportedReasoningLevels: test.levels}
+		got, err := MapReasoningEffortForModel(model, "auto", 0)
+		if err != nil || got != test.want {
+			t.Errorf("unknown default = %q, %v; want %q", got, err, test.want)
+		}
+	}
+	if _, err := MapReasoningEffortForModel(codex.ModelInfo{Slug: "gpt-workflow", SupportedReasoningLevels: []codex.ReasoningEffortPreset{{Effort: "ultra"}}}, "", 0); err == nil {
+		t.Fatal("workflow-only model accepted")
 	}
 }

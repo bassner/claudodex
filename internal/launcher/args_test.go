@@ -81,6 +81,28 @@ func TestRewriteClaudeModelArgsUsesConfiguredModelTargets(t *testing.T) {
 	}
 }
 
+func TestRewriteClaudeModelArgsPreservesDirectGPTModelsWhenRolesMove(t *testing.T) {
+	models := modelconfig.Config{
+		Opus:   "gpt-6.2-sol",
+		Sonnet: "gpt-6.2-terra",
+		Haiku:  "gpt-6.2-luna",
+		Fable:  "gpt-6.2-astra",
+	}
+	got := RewriteClaudeModelArgsWithConfig([]string{
+		"--model", modelconfig.DefaultSonnetModel + modelconfig.LongContextSuffix,
+		"--fallback-model=gpt-9.9-unmapped[1m][1m]",
+		"--model=sonnet",
+	}, models)
+	want := []string{
+		"--model", modelconfig.DefaultSonnetModel + modelconfig.LongContextSuffix,
+		"--fallback-model=gpt-9.9-unmapped[1m]",
+		"--model=gpt-6.2-terra[1m]",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("rewritten model args = %#v, want %#v", got, want)
+	}
+}
+
 func TestRewriteClaudeModelArgsForThreeTierPickerUsesCanonicalRows(t *testing.T) {
 	models := modelconfig.Config{Opus: "custom-sol", Sonnet: "custom-terra", Haiku: "custom-luna"}
 	got := RewriteClaudeModelArgsForThreeTierPicker([]string{

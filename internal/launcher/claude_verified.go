@@ -122,6 +122,10 @@ func readClaudeSource(ctx context.Context, path string) (claudeSource, error) {
 }
 
 func selectClaudeExecutable(ctx context.Context, home, installedPath, claudodexVersion string, models modelconfig.Config, stderr io.Writer) (claudeSelection, error) {
+	return selectClaudeExecutableWithRetention(ctx, home, installedPath, claudodexVersion, models, stderr, true)
+}
+
+func selectClaudeExecutableWithRetention(ctx context.Context, home, installedPath, claudodexVersion string, models modelconfig.Config, stderr io.Writer, retain bool) (claudeSelection, error) {
 	if strings.TrimSpace(os.Getenv("CLAUDODEX_DISABLE_CLAUDE_PATCH")) == "1" {
 		return claudeSelection{SourcePath: installedPath, Executable: installedPath, Release: func() {}}, nil
 	}
@@ -148,7 +152,9 @@ func selectClaudeExecutable(ctx context.Context, home, installedPath, claudodexV
 		if err != nil {
 			return claudeSelection{}, err
 		}
-		retainClaudeSources(ctx, root, claudodexVersion, models)
+		if retain {
+			retainClaudeSources(ctx, root, claudodexVersion, models)
+		}
 		return claudeSelection{SourcePath: snapshot, Executable: patched, Version: source.Version, Release: func() {
 			// Removal is safe without the cache lock: retention either sees this
 			// lease, or sees that this launch has already stopped using its files.
@@ -212,6 +218,9 @@ func preparePatchedClaudeSource(ctx context.Context, root string, source claudeS
 	}
 	transformed := append([]byte(nil), source.Data...)
 	if !patch.Apply(transformed, claudodexVersion, source.Version, models) {
+		return "", errClaudePatchNoMatch
+	}
+	if !patchClaudeCatalogRecognition(transformed, source) {
 		return "", errClaudePatchNoMatch
 	}
 	record := claudePatchRecord{

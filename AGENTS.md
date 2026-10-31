@@ -74,14 +74,20 @@ overridden at startup. Keep all routing, `/v1/models`, model argument rewriting,
 capability cache, context-window handling, statusline behavior, auto-compact
 limits, and settings normalization consistent with those defaults and overrides.
 
-Current default family mapping:
+Runtime family mapping comes from the live Codex catalog:
 
-- Opus routes to `gpt-6.1-sol`.
-- Sonnet routes to `gpt-6.1-terra`.
-- Haiku routes to `gpt-6-luna`.
-- Fable routes to `gpt-6-astra`.
-- Claude Code `max` and `ultracode` efforts map to Codex `max` for the configured GPT-6
-  family. `ultracode` workflow orchestration remains owned by Claude Code.
+- Opus routes to Sol, Sonnet to Terra, Haiku to Luna, and Fable to Astra.
+- Select the newest compatible numeric generation within each family. Never
+  cross families or silently replace an unavailable explicit model pin.
+- Track explicit pins independently of the comparable model configuration,
+  including pins equal to a compiled compatibility default. Direct GPT IDs in
+  flags, settings and resumed requests stay exact.
+- Derive ordinary reasoning efforts, defaults and fast-mode support from the
+  selected model's metadata. Clamp unsupported efforts. `ultracode` workflow
+  orchestration remains owned by Claude Code; never select Codex `ultra`.
+- Resolve models once before settings and proxies. Every consumer must share
+  that snapshot. Refresh metadata on every launch; only temporary failures may
+  use a recent account/backend/region/protocol-scoped cache, with a warning.
 
 Do not hardcode context windows such as `200k`, `272k`, or `1m` as source of
 truth. Fetch Codex model metadata and derive context-window behavior from it.
@@ -98,6 +104,11 @@ Long tool calls and streamed JSON arguments are fragile. Be conservative:
 - Do not emit partial tool blocks just because partial argument deltas arrived.
 - Preserve retryability across transient stream resets, unexpected EOFs, broken
   pipes, and implicit resume paths.
+- Preserve session resume in both directions between normal Claude Code and
+  Claudodex. Provider-specific thinking signatures or replay data must remain
+  optional and must not prevent either client from resuming the other's
+  transcript. Verify both directions with the real Claude binary before
+  changing thinking traces or transcript signatures.
 - Use trace fields such as `tool_arg_delta_events` and `tool_arg_delta_bytes`
   when diagnosing turns that look idle during long tool-argument generation.
 

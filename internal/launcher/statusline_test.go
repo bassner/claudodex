@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bassner/claudodex/internal/codex"
 	"github.com/bassner/claudodex/internal/modelconfig"
 )
 
@@ -461,6 +462,158 @@ func TestStatusLineReportsConfiguredCodexModel(t *testing.T) {
 		}
 		if mapValue(got["workspace"])["cwd"] != "/test" {
 			t.Fatal("workspace changed")
+		}
+	}
+}
+
+func statusLineCatalogFixture() []codex.ModelInfo {
+	return []codex.ModelInfo{
+		{Slug: "gpt-8-sol", SupportedInAPI: true, Visibility: "list", ContextWindow: 500000, DefaultReasoningLevel: "low", SupportedReasoningLevels: []codex.ReasoningEffortPreset{{Effort: "low"}, {Effort: "high"}}},
+		{Slug: modelconfig.DefaultOpusModel, SupportedInAPI: true, Visibility: "list", ContextWindow: 300000, DefaultReasoningLevel: "medium", SupportedReasoningLevels: []codex.ReasoningEffortPreset{{Effort: "medium"}, {Effort: "max"}}},
+	}
+}
+
+func TestCatalogStatusLinePreservesSavedDirectModelAndItsDefaultEffort(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Chdir(t.TempDir())
+	path := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const saved = `{"model":"gpt-6.1-sol","theme":"dark"}`
+	if err := os.WriteFile(path, []byte(saved), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args, err := prepareStatusLineFlagSettingsForCatalog(t.TempDir(), nil, nil, modelconfig.Config{Opus: "gpt-8-sol"}, statusLineCatalogFixture(), "dev", func() (string, error) { return "unused", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(args, []string{"--effort", "medium"}) {
+		t.Fatalf("saved direct target was overlaid or given wrong default: %v", args)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != saved {
+		t.Fatalf("saved direct setting changed: %s, %v", after, err)
+	}
+}
+
+func TestCatalogStatusLineResolvesDefaultAndPreservesExplicitEffort(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	for _, test := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"omitted", []string{"--model", "opus"}, "low"},
+		{"direct old", []string{"--model", modelconfig.DefaultOpusModel}, "medium"},
+		{"CLI explicit", []string{"--model", "opus", "--effort", "max"}, "max"},
+		{"settings explicit", []string{"--model", "opus", "--settings", `{"effortLevel":"high"}`}, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := prepareStatusLineFlagSettingsForCatalog(t.TempDir(), test.args, nil, modelconfig.Config{Opus: "gpt-8-sol"}, statusLineCatalogFixture(), "dev", func() (string, error) { return "unused", nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			effort := ""
+			for i, value := range got {
+				if value == "--effort" && i+1 < len(got) {
+					effort = got[i+1]
+				}
+			}
+			if effort != test.want {
+				t.Fatalf("effort = %q, want %q; args=%v", effort, test.want, got)
+			}
+			if test.name == "settings explicit" && mustReadJSONMap(t, flagSettingsArg(t, got))["effortLevel"] != "high" {
+				t.Fatal("explicit settings effort changed")
+			}
+		})
+	}
+}
+
+func TestCatalogStatusLineRejectsUnavailableSavedDirectModel(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Chdir(t.TempDir())
+	path := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"model":"gpt-unavailable"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := prepareStatusLineFlagSettingsForCatalog(t.TempDir(), nil, nil, modelconfig.Config{Opus: "gpt-8-sol"}, statusLineCatalogFixture(), "dev", func() (string, error) { return "unused", nil })
+	if err == nil || !strings.Contains(err.Error(), "gpt-unavailable") {
+		t.Fatalf("unknown saved direct model = %v", err)
+	}
+}
+
+func TestCatalogStatusLineRepresentsNonClaudeEffortDefaults(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CODE_EFFORT_LEVEL", "")
+	t.Chdir(t.TempDir())
+	for _, effort := range []string{"none", "minimal"} {
+		catalog := statusLineCatalogFixture()
+		catalog[0].DefaultReasoningLevel = effort
+		catalog[0].SupportedReasoningLevels = []codex.ReasoningEffortPreset{{Effort: effort}, {Effort: "high"}}
+		got, err := prepareStatusLineFlagSettingsForCatalog(t.TempDir(), []string{"--model", "opus"}, nil, modelconfig.Config{Opus: "gpt-8-sol"}, catalog, "dev", func() (string, error) { return "unused", nil })
+		if err != nil || len(got) < 2 || got[0] != "--effort" || got[1] != "low" {
+			t.Fatalf("non-Claude effort default %q: %v, %v", effort, got, err)
+		}
+	}
+}
+
+func TestCatalogStatusLinePreservesPerModelSavedEffort(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CODE_EFFORT_LEVEL", "")
+	t.Chdir(t.TempDir())
+	for _, model := range []string{"gpt-8-sol", "gpt-8-sol[1m]", "opus", "claude-opus-5"} {
+		settings, _ := json.Marshal(map[string]any{"modelSettings": map[string]any{model: map[string]any{"effortLevel": "high"}}})
+		got, err := prepareStatusLineFlagSettingsForCatalog(t.TempDir(), []string{"--model", "opus", "--settings", string(settings)}, nil, modelconfig.Config{Opus: "gpt-8-sol"}, statusLineCatalogFixture(), "dev", func() (string, error) { return "unused", nil })
+		if err != nil || hasEffortArg(got) {
+			t.Errorf("saved per-model effort %s overridden: %v, %v", model, got, err)
+		}
+	}
+}
+
+func TestCatalogStatusLineUnrepresentableDefaultRequiresExplicitChoice(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CODE_EFFORT_LEVEL", "")
+	t.Chdir(t.TempDir())
+	catalog := statusLineCatalogFixture()
+	catalog[0].DefaultReasoningLevel = "none"
+	catalog[0].SupportedReasoningLevels = []codex.ReasoningEffortPreset{{Effort: "none"}, {Effort: "minimal"}, {Effort: "high"}}
+	prepare := func(args []string) ([]string, error) {
+		return prepareStatusLineFlagSettingsForCatalog(t.TempDir(), args, nil, modelconfig.Config{Opus: "gpt-8-sol"}, catalog, "dev", func() (string, error) { return "unused", nil })
+	}
+	if _, err := prepare([]string{"--model", "opus"}); err == nil || !strings.Contains(err.Error(), "cannot represent") || !strings.Contains(err.Error(), "--effort") {
+		t.Fatalf("unrepresentable default error = %v", err)
+	}
+	for _, args := range [][]string{
+		{"--model", "opus", "--effort", "high"},
+		{"--model", "opus", "--settings", `{"effortLevel":"high"}`},
+		{"--model", "opus", "--settings", `{"modelSettings":{"gpt-8-sol":{"effortLevel":"high"}}}`},
+	} {
+		if _, err := prepare(args); err != nil {
+			t.Errorf("explicit choice incorrectly blocked: %v", err)
+		}
+	}
+	t.Setenv("CLAUDE_CODE_EFFORT_LEVEL", "high")
+	if got, err := prepare([]string{"--model", "opus"}); err != nil || hasEffortArg(got) {
+		t.Fatalf("explicit native environment effort overwritten or blocked: %v, %v", got, err)
+	}
+}
+
+func TestCatalogStatusLineUsesActiveDirectModelContext(t *testing.T) {
+	t.Setenv("CLAUDODEX_CONTEXT_WINDOW", "872000")
+	catalog := statusLineCatalogFixture()
+	catalog[1].MaxContextWindow = 700000
+	source := statusLineSource{ContextWindows: statusLineCatalogContextWindows(catalog, modelconfig.Config{Opus: "gpt-8-sol"})}
+	for id, want := range map[string]int64{modelconfig.DefaultOpusModel: 300000, modelconfig.DefaultOpusModel + "[1m]": 700000, modelconfig.DefaultOpusModel + "[1m][1m]": 700000, "unknown": 872000} {
+		input, _ := json.Marshal(map[string]any{"model": map[string]any{"id": id}})
+		if got := statusLineContextWindowForInput(input, source); got != want {
+			t.Errorf("direct model %s context = %d, want %d", id, got, want)
 		}
 	}
 }

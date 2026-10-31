@@ -67,6 +67,22 @@ func claudeModelCapabilities(models []codex.ModelInfo, modelCfg modelconfig.Conf
 			MaxTokens:      128_000,
 		})
 	}
+	seen := make(map[string]bool)
+	for _, item := range out {
+		seen[item.ID] = true
+	}
+	for _, model := range models {
+		if !model.SupportedInAPI || model.Visibility != "list" {
+			continue
+		}
+		for _, id := range []string{model.Slug, modelconfig.WithLongContext(model.Slug)} {
+			window := modelContextWindow(models, model.Slug, id)
+			if !seen[id] && window > 0 {
+				out = append(out, claudeModelCapability{ID: id, MaxInputTokens: window, MaxTokens: 128_000})
+				seen[id] = true
+			}
+		}
+	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if len(out[i].ID) != len(out[j].ID) {
 			return len(out[i].ID) > len(out[j].ID)

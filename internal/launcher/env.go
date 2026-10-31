@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/bassner/claudodex/internal/codex"
+	"github.com/bassner/claudodex/internal/convert"
+	"github.com/bassner/claudodex/internal/modelcatalog"
 	"github.com/bassner/claudodex/internal/modelconfig"
 )
 
@@ -28,6 +30,13 @@ func BuildClaudeEnv(base []string, proxyPort int, claudeConfigDir string, anthro
 	modelCfg = modelCfg.Normalize()
 	env := envMap(base)
 	captureOriginalToolEnv(env)
+	var recognizedModels []string
+	for _, model := range codexModels {
+		if model.SupportedInAPI && model.Visibility == "list" {
+			recognizedModels = append(recognizedModels, model.Slug)
+		}
+	}
+	env[catalogModelIDsEnv] = strings.Join(recognizedModels, ",")
 	// Preserve this marker through shell restoration and nested tool launches.
 	env["CLAUDODEX_CHILD"] = "1"
 	proxyURL := fmt.Sprintf("http://127.0.0.1:%d", proxyPort)
@@ -194,16 +203,49 @@ func applyModelOverrideEnv(env map[string]string, codexModels []codex.ModelInfo,
 	modelCfg = modelCfg.Normalize()
 	override := antModelOverrideConfig{
 		DefaultModel:            modelconfig.StripLongContext(modelCfg.RuntimeModel(string(modelconfig.FamilyOpus))),
-		DefaultModelEffortLevel: "max",
+		DefaultModelEffortLevel: catalogDefaultEffort(codexModels, modelCfg.Opus),
 	}
 	specs := append(modelconfig.FamilyAliasSpecs(), modelconfig.ClaudeAliasSpecs(modelCfg)...)
 	specs = append(specs, modelconfig.DirectRuntimeModelSpecs(modelCfg)...)
 	for _, spec := range specs {
 		target := modelCfg.Target(spec.Family)
 		runtimeModel := modelconfig.WithLongContext(modelCfg.RuntimeModel(string(spec.Family)))
-		override.AntModels = append(override.AntModels, codexAntModel(spec.ID, spec.DisplayName, runtimeModel, modelContextWindow(codexModels, target, spec.ID)))
+		entry := codexAntModel(spec.ID, spec.DisplayName, runtimeModel, modelContextWindow(codexModels, target, spec.ID))
+		entry.DefaultEffortLevel = catalogDefaultEffort(codexModels, target)
+		override.AntModels = append(override.AntModels, entry)
+	}
+	seen := make(map[string]bool)
+	for _, entry := range override.AntModels {
+		seen[strings.ToLower(entry.Alias)] = true
+	}
+	for _, model := range codexModels {
+		if !model.SupportedInAPI || model.Visibility != "list" {
+			continue
+		}
+		for _, id := range []string{model.Slug, modelconfig.WithLongContext(model.Slug)} {
+			if seen[strings.ToLower(id)] {
+				continue
+			}
+			window := modelContextWindow(codexModels, model.Slug, id)
+			if window <= 0 {
+				continue
+			}
+			entry := codexAntModel(id, model.Slug, id, window)
+			entry.DefaultEffortLevel = catalogDefaultEffort(codexModels, model.Slug)
+			override.AntModels = append(override.AntModels, entry)
+			seen[strings.ToLower(id)] = true
+		}
 	}
 	mergeGrowthBookOverride(env, "tengu_ant_model_override", override)
+}
+
+func catalogDefaultEffort(models []codex.ModelInfo, slug string) string {
+	if model, ok := catalogModel(models, slug); ok && len(model.SupportedReasoningLevels) != 0 {
+		if effort, err := convert.MapReasoningEffortForModel(model, "auto", 0); err == nil {
+			return string(effort)
+		}
+	}
+	return "max" // Compatibility helpers without a real catalog keep their old default.
 }
 
 func codexAntModel(alias, label, model string, contextWindow int64) antModelOverride {
@@ -258,12 +300,38 @@ func requiredModelContextWindow(models []codex.ModelInfo, modelCfg modelconfig.C
 
 func requiredModelAutoCompactWindow(models []codex.ModelInfo, modelCfg modelconfig.Config) (int64, bool) {
 	var minWindow int64
-	for _, slug := range modelCfg.RequiredModels() {
+	selectable := modelCfg.RequiredModels()
+	seen := make(map[string]bool, len(selectable))
+	for _, slug := range selectable {
+		seen[strings.ToLower(slug)] = true
+	}
+	// Claude uses one process-wide compaction ceiling while users and resumed
+	// sessions can switch to any visible API model. Keep that shared ceiling
+	// safe for direct catalog models without changing their real UI context.
+	for _, model := range models {
+		if seen[strings.ToLower(model.Slug)] || !model.SupportedInAPI || model.Visibility != "list" || len(modelcatalog.OrdinaryReasoningLevels(model)) == 0 {
+			continue
+		}
+		if _, ok := modelInfoContextWindow(model); !ok {
+			continue
+		}
+		selectable = append(selectable, model.Slug)
+		seen[strings.ToLower(model.Slug)] = true
+	}
+	for _, slug := range selectable {
 		model, ok := catalogModel(models, slug)
 		if !ok {
 			return 0, false
 		}
 		contextWindow, ok := modelInfoContextWindowForRoute(model, modelconfig.WithLongContext(slug))
+		// A visible model is also selectable by its bare exact GPT ID from
+		// settings or a resumed transcript. The shared ceiling must cover both
+		// its ordinary and long-context routes.
+		if model.SupportedInAPI && model.Visibility == "list" {
+			if ordinary, ordinaryOK := modelInfoContextWindow(model); ordinaryOK && ordinary < contextWindow {
+				contextWindow = ordinary
+			}
+		}
 		percent := model.EffectiveContextWindowPercent
 		if percent == 0 {
 			percent = codexDefaultEffectiveContextWindowPercent

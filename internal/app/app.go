@@ -17,6 +17,7 @@ import (
 	"github.com/bassner/claudodex/internal/codex"
 	"github.com/bassner/claudodex/internal/convert"
 	"github.com/bassner/claudodex/internal/launcher"
+	"github.com/bassner/claudodex/internal/modelcatalog"
 	"github.com/bassner/claudodex/internal/modelconfig"
 	"github.com/bassner/claudodex/internal/proxy"
 	"github.com/bassner/claudodex/internal/selfupdate"
@@ -34,6 +35,7 @@ type Config struct {
 	HTTPClient           *http.Client
 	Launcher             Launcher
 	Models               modelconfig.Config
+	ModelPins            modelconfig.Pins
 	Updater              Updater
 	StatusLineExecutable string
 }
@@ -65,7 +67,9 @@ func Run(ctx context.Context, cfg Config, args []string) int {
 	}
 	rawArgs := append([]string(nil), args...)
 	var err error
-	args, cfg.Models, err = extractStartupModelConfig(args, cfg.Models)
+	var pins modelconfig.Pins
+	args, cfg.Models, pins, err = extractStartupModelConfigWithPins(args, cfg.Models)
+	cfg.ModelPins |= pins
 	if err != nil {
 		fmt.Fprintln(cfg.Stderr, err)
 		return 2
@@ -113,9 +117,9 @@ func runCommand(ctx context.Context, cfg Config, cmd string, args []string) int 
 		fmt.Fprintf(cfg.Stdout, "claudodex %s\n", cfg.Version)
 		return 0
 	case "clx:auth-status":
-		return authStatus(cfg)
+		return authStatus(ctx, cfg)
 	case "clx:auth-login":
-		return authLogin(ctx, cfg)
+		return authLogin(ctx, cfg, args)
 	case "clx:auth-logout":
 		return authLogout(ctx, cfg)
 	case "clx:serve":
@@ -142,7 +146,9 @@ func runClaude(ctx context.Context, cfg Config, args []string) int {
 		Home:                 cfg.Home,
 		CodexBaseURL:         cfg.CodexBaseURL,
 		HTTPClient:           cfg.HTTPClient,
+		TokenEndpoint:        cfg.TokenEndpoint,
 		Models:               cfg.Models,
+		ModelPins:            cfg.ModelPins,
 		StatusLineExecutable: cfg.StatusLineExecutable,
 	})
 	if err == nil {
@@ -158,9 +164,8 @@ func runClaude(ctx context.Context, cfg Config, args []string) int {
 	return 1
 }
 
-func authStatus(cfg Config) int {
-	store := auth.NewStore(cfg.Home)
-	file, err := store.Load()
+func authStatus(ctx context.Context, cfg Config) int {
+	file, err := auth.NewProvider(auth.NewStore(cfg.Home), cfg.HTTPClient, cfg.TokenEndpoint).Load(ctx)
 	if err != nil {
 		if errors.Is(err, auth.ErrNotLoggedIn) {
 			fmt.Fprintln(cfg.Stdout, "not logged in")
@@ -171,13 +176,29 @@ func authStatus(cfg Config) int {
 	}
 
 	fmt.Fprintf(cfg.Stdout, "logged in using %s\n", file.AuthMode)
+	if file.Source == auth.SourceCodex {
+		fmt.Fprintln(cfg.Stdout, "source: existing local Codex login")
+	}
 	if file.Tokens.AccountID != "" {
 		fmt.Fprintf(cfg.Stdout, "account: %s\n", file.Tokens.AccountID)
 	}
 	return 0
 }
 
-func authLogin(ctx context.Context, cfg Config) int {
+func authLogin(ctx context.Context, cfg Config, args []string) int {
+	if len(args) == 1 && args[0] == "--codex" {
+		_, err := auth.NewProvider(auth.NewStore(cfg.Home), cfg.HTTPClient, cfg.TokenEndpoint).UseCodex(ctx)
+		if err != nil {
+			fmt.Fprintf(cfg.Stderr, "Codex login reuse failed: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(cfg.Stdout, "logged in using the existing local Codex login")
+		return 0
+	}
+	if len(args) != 0 {
+		fmt.Fprintln(cfg.Stderr, "usage: claudodex clx:auth-login [--codex]")
+		return 2
+	}
 	fmt.Fprintln(cfg.Stdout, "Starting OpenAI OAuth login...")
 	if _, err := auth.Login(ctx, auth.LoginOptions{Home: cfg.Home}); err != nil {
 		fmt.Fprintf(cfg.Stderr, "auth login failed: %v\n", err)
@@ -188,7 +209,7 @@ func authLogin(ctx context.Context, cfg Config) int {
 }
 
 func authLogout(ctx context.Context, cfg Config) int {
-	if err := auth.RevokeAndDelete(ctx, auth.NewStore(cfg.Home), nil, ""); err != nil {
+	if err := auth.NewProvider(auth.NewStore(cfg.Home), cfg.HTTPClient, cfg.TokenEndpoint).Logout(ctx); err != nil {
 		if errors.Is(err, auth.ErrRevokeFailed) {
 			fmt.Fprintf(cfg.Stderr, "auth logout warning: %v\n", err)
 			fmt.Fprintln(cfg.Stdout, "logged out")
@@ -231,18 +252,26 @@ func serve(ctx context.Context, cfg Config, args []string) int {
 		}
 	}
 
-	file, err := auth.EnsureLoggedIn(ctx, cfg.Home, launcher.DetectInteractive(nil, cfg.Stdin, os.Stdout))
+	provider := auth.NewProvider(auth.NewStore(cfg.Home), cfg.HTTPClient, cfg.TokenEndpoint)
+	file, err := provider.EnsureLoggedIn(ctx, launcher.DetectInteractive(nil, cfg.Stdin, os.Stdout))
 	if err != nil {
 		fmt.Fprintln(cfg.Stderr, err)
 		return 1
 	}
-	models, err := launcher.FetchCodexModels(ctx, launcher.Config{
+	baseURL, err := effectiveCodexBaseURL(cfg.CodexBaseURL)
+	if err != nil {
+		fmt.Fprintln(cfg.Stderr, err)
+		return 1
+	}
+	snapshot, err := launcher.ResolveCodexModels(ctx, launcher.Config{
 		Version:      cfg.Version,
 		Home:         cfg.Home,
-		CodexBaseURL: cfg.CodexBaseURL,
+		CodexBaseURL: baseURL,
 		HTTPClient:   cfg.HTTPClient,
 		Models:       cfg.Models,
-	}, file)
+		ModelPins:    cfg.ModelPins,
+		Stderr:       cfg.Stderr,
+	}, file, provider)
 	if err != nil {
 		fmt.Fprintf(cfg.Stderr, "fetch Codex model metadata failed: %v\n", err)
 		return 1
@@ -253,11 +282,14 @@ func serve(ctx context.Context, cfg Config, args []string) int {
 		Interactive:   true,
 		AuthPresent:   true,
 		Home:          cfg.Home,
-		CodexBaseURL:  cfg.CodexBaseURL,
+		CodexBaseURL:  baseURL,
 		TokenEndpoint: cfg.TokenEndpoint,
 		HTTPClient:    cfg.HTTPClient,
-		Models:        models,
-		ModelConfig:   cfg.Models,
+		Models:        snapshot.Models,
+		ModelConfig:   snapshot.Config,
+		AuthProvider:  provider,
+		AuthAccountID: file.Tokens.AccountID,
+		AuthUserID:    file.Tokens.UserID,
 	})
 	addr, err := server.Start(host, port)
 	if err != nil {
@@ -284,12 +316,12 @@ func doctor(ctx context.Context, cfg Config) int {
 	} else {
 		fmt.Fprintln(cfg.Stdout, "codex: found")
 	}
-	file, err := auth.NewStore(cfg.Home).Load()
+	file, err := auth.NewProvider(auth.NewStore(cfg.Home), cfg.HTTPClient, cfg.TokenEndpoint).Load(ctx)
 	if err != nil {
 		fmt.Fprintln(cfg.Stdout, "auth: not logged in")
 		fmt.Fprintln(cfg.Stdout, "usage: skipped (not logged in)")
 	} else {
-		fmt.Fprintln(cfg.Stdout, "auth: present")
+		fmt.Fprintf(cfg.Stdout, "auth: present (%s)\n", file.Source)
 		doctorUsage(ctx, cfg, file)
 	}
 	return 0
@@ -335,7 +367,7 @@ func fetchCodexUsage(ctx context.Context, cfg Config, timeout time.Duration) (ma
 		client = &http.Client{Timeout: timeout}
 	}
 	store := auth.NewStore(cfg.Home)
-	refresher := auth.NewRefresher(store, client, cfg.TokenEndpoint)
+	refresher := auth.NewProvider(store, client, cfg.TokenEndpoint)
 	file, err := refresher.EnsureFresh(checkCtx, 5*time.Minute)
 	if err != nil {
 		return nil, fmt.Errorf("auth refresh failed: %w", err)
@@ -361,6 +393,7 @@ func fetchCodexUsage(ctx context.Context, cfg Config, timeout time.Duration) (ma
 		AccountID:      file.Tokens.AccountID,
 		InstallationID: installationID,
 		FedRAMP:        file.Tokens.ChatGPTAccountIsFedRAMP,
+		AllowedOrigin:  file.AllowedOrigin,
 	}
 	raw, err := codexClient.FetchUsage(checkCtx, credentials)
 	if err != nil {
@@ -368,19 +401,32 @@ func fetchCodexUsage(ctx context.Context, cfg Config, timeout time.Duration) (ma
 		if !errors.As(err, &upstream) || upstream.Status != http.StatusUnauthorized {
 			return nil, err
 		}
-		file, err = refresher.Refresh(checkCtx)
+		previous := file
+		file, err = refresher.Refresh(checkCtx, credentials.AccessToken)
 		if err != nil {
 			return nil, fmt.Errorf("auth refresh failed: %w", err)
+		}
+		if (previous.Tokens.AccountID != "" && file.Tokens.AccountID != previous.Tokens.AccountID) ||
+			(previous.Tokens.UserID != "" && file.Tokens.UserID != previous.Tokens.UserID) {
+			return nil, fmt.Errorf("login changed while checking usage; retry after signing in")
 		}
 		credentials.AccessToken = file.Tokens.AccessToken
 		credentials.AccountID = file.Tokens.AccountID
 		credentials.FedRAMP = file.Tokens.ChatGPTAccountIsFedRAMP
+		credentials.AllowedOrigin = file.AllowedOrigin
 		raw, err = codexClient.FetchUsage(checkCtx, credentials)
 	}
 	if err != nil {
 		return nil, err
 	}
 	return convert.CodexUsageToClaude(raw), nil
+}
+
+func effectiveCodexBaseURL(value string) (string, error) {
+	if value == "" {
+		value = os.Getenv("CLAUDODEX_CODEX_BASE_URL")
+	}
+	return modelcatalog.NormalizeBaseURL(value)
 }
 
 func printCodexModelUsageWindows(w io.Writer, models modelconfig.Config, mapped map[string]any) {

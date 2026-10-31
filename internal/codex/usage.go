@@ -9,10 +9,13 @@ import (
 )
 
 func (c Client) FetchUsage(ctx context.Context, credentials Credentials) (map[string]any, error) {
-	client := c.routingCookieHTTPClient()
+	client := CredentialHTTPClient(c.routingCookieHTTPClient(), credentials)
 	baseURL := strings.TrimRight(c.BaseURL, "/")
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
+	}
+	if err := CheckCredentialDestination(credentials, baseURL); err != nil {
+		return nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/wham/usage", nil)
 	if err != nil {

@@ -98,6 +98,70 @@ func TestStrictClaudeSelectCachesOriginalAfterPatchAndFallsBack(t *testing.T) {
 	}
 }
 
+func TestDiscoveryPatchPhasesReuseBothSignedOutputs(t *testing.T) {
+	signs := withClaudeFixtures(t)
+	home := t.TempDir()
+	fixture := registeredClaudeFixture(t, "2.1.999")
+	resolved := modelconfig.Default()
+	resolved.Opus = "gpt-7.1-sol"
+	for launch := 0; launch < 2; launch++ {
+		initial, err := selectClaudeExecutableWithRetention(context.Background(), home, fixture, "test", modelconfig.Default(), nil, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		final, err := selectClaudeExecutableWithRetention(context.Background(), home, initial.SourcePath, "test", resolved, nil, true)
+		if err != nil {
+			initial.Release()
+			t.Fatal(err)
+		}
+		for _, path := range []string{initial.Executable, final.Executable} {
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("phase retention removed a live patch: %v", err)
+			}
+		}
+		final.Release()
+		initial.Release()
+		if *signs != 2 {
+			t.Fatalf("launch %d signed %d times, want two reusable configurations total", launch, *signs)
+		}
+	}
+}
+
+func TestDiscoveryLongLabelCanReselectRetainedSource(t *testing.T) {
+	withClaudeFixtures(t)
+	home := t.TempDir()
+	older := registeredClaudeFixture(t, "2.1.998")
+	retained, err := selectClaudeExecutable(context.Background(), home, older, "test", modelconfig.Default(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained.Release()
+	newer := registeredClaudeFixture(t, "2.1.999")
+	apply := claudeUIPatches[0].Apply
+	claudeUIPatches[0].Apply = func(data []byte, version, claudeVersion string, models modelconfig.Config) bool {
+		return len(models.Opus) <= len(modelconfig.DefaultOpusModel) && apply(data, version, claudeVersion, models)
+	}
+	initial, err := selectClaudeExecutableWithRetention(context.Background(), home, newer, "test", modelconfig.Default(), nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer initial.Release()
+	resolved := modelconfig.Default()
+	resolved.Opus = "gpt-100.200.300-sol"
+	final, err := selectClaudeExecutableWithRetention(context.Background(), home, initial.SourcePath, "test", resolved, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer final.Release()
+	if final.Version != "2.1.998" || final.SourcePath != retained.SourcePath || final.Executable == initial.Executable {
+		t.Fatalf("final model labels did not select the fitting retained source: %#v", final)
+	}
+	// Every subsequent launcher version probe must use final.SourcePath.
+	if got := detectClaudeVersion(context.Background(), final.SourcePath); got != final.Version {
+		t.Fatalf("final selected source reports %q, want %q", got, final.Version)
+	}
+}
+
 func TestStrictClaudeNoFallbackFailsBeforeAuthAndSettings(t *testing.T) {
 	withClaudeFixtures(t)
 	home := t.TempDir()

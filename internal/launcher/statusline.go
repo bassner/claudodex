@@ -14,6 +14,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/bassner/claudodex/internal/codex"
+	"github.com/bassner/claudodex/internal/convert"
+	"github.com/bassner/claudodex/internal/modelcatalog"
 	"github.com/bassner/claudodex/internal/modelconfig"
 )
 
@@ -30,6 +33,7 @@ const StatusLineCommandName = claudodexStatuslineCommandName
 
 type statusLineSource struct {
 	Models              modelconfig.Config `json:"models,omitempty"`
+	ContextWindows      map[string]int64   `json:"context_windows,omitempty"`
 	UserSettingsPath    string             `json:"user_settings_path,omitempty"`
 	ProjectSettingsPath string             `json:"project_settings_path,omitempty"`
 	LocalSettingsPath   string             `json:"local_settings_path,omitempty"`
@@ -54,6 +58,10 @@ func prepareStatusLineFlagSettingsForModels(sidecarDir string, args []string, co
 }
 
 func prepareStatusLineFlagSettingsForHelper(sidecarDir string, args []string, compatibilitySettings map[string]any, models modelconfig.Config, helper func() (string, error)) ([]string, error) {
+	return prepareStatusLineFlagSettingsForCatalog(sidecarDir, args, compatibilitySettings, models, nil, "", helper)
+}
+
+func prepareStatusLineFlagSettingsForCatalog(sidecarDir string, args []string, compatibilitySettings map[string]any, models modelconfig.Config, catalog []codex.ModelInfo, clientVersion string, helper func() (string, error)) ([]string, error) {
 	models = models.Normalize()
 	flagSettings, argsWithoutSettings, sawFlagSettings, err := extractFlagSettings(args)
 	if err != nil {
@@ -82,14 +90,40 @@ func prepareStatusLineFlagSettingsForHelper(sidecarDir string, args []string, co
 		FlagStatusLine:      flagStatusLine,
 	}, flagSettings)
 	activeStatusLine := mapValue(activeSettings["statusLine"])
-	needsDefaultEffort := !hasEffortArg(args) && !hasSetting(activeSettings, "effortLevel")
+	effectiveModel, explicit := explicitModelArg(args)
+	if !explicit {
+		effectiveModel, _ = activeSettings["model"].(string)
+	}
+	effectiveTarget := models.MapModel(effectiveModel)
+	envEffort := strings.ToLower(strings.TrimSpace(os.Getenv("CLAUDE_CODE_EFFORT_LEVEL")))
+	explicitEnvEffort := envEffort != "" && envEffort != "auto" && envEffort != "unset"
+	needsDefaultEffort := !hasEffortArg(args) && !hasSetting(activeSettings, "effortLevel") && !hasModelSettingsEffort(activeSettings, effectiveTarget, models) && !explicitEnvEffort
 	needsGeneratedSettings := hasStatusLineCommand(activeStatusLine) || sawFlagSettings
+	defaultEffort := "max" // Compatibility helpers without catalog metadata.
+	if catalog != nil {
+		target, err := modelcatalog.ValidateTarget(catalog, effectiveTarget, clientVersion)
+		if err != nil {
+			return nil, err
+		}
+		if needsDefaultEffort {
+			defaultEffort, err = nativeCatalogDefaultEffort(target)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	if !needsDefaultEffort {
+		defaultEffort = ""
+	}
 
 	settingsPath, sourcePath := statusLineSessionPaths(sidecarDir)
 	settings := cloneJSONMap(flagSettings)
 	if _, explicit := explicitModelArg(args); !explicit {
 		if inherited, ok := activeSettings["model"].(string); ok && strings.TrimSpace(inherited) != "" {
-			alias, known := codexRuntimeSettingsAlias(inherited, models)
+			alias, known := inherited, true
+			if !isDirectCodexModel(inherited) {
+				alias, known = codexRuntimeSettingsAlias(inherited, models)
+			}
 			if !known {
 				alias = string(modelconfig.FamilyOpus)
 			}
@@ -108,6 +142,7 @@ func prepareStatusLineFlagSettingsForHelper(sidecarDir string, args []string, co
 		}
 		source := statusLineSource{
 			Models:              models,
+			ContextWindows:      statusLineCatalogContextWindows(catalog, models),
 			UserSettingsPath:    userSettingsPath,
 			ProjectSettingsPath: projectSettingsPath,
 			LocalSettingsPath:   localSettingsPath,
@@ -120,12 +155,52 @@ func prepareStatusLineFlagSettingsForHelper(sidecarDir string, args []string, co
 		settings["statusLine"] = wrappedStatusLineForExecutable(activeStatusLine, sourcePath, executable)
 	}
 	if !needsGeneratedSettings {
-		return withDefaultEffortArg(append([]string(nil), args...), needsDefaultEffort), nil
+		return withDefaultEffortArg(append([]string(nil), args...), defaultEffort), nil
 	}
 	if err := writeJSONFile(settingsPath, settings, 0o600); err != nil {
 		return nil, err
 	}
-	return withDefaultEffortArg(append(argsWithoutSettings, "--settings", settingsPath), needsDefaultEffort), nil
+	return withDefaultEffortArg(append(argsWithoutSettings, "--settings", settingsPath), defaultEffort), nil
+}
+
+func hasModelSettingsEffort(settings map[string]any, target string, models modelconfig.Config) bool {
+	for id, value := range mapValue(settings["modelSettings"]) {
+		if !isDirectCodexModel(id) {
+			if _, family := modelconfig.FamilyForModel(id); !family {
+				if _, configured := models.SettingsAliasForTarget(id); !configured {
+					continue
+				}
+			}
+		}
+		if !strings.EqualFold(models.MapModel(id), target) {
+			continue
+		}
+		effort, _ := mapValue(value)["effortLevel"].(string)
+		switch effort {
+		case "low", "medium", "high", "xhigh":
+			return true
+		}
+	}
+	return false
+}
+
+func nativeCatalogDefaultEffort(target codex.ModelInfo) (string, error) {
+	desired, err := convert.MapReasoningEffortForModel(target, "auto", 0)
+	if err != nil {
+		return "", err
+	}
+	if desired != convert.EffortNone && desired != convert.EffortMinimal {
+		return string(desired), nil
+	}
+	// Claude Code accepts these ordinary UI efforts. Use a native choice only
+	// when catalog conversion produces the exact advertised Codex default.
+	for _, candidate := range []string{"low", "medium", "high", "xhigh", "max"} {
+		mapped, err := convert.MapReasoningEffortForModel(target, candidate, 0)
+		if err == nil && mapped == desired {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("Claude Code cannot represent the advertised default reasoning effort %q for Codex model %q; choose an explicit --effort low, medium, high, xhigh, or max", desired, target.Slug)
 }
 
 func claude246ModelPickerSettings(modelCfg modelconfig.Config) map[string]any {
@@ -243,11 +318,11 @@ func hasEffortArg(args []string) bool {
 	return false
 }
 
-func withDefaultEffortArg(args []string, enabled bool) []string {
-	if !enabled {
+func withDefaultEffortArg(args []string, effort string) []string {
+	if effort == "" {
 		return args
 	}
-	return append([]string{"--effort", "max"}, args...)
+	return append([]string{"--effort", effort}, args...)
 }
 
 func mergeStatusLine(base, override map[string]any) map[string]any {
@@ -480,7 +555,7 @@ func RunStatusLineWrapper(args []string, stdin io.Reader, stdout, stderr io.Writ
 	if strings.Contains(command, claudodexStatuslineCommandName) {
 		return 0
 	}
-	patched := patchStatusLineInput(input, statuslineContextWindow())
+	patched := patchStatusLineInput(input, statusLineContextWindowForInput(input, source))
 	patched = patchStatusLineModel(patched, source.Models.Normalize())
 	return runStatusLineCommand(command, patched, stdout, stderr)
 }
@@ -550,6 +625,39 @@ func statuslineContextWindow() int64 {
 		}
 	}
 	return 0
+}
+
+func statusLineCatalogContextWindows(catalog []codex.ModelInfo, models modelconfig.Config) map[string]int64 {
+	if catalog == nil {
+		return nil
+	}
+	windows := make(map[string]int64)
+	for _, capability := range claudeModelCapabilities(catalog, models) {
+		if capability.MaxInputTokens > 0 {
+			windows[strings.ToLower(capability.ID)] = capability.MaxInputTokens
+		}
+	}
+	return windows
+}
+
+func statusLineContextWindowForInput(input []byte, source statusLineSource) int64 {
+	if len(source.ContextWindows) != 0 {
+		var payload struct {
+			Model struct {
+				ID string `json:"id"`
+			} `json:"model"`
+		}
+		if json.Unmarshal(input, &payload) == nil {
+			id := strings.ToLower(strings.TrimSpace(payload.Model.ID))
+			if strings.HasSuffix(id, modelconfig.LongContextSuffix) {
+				id = modelconfig.WithLongContext(modelconfig.StripLongContext(id))
+			}
+			if window := source.ContextWindows[id]; window > 0 {
+				return window
+			}
+		}
+	}
+	return statuslineContextWindow()
 }
 
 func patchStatusLineInput(input []byte, contextWindow int64) []byte {

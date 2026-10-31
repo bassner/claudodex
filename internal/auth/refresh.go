@@ -44,6 +44,10 @@ func NewRefresher(store Store, client *http.Client, endpoint string) *Refresher 
 }
 
 func (r *Refresher) Refresh(ctx context.Context) (File, error) {
+	return r.refresh(ctx, "")
+}
+
+func (r *Refresher) refresh(ctx context.Context, rejectedAccessToken string) (File, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -59,6 +63,12 @@ func (r *Refresher) Refresh(ctx context.Context) (File, error) {
 	file, err := r.store.Load()
 	if err != nil {
 		return File{}, err
+	}
+	if rejectedAccessToken != "" && file.Tokens.AccessToken != "" && file.Tokens.AccessToken != rejectedAccessToken {
+		ApplyClaims(&file)
+		if file.Tokens.AccessTokenExpiresAt == 0 || file.Tokens.AccessTokenExpiresAt > time.Now().Unix() {
+			return file, nil
+		}
 	}
 	if file.Tokens.RefreshToken == "" {
 		return File{}, fmt.Errorf("auth file missing refresh_token")

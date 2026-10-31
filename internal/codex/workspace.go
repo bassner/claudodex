@@ -34,6 +34,14 @@ func (c Client) resolveResponsesDestination(ctx context.Context, credentials Cre
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
+	if err := CheckCredentialDestination(credentials, baseURL); err != nil {
+		return responsesDestination{}, err
+	}
+	if strings.TrimSpace(c.ChatGPTBaseURL) != "" {
+		if err := CheckCredentialDestination(credentials, c.ChatGPTBaseURL); err != nil {
+			return responsesDestination{}, err
+		}
+	}
 	destination := responsesDestination{baseURL: baseURL}
 	accountID := strings.TrimSpace(credentials.AccountID)
 	if accountID == "" || !c.workspaceRoutingEligible(baseURL) {
@@ -54,7 +62,7 @@ func (c Client) resolveResponsesDestination(ctx context.Context, credentials Cre
 	req.Header.Del("content-type")
 	req.Header.Set("accept", "application/json")
 
-	resp, err := c.noRedirectHTTPClient().Do(req)
+	resp, err := CredentialHTTPClient(c.noRedirectHTTPClient(), credentials).Do(req)
 	if err != nil {
 		return responsesDestination{}, err
 	}
@@ -82,6 +90,9 @@ func (c Client) resolveResponsesDestination(ctx context.Context, credentials Cre
 		}
 		resolvedBaseURL, routingHeader, err := applyWorkspaceRouting(baseURL, account.WorkspaceBackendOrigin, account.AccountRoutingOverride)
 		if err != nil {
+			return responsesDestination{}, err
+		}
+		if err := CheckCredentialDestination(credentials, resolvedBaseURL); err != nil {
 			return responsesDestination{}, err
 		}
 		return responsesDestination{

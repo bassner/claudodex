@@ -3,6 +3,7 @@ package launcher
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -119,7 +120,14 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		if got := r.URL.Query().Get("client_version"); got != "1.2.3" {
 			t.Fatalf("client_version = %q", got)
 		}
-		_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-6.1-sol","context_window":272000,"effective_context_window_percent":95},{"slug":"gpt-6-astra","context_window":272000,"effective_context_window_percent":95},{"slug":"gpt-6.1-terra","context_window":300000,"effective_context_window_percent":90},{"slug":"gpt-6-luna","context_window":400000,"effective_context_window_percent":80}]}`)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"models": []map[string]any{
+				launcherCatalogEntry("gpt-6.1-sol", 272000, 95),
+				launcherCatalogEntry("gpt-6-astra", 272000, 95),
+				launcherCatalogEntry("gpt-6.1-terra", 300000, 90),
+				launcherCatalogEntry("gpt-6-luna", 400000, 80),
+			},
+		})
 	}))
 	defer upstream.Close()
 
@@ -139,7 +147,7 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 	capture := string(data)
 	for _, want := range []string{
 		"args:5:--no-chrome:--effort",
-		"args_all:[--no-chrome][--effort][max][--model][gpt-6.1-terra[1m]]",
+		"args_all:[--no-chrome][--effort][medium][--model][gpt-6.1-terra[1m]]",
 		"auth_token:",
 		"api_key:",
 		"claude_config:" + filepath.Join(home, ".claudodex", "claude-config"),
@@ -170,9 +178,9 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		"model_capabilities:yes",
 		`"alias":"opus"`,
 		`"defaultModel":"gpt-6.1-sol"`,
-		`"defaultModelEffortLevel":"max"`,
+		`"defaultModelEffortLevel":"medium"`,
 		`"model":"gpt-6.1-sol"`,
-		`"defaultEffortLevel":"max"`,
+		`"defaultEffortLevel":"medium"`,
 		`"contextWindow":272000`,
 		`"alias":"claude-sonnet-4-6"`,
 		`"contextWindow":300000`,
@@ -233,6 +241,19 @@ func TestProcessLauncherRunsClaudeWithProxyEnvAndArgs(t *testing.T) {
 		if !strings.Contains(capture, wantPrefix) {
 			t.Fatalf("capture missing PATH shim prefix %q:\n%s", wantPrefix, capture)
 		}
+	}
+}
+
+func launcherCatalogEntry(slug string, contextWindow, effectiveContextPercent int64) map[string]any {
+	return map[string]any{
+		"slug":                             slug,
+		"context_window":                   contextWindow,
+		"max_context_window":               contextWindow,
+		"effective_context_window_percent": effectiveContextPercent,
+		"supported_in_api":                 true,
+		"visibility":                       "list",
+		"default_reasoning_level":          "medium",
+		"supported_reasoning_levels":       []map[string]string{{"effort": "low"}, {"effort": "medium"}, {"effort": "high"}, {"effort": "xhigh"}, {"effort": "max"}},
 	}
 }
 

@@ -145,10 +145,10 @@ func TestModelsUseConfiguredTargets(t *testing.T) {
 			Haiku:  "gpt-haiku-next",
 		},
 		Models: []codex.ModelInfo{
-			{Slug: "gpt-opus-next", ContextWindow: 444000, MaxContextWindow: 844000},
-			{Slug: "gpt-6-astra", ContextWindow: 777000, MaxContextWindow: 877000},
-			{Slug: "gpt-sonnet-next", ContextWindow: 555000, MaxContextWindow: 855000},
-			{Slug: "gpt-haiku-next", ContextWindow: 666000, MaxContextWindow: 866000},
+			testCatalogModel("gpt-opus-next", 444000, 844000),
+			testCatalogModel("gpt-6-astra", 777000, 877000),
+			testCatalogModel("gpt-sonnet-next", 555000, 855000),
+			testCatalogModel("gpt-haiku-next", 666000, 866000),
 		},
 	})
 	addr, err := server.Start("127.0.0.1", 0)
@@ -437,11 +437,23 @@ func testPNGBase64(t *testing.T, width, height int) string {
 	return base64.StdEncoding.EncodeToString(data.Bytes())
 }
 
+func testCatalogModel(slug string, contextWindow, maxContextWindow int64) codex.ModelInfo {
+	return codex.ModelInfo{
+		Slug:                     slug,
+		ContextWindow:            contextWindow,
+		MaxContextWindow:         maxContextWindow,
+		SupportedInAPI:           true,
+		Visibility:               "list",
+		DefaultReasoningLevel:    "medium",
+		SupportedReasoningLevels: []codex.ReasoningEffortPreset{{Effort: "low"}, {Effort: "medium"}, {Effort: "high"}, {Effort: "xhigh"}, {Effort: "max"}},
+	}
+}
+
 func testModels() []codex.ModelInfo {
 	return []codex.ModelInfo{
-		{Slug: "gpt-6.1-sol", ContextWindow: 111000, MaxContextWindow: 811000},
-		{Slug: "gpt-6-astra", ContextWindow: 111000, MaxContextWindow: 811000},
-		{Slug: "gpt-6.1-terra", ContextWindow: 222000, MaxContextWindow: 822000},
-		{Slug: "gpt-6-luna", ContextWindow: 333000, MaxContextWindow: 833000},
+		testCatalogModel("gpt-6.1-sol", 111000, 811000),
+		testCatalogModel("gpt-6-astra", 111000, 811000),
+		testCatalogModel("gpt-6.1-terra", 222000, 822000),
+		testCatalogModel("gpt-6-luna", 333000, 833000),
 	}
 }

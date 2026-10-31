@@ -133,6 +133,9 @@ func syncTranscriptModelDefault(sidecarDir, userHome string, wait time.Duration,
 		return since, nil
 	}
 	alias, ok := codexRuntimeSettingsAlias(model, modelCfg)
+	if isDirectCodexModel(model) {
+		alias, ok = model, true
+	}
 	if !ok {
 		if family, familyOK := modelconfig.FamilyForModel(model); familyOK {
 			alias = string(family)

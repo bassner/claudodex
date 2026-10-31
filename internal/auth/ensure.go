@@ -13,22 +13,7 @@ var ErrInvalidAuth = errors.New("invalid auth")
 var defaultTokenEndpoint = TokenEndpoint
 
 func EnsureLoggedIn(ctx context.Context, home string, interactive bool) (File, error) {
-	store := NewStore(home)
-	file, err := ensureStoredAuth(ctx, store)
-	if err == nil {
-		return file, nil
-	}
-	if !shouldLoginForAuthError(err) {
-		return File{}, err
-	}
-	if !interactive {
-		return File{}, fmt.Errorf("login required; run claudodex clx:auth-login (%w)", err)
-	}
-	file, err = Login(ctx, LoginOptions{Home: home})
-	if err != nil {
-		return File{}, fmt.Errorf("login required and OAuth login failed: %w", err)
-	}
-	return file, nil
+	return NewProvider(NewStore(home), nil, defaultTokenEndpoint).EnsureLoggedIn(ctx, interactive)
 }
 
 func ensureStoredAuth(ctx context.Context, store Store) (File, error) {

@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -12,6 +13,12 @@ import (
 // DefaultModelsClientVersion is the minimum Codex client protocol version used
 // for model discovery. Older catalog versions omit newer Codex model families.
 const DefaultModelsClientVersion = "0.166.0"
+
+// ModelsClientVersion reports the discovery protocol version actually sent on
+// the wire, including the minimum required by current catalogs.
+func ModelsClientVersion(version string) string {
+	return modelsClientVersion(version)
+}
 
 type ModelsResponse struct {
 	Models []ModelInfo `json:"models"`
@@ -26,6 +33,11 @@ type ModelMessages struct {
 	ContentFilterGuidance *string `json:"content_filter_guidance,omitempty"`
 }
 
+type ModelServiceTier struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+}
+
 type ModelInfo struct {
 	Slug                          string                  `json:"slug"`
 	DisplayName                   string                  `json:"display_name"`
@@ -36,6 +48,11 @@ type ModelInfo struct {
 	EffectiveContextWindowPercent int64                   `json:"effective_context_window_percent,omitempty"`
 	SupportsReasoningSummaries    bool                    `json:"supports_reasoning_summaries,omitempty"`
 	SupportedReasoningLevels      []ReasoningEffortPreset `json:"supported_reasoning_levels,omitempty"`
+	DefaultReasoningLevel         string                  `json:"default_reasoning_level,omitempty"`
+	Priority                      *int                    `json:"priority,omitempty"`
+	MinimalClientVersion          string                  `json:"minimal_client_version,omitempty"`
+	ServiceTiers                  []ModelServiceTier      `json:"service_tiers,omitempty"`
+	AdditionalSpeedTiers          []string                `json:"additional_speed_tiers,omitempty"`
 	ModelMessages                 *ModelMessages          `json:"model_messages,omitempty"`
 	SupportedInAPI                bool                    `json:"supported_in_api"`
 	Visibility                    string                  `json:"visibility"`
@@ -47,6 +64,10 @@ func (c Client) FetchModels(ctx context.Context, credentials Credentials) ([]Mod
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
+	if err := CheckCredentialDestination(credentials, baseURL); err != nil {
+		return nil, err
+	}
+	client = CredentialHTTPClient(client, credentials)
 	endpoint, err := url.Parse(baseURL + "/codex/models")
 	if err != nil {
 		return nil, err
@@ -78,7 +99,14 @@ func (c Client) FetchModels(ctx context.Context, credentials Credentials) ([]Mod
 		}
 	}
 	var out ModelsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	data, err := io.ReadAll(io.LimitReader(resp.Body, (8<<20)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > 8<<20 {
+		return nil, fmt.Errorf("Codex model catalog exceeds size limit")
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
 		return nil, err
 	}
 	return out.Models, nil

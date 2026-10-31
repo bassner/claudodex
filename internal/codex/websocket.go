@@ -124,6 +124,9 @@ func (w *WebSocketConversation) connection(ctx context.Context, c Client, reques
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := CheckCredentialDestination(credentials, wsURL); err != nil {
+		return nil, nil, err
+	}
 	key := websocketConnectionKey{
 		URL:           wsURL,
 		RoutingHeader: destination.routingHeader,
