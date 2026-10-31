@@ -21,6 +21,21 @@ UI. You still use Claude Code. Claudodex swaps the model backend.
 you -> claudodex -> installed claude -> local Anthropic-compatible proxy -> Codex
 ```
 
+## Quickstart
+
+You need macOS on Apple Silicon, Homebrew, a working `claude` command, and an
+OpenAI account with Codex subscription access.
+
+```sh
+brew install bassner/tap/claudodex
+claudodex clx:auth-login
+claudodex
+```
+
+Homebrew uses a prebuilt bottle when available; otherwise it installs Go and
+builds from pinned source. Claude Code is installed separately. If your Claude
+version is unsupported, see [Compatibility](#compatibility).
+
 ## Why Claudodex?
 
 There are already useful projects in this space, including Claudish,
@@ -68,42 +83,24 @@ Why not call it `claudex`? Because that name is already used in multiple places.
   `DO_NOT_TRACK=1`, and `DISABLE_GROWTHBOOK=1`.
 - Provides Codex-backed usage through `claudodex clx:usage`.
 
-## Current Status
+## Compatibility
 
-Claudodex is experimental. The core request path, streaming conversion, OAuth,
-usage mapping, settings sync, model metadata, and installed-Claude smoke tests
-are implemented. The project intentionally stays narrow: Claude Code to Codex
-subscription models only.
-
-Claude compatibility patches require an exact registered OS, architecture,
-version, and SHA256. The current verified platform is macOS arm64, including
-Claude Code 2.1.314. After a Claude update, Claudodex can use a verified local
-copy from its cache or Claude's retained versions without changing system Claude.
-If no supported copy works, launch stops with recovery steps. Claudodex does not
-download Claude or create patches automatically.
-
-## Requirements
-
-- A working `claude` binary on `PATH`.
-- An OpenAI account with Codex subscription access.
-- macOS arm64 for verified compatibility. Other platforms are unverified and
-  require the explicit `CLAUDODEX_DISABLE_CLAUDE_PATCH=1` override to launch.
-- Go 1.25 or newer for source builds. Homebrew bottles do not need Go; a
-  Homebrew source build installs Go as a build dependency.
-
-## Install With Homebrew
-
-Homebrew is the preferred macOS arm64 installation method:
+Claudodex is experimental. Compatibility patches require an exact registered
+OS, architecture, version, and SHA256. The current verified platform is macOS arm64, including
+Claude Code 2.1.314. If the installed Claude version has no supported patch,
+whether older or newer, Claudodex uses a verified local copy from its cache or
+Claude's retained versions without changing system Claude. If none is available,
+launch stops with recovery steps:
 
 ```sh
-brew install bassner/tap/claudodex
-claudodex clx:version
+claude install 2.1.314
+claudodex clx:doctor
 ```
 
-The formula uses a pinned source archive with vendored dependencies. Tested
-Homebrew bottles avoid compilation on supported systems. Claude Code remains a
-separate installation. An existing source installation is not migrated: check
-`command -v claudodex` to see which copy your shell uses.
+Claudodex does not download Claude or create patches automatically.
+`CLAUDODEX_DISABLE_CLAUDE_PATCH=1 claudodex` explicitly permits unpatched Claude;
+that combination and other platforms are unverified. Help, version, and Claude's
+administrative subcommands remain available for repair.
 
 ## Updates
 
@@ -137,17 +134,7 @@ claudodex clx:update --yes  # Explicit script consent for a Homebrew update
 Set `CLAUDODEX_NO_AUTO_UPDATE=1` to skip launch checks. An offline or failed check
 keeps the current runtime; `clx:update` reports check errors. If signed update
 information requires a newer client, follow the displayed manual Homebrew
-upgrade command. Every supported launch still requires a verified Claude copy.
-To recover when none is available:
-
-```sh
-claude install 2.1.314
-claudodex clx:doctor
-```
-
-`CLAUDODEX_DISABLE_CLAUDE_PATCH=1 claudodex` explicitly permits unpatched Claude
-when needed; that combination is unverified. Help, version, and Claude's
-administrative subcommands remain available for repair.
+upgrade command.
 
 Update metadata uses an embedded Ed25519 public key. Install the initial package
 from the trusted tap. A lost or compromised signing key requires a separately
@@ -155,8 +142,7 @@ verified package update; automatic key recovery is not supported.
 
 ## Install From Source
 
-Build Claudodex first, then copy the resulting binary somewhere on your `PATH`.
-The `go build` step is the build; the install step only copies the binary.
+For a manual installation, use Go 1.25 or newer:
 
 ```sh
 git clone https://github.com/bassner/claudodex.git
@@ -166,61 +152,18 @@ mkdir -p ~/.local/bin
 install -m 0755 claudodex ~/.local/bin/claudodex
 ```
 
-If `~/.local/bin` is not on your `PATH`, either add it or choose another
-user-writable directory that is. To install system-wide on macOS, use `sudo`:
+Ensure `~/.local/bin` is on your `PATH`. Source builds require manual updates:
+pull the latest changes, rebuild, and repeat the install step. When moving to
+Homebrew, check `command -v claudodex` and remove any older source copy that
+shadows the Homebrew installation.
 
-```sh
-sudo install -m 0755 claudodex /usr/local/bin/claudodex
-```
-
-Alternatively, let Go build and install the command into your Go binary
-directory:
-
-```sh
-go install ./cmd/claudodex
-```
-
-Verify both binaries are callable:
-
-```sh
-claude --version
-claudodex clx:version
-```
-
-Source builds show update notices and require a manual rebuild. Pull the latest
-changes, rebuild, and repeat the install step.
-
-## Getting Started
-
-1. Log in to OpenAI:
-
-   ```sh
-   claudodex clx:auth-login
-   ```
-
-2. Check the local setup:
-
-   ```sh
-   claudodex clx:doctor
-   ```
-
-3. Start Claude Code through Claudodex:
-
-   ```sh
-   claudodex
-   ```
-
-4. Or run a one-shot prompt:
-
-   ```sh
-   claudodex -p "Reply with exactly: ok"
-   ```
+## Usage
 
 All normal Claude Code arguments are passed through:
 
 ```sh
+claudodex -p "Reply with exactly: ok"
 claudodex --model opus
-claudodex --model sonnet --dangerously-skip-permissions
 claudodex --continue
 ```
 
@@ -230,6 +173,7 @@ claudodex --continue
 claudodex clx:auth-login
 claudodex clx:auth-status
 claudodex clx:auth-logout
+claudodex clx:version
 claudodex clx:doctor
 claudodex clx:usage
 claudodex clx:update
@@ -282,11 +226,6 @@ Claude Code tool subprocesses, so Bash commands do not inherit Claudodex's
 internal API proxy.
 
 ## Diagnostics
-
-```sh
-claudodex clx:doctor
-claudodex clx:usage
-```
 
 `clx:doctor` checks whether `claude` is installed, whether Claudodex auth is
 present, and whether Codex usage is reachable. `clx:usage` prints Codex-backed
