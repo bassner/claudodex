@@ -88,13 +88,13 @@ Why not call it `claudex`? Because that name is already used in multiple places.
 Claudodex is experimental. Each compatibility patch targets a specific Claude
 Code version and binary checksum for an operating system and CPU architecture.
 Current verified patches cover macOS on Apple Silicon, including Claude Code
-2.1.314. If the installed Claude version has no supported patch,
+2.1.316. If the installed Claude version has no supported patch,
 whether older or newer, Claudodex uses a verified local copy from its cache or
 Claude's retained versions without changing system Claude. If none is available,
 launch stops with recovery steps:
 
 ```sh
-claude install 2.1.314
+claude install 2.1.316
 claudodex clx:doctor
 ```
 

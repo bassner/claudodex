@@ -60,8 +60,8 @@ for local preparation commands.
 
 Before publication, review the complete pending change, run the checks above,
 and test the exact registered Claude binary against the local fake backend.
-Changes to launcher behavior also need real terminal tests. The release CI pins
-Claude 2.1.314 by the compiled version/platform/SHA registry before executing it;
+Changes to launcher behavior also need real terminal tests. The release CI verifies its pinned
+Claude build against the compiled version/platform/SHA registry before executing it;
 its smoke tests do not call a real model.
 
 The tag workflow uses `macos-15` arm64 to build and test the source formula and

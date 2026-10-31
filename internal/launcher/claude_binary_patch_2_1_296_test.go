@@ -50,6 +50,10 @@ func TestClaude296PatchTargetsMaintenanceBinary(t *testing.T) {
 	if path == "" {
 		t.Skip("maintenance Claude path is unavailable")
 	}
+	if version := detectClaudeVersion(context.Background(), path); version != "2.1.296" {
+		t.Logf("maintenance Claude version is %s; this test covers only 2.1.296", version)
+		return
+	}
 	source, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -118,6 +122,10 @@ func TestClaude296RemoteControlTargetsMaintenanceBinary(t *testing.T) {
 	path := os.Getenv("CLAUDODEX_MAINTENANCE_CLAUDE_REALPATH")
 	if path == "" {
 		t.Skip("maintenance Claude path is unavailable")
+	}
+	if version := detectClaudeVersion(context.Background(), path); version != "2.1.296" {
+		t.Logf("maintenance Claude version is %s; this test covers only 2.1.296", version)
+		return
 	}
 	source, err := os.ReadFile(path)
 	if err != nil {

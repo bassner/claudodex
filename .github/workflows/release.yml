@@ -52,12 +52,12 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/claude-bin"
           curl --fail --location --proto '=https' --proto-redir '=https' --retry 3 \
-            https://downloads.claude.ai/claude-code-releases/2.1.314/darwin-arm64/claude \
+            https://downloads.claude.ai/claude-code-releases/2.1.316/darwin-arm64/claude \
             --output "$RUNNER_TEMP/claude-bin/claude"
-          "$RUNNER_TEMP/clx-release" verify-claude --version 2.1.314 \
+          "$RUNNER_TEMP/clx-release" verify-claude --version 2.1.316 \
             --os darwin --arch arm64 --file "$RUNNER_TEMP/claude-bin/claude"
           chmod 755 "$RUNNER_TEMP/claude-bin/claude"
-          test "$("$RUNNER_TEMP/claude-bin/claude" --version)" = '2.1.314 (Claude Code)'
+          test "$("$RUNNER_TEMP/claude-bin/claude" --version)" = '2.1.316 (Claude Code)'
       - name: Run native Claude against a local fake backend
         env:
           CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE: "1"

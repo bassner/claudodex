@@ -219,6 +219,10 @@ func TestSourceArchiveIsReproducibleAndRejectsUnsafeEntries(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	// The fixture tests executable mode retention, independent of the caller's umask.
+	if err := os.Chmod(filepath.Join(dir, "main.go"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	first, err := sourceTar(dir, "claudodex-0.3.40")
 	if err != nil {
 		t.Fatal(err)
