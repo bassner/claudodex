@@ -85,9 +85,10 @@ Why not call it `claudex`? Because that name is already used in multiple places.
 
 ## Compatibility
 
-Claudodex is experimental. Compatibility patches require an exact registered
-OS, architecture, version, and SHA256. The current verified platform is macOS arm64, including
-Claude Code 2.1.314. If the installed Claude version has no supported patch,
+Claudodex is experimental. Each compatibility patch targets a specific Claude
+Code version and binary checksum for an operating system and CPU architecture.
+Current verified patches cover macOS on Apple Silicon, including Claude Code
+2.1.314. If the installed Claude version has no supported patch,
 whether older or newer, Claudodex uses a verified local copy from its cache or
 Claude's retained versions without changing system Claude. If none is available,
 launch stops with recovery steps:
