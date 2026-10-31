@@ -58,6 +58,10 @@ jobs:
             --os darwin --arch arm64 --file "$RUNNER_TEMP/claude-bin/claude"
           chmod 755 "$RUNNER_TEMP/claude-bin/claude"
           test "$("$RUNNER_TEMP/claude-bin/claude" --version)" = '2.1.316 (Claude Code)'
+      - name: Install the native terminal test dependency
+        run: |
+          brew install --formula tmux
+          command -v tmux
       - name: Run native Claude against a local fake backend
         env:
           CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE: "1"
