@@ -1,7 +1,7 @@
 package convert
 
 import (
-	"crypto/sha256"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -63,22 +63,25 @@ type OutputConfig struct {
 
 type ConvertOptions struct {
 	SessionID     string
+	AgentID       string
+	RequestClass  string
 	Models        modelconfig.Config
 	CodexModels   []codex.ModelInfo
 	ClientVersion string
 }
 
 type Result struct {
-	Request          codex.Request
-	OriginalModel    string
-	Stream           bool
-	ToolSchemas      map[string]map[string]any
-	PlanFilePath     string
-	RouteSessionID   string
-	ParentThreadID   string
-	Subagent         string
-	WebSearchMaxUses int
-	FastModeFallback bool
+	Request           codex.Request
+	OriginalModel     string
+	Stream            bool
+	ToolSchemas       map[string]map[string]any
+	PlanFilePath      string
+	RouteSessionID    string
+	ParentThreadID    string
+	Subagent          string
+	WebSearchMaxUses  int
+	FastModeFallback  bool
+	StatelessSubagent bool
 }
 
 type BadRequestError struct {
@@ -123,7 +126,9 @@ For every Claude Code Agent tool call, set the model field directly to one of th
 - {{OPUS_MODEL}} is the capable coding route for complex implementation.
 - {{SONNET_MODEL}} is the balanced middle route for ordinary work.
 - {{HAIKU_MODEL}} is the fastest, cheapest, and least capable route for simple tasks.
-Never emit Fable, Opus, Sonnet, Haiku, inherit, a claude-* model ID, or another Anthropic compatibility alias as the Agent model. Do not omit the model merely to inherit a Claude compatibility name. If an unavailable model is explicitly requested, explain the limitation and choose the closest configured Codex tier.
+When a particular runtime or review tier is required, set its exact Codex ID in the Agent model parameter. A model name in the prompt or description does not select that runtime. Do not substitute Opus/Sol for a required Fable/Astra review. Preserve explicit model pins, including valid IDs outside these four defaults. If a required model is unavailable, report that limitation without starting a substitute reviewer. Omit the model or use inherit only when native inheritance is intended.
+
+For a single review task, keep one correctly configured reviewer. Before replacing a worker with the wrong model, actually stop that worker through TaskStop and confirm its result, then start one replacement. Keep an existing correctly configured reviewer when removing duplicates. Never claim that a task was stopped before the stop tool confirms it.
 
 Ordinary Claude Code Agent tool workers stop automatically when they complete, fail, or are stopped. Do not send shutdown_request messages to ordinary Agent workers that have completed, failed, stopped, or have no active task: SendMessage would resume their transcript instead of cleaning anything up. Use SendMessage with an ordinary completed agent only when you intentionally want that same agent to continue with a concrete follow-up task.
 
@@ -178,11 +183,27 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 	routeSessionID := strings.TrimSpace(opts.SessionID)
 	parentThreadID := ""
 	subagent := ""
-	isSubagent := isClaudeCodeSubagentInstructions(instructions)
+	if opts.AgentID != "" && !validClaudeAgentID(opts.AgentID) {
+		return Result{}, BadRequestError{Message: "invalid Claude agent ID: expected 1 to 80 ASCII letters, digits, underscores or hyphens"}
+	}
+	isSubagent := opts.AgentID != "" || opts.RequestClass == "subagent" || opts.RequestClass == "workflow" ||
+		(opts.RequestClass != "main" && isClaudeCodeSubagentInstructions(instructions))
 	isTeamTeammate := isClaudeCodeTeamTeammate(instructions, input)
-	if routeSessionID != "" && isSubagent {
+	statelessSubagent := false
+	if isSubagent {
 		parentThreadID = routeSessionID
-		routeSessionID = deriveSubagentSessionID(routeSessionID, instructions, input)
+		if routeSessionID != "" && opts.AgentID != "" {
+			routeSessionID += ":agent:" + opts.AgentID
+		} else {
+			// Without native identity, identical worker prompts must still remain
+			// isolated. The proxy must not retain replay or transport state here.
+			var nonce [16]byte
+			if _, err := rand.Read(nonce[:]); err != nil {
+				return Result{}, fmt.Errorf("create isolated worker identity: %w", err)
+			}
+			routeSessionID = "worker-request:" + hex.EncodeToString(nonce[:])
+			statelessSubagent = true
+		}
 		subagent = "collab_spawn"
 	}
 	var effort ReasoningEffort
@@ -209,7 +230,7 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		Model:             codexModel,
 		Instructions:      withClaudeCodeCompatibilityInstructions(instructions, isSubagent && !isTeamTeammate, models),
 		Input:             input,
-		Tools:             convertTools(req.Tools),
+		Tools:             convertToolsWithModels(req.Tools, models),
 		ToolChoice:        convertToolChoice(req.ToolChoice, req.Tools),
 		ParallelToolCalls: true,
 		Store:             false,
@@ -221,16 +242,17 @@ func AnthropicToCodex(req AnthropicRequest, opts ConvertOptions) (Result, error)
 		PromptCacheKey:    routeSessionID,
 	}
 	return Result{
-		Request:          out,
-		OriginalModel:    model,
-		Stream:           stream,
-		ToolSchemas:      toolSchemas(req.Tools),
-		PlanFilePath:     planFilePath,
-		RouteSessionID:   routeSessionID,
-		ParentThreadID:   parentThreadID,
-		Subagent:         subagent,
-		WebSearchMaxUses: webSearchMaxUses(req.Tools),
-		FastModeFallback: fastModeFallback,
+		Request:           out,
+		OriginalModel:     model,
+		Stream:            stream,
+		ToolSchemas:       toolSchemas(req.Tools),
+		PlanFilePath:      planFilePath,
+		RouteSessionID:    routeSessionID,
+		ParentThreadID:    parentThreadID,
+		Subagent:          subagent,
+		WebSearchMaxUses:  webSearchMaxUses(req.Tools),
+		FastModeFallback:  fastModeFallback,
+		StatelessSubagent: statelessSubagent,
 	}, nil
 }
 
@@ -323,46 +345,16 @@ func isClaudeCodeTeamTeammate(instructions string, input []codex.InputItem) bool
 	return false
 }
 
-func deriveSubagentSessionID(parentSessionID string, instructions string, input []codex.InputItem) string {
-	if agentID := firstClaudeAgentID(instructions, input); agentID != "" {
-		return parentSessionID + ":agent:" + agentID
+func validClaudeAgentID(id string) bool {
+	if len(id) == 0 || len(id) > 80 {
+		return false
 	}
-	hash := sha256.New()
-	_, _ = hash.Write([]byte(instructions))
-	_, _ = hash.Write([]byte{0})
-	_, _ = hash.Write([]byte(firstUserText(input)))
-	sum := hash.Sum(nil)
-	return parentSessionID + ":agent:" + hex.EncodeToString(sum[:8])
-}
-
-var claudeAgentIDPattern = regexp.MustCompile(`\bagent-([A-Za-z0-9][A-Za-z0-9_-]{6,80})\b`)
-
-func firstClaudeAgentID(instructions string, input []codex.InputItem) string {
-	for _, text := range append([]string{instructions}, inputTextForRouting(input)...) {
-		matches := claudeAgentIDPattern.FindStringSubmatch(text)
-		if len(matches) == 2 {
-			return matches[1]
+	for _, c := range id {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			return false
 		}
 	}
-	return ""
-}
-
-func firstUserText(input []codex.InputItem) string {
-	for _, item := range input {
-		if item.Type != "message" || item.Role != "user" {
-			continue
-		}
-		for _, part := range item.Content {
-			if part.Type == "input_text" && strings.TrimSpace(part.Text) != "" {
-				return part.Text
-			}
-		}
-	}
-	data, err := json.Marshal(input)
-	if err != nil {
-		return ""
-	}
-	return string(data)
+	return true
 }
 
 func inputTextForRouting(input []codex.InputItem) []string {
@@ -758,7 +750,7 @@ func convertOutputFormat(raw json.RawMessage) *codex.TextConfig {
 	}
 }
 
-func convertTools(tools []AnthropicTool) []codex.Tool {
+func convertToolsWithModels(tools []AnthropicTool, models modelconfig.Config) []codex.Tool {
 	out := make([]codex.Tool, 0, len(tools))
 	for _, tool := range tools {
 		if isAnthropicWebSearchTool(tool) {
@@ -787,11 +779,25 @@ func convertTools(tools []AnthropicTool) []codex.Tool {
 		if strings.TrimSpace(tool.Name) == "" {
 			continue
 		}
+		schema := sanitizeSchema(tool.InputSchema)
+		if tool.Name == "Agent" {
+			properties := ensureProperties(schema)
+			field, _ := properties["model"].(map[string]any)
+			if field != nil {
+				// Native alias-only schemas cannot describe a discovered catalog.
+				// Keep exact IDs outside the four defaults selectable as well.
+				description := fmt.Sprintf("Actual worker runtime. Set an exact Codex model ID when a particular tier is required: Fable/Astra=%s (strongest reasoning and required Astra reviews); Opus/Sol=%s (complex coding); Sonnet/Terra=%s (balanced); Haiku/Luna=%s (simple tasks). A name in the prompt or description does not select the model. Preserve other explicit supported Codex IDs. Omit or use inherit only for native inheritance; never replace a required unavailable runtime with another tier.", models.Fable, models.Opus, models.Sonnet, models.Haiku)
+				if native, _ := field["description"].(string); native != "" {
+					description += " Native tool behavior: " + native
+				}
+				properties["model"] = map[string]any{"type": "string", "description": description}
+			}
+		}
 		out = append(out, codex.Tool{
 			Type:        "function",
 			Name:        tool.Name,
 			Description: tool.Description,
-			Parameters:  sanitizeSchema(tool.InputSchema),
+			Parameters:  schema,
 		})
 	}
 	return out

@@ -213,8 +213,8 @@ func TestAnthropicToCodexAddsCompatibilityInstructionsWithoutSystemPrompt(t *tes
 			t.Fatalf("configured Agent model %q missing: %q", model, got.Request.Instructions)
 		}
 	}
-	if !strings.Contains(got.Request.Instructions, "Never emit Fable, Opus, Sonnet, Haiku, inherit") {
-		t.Fatalf("Agent alias prohibition missing: %q", got.Request.Instructions)
+	if !strings.Contains(got.Request.Instructions, "set its exact Codex ID in the Agent model parameter") {
+		t.Fatalf("explicit Agent runtime guidance missing: %q", got.Request.Instructions)
 	}
 	if !strings.Contains(got.Request.Instructions, "Do not send shutdown_request messages to ordinary Agent workers that have completed, failed, stopped, or have no active task") {
 		t.Fatalf("ordinary agent lifecycle guidance missing: %q", got.Request.Instructions)
@@ -287,7 +287,7 @@ func TestAnthropicToCodexDerivesCodexSubagentRoute(t *testing.T) {
 	}`), &req); err != nil {
 		t.Fatal(err)
 	}
-	got, err := AnthropicToCodex(req, ConvertOptions{SessionID: "parent-session"})
+	got, err := AnthropicToCodex(req, ConvertOptions{SessionID: "parent-session", AgentID: "native-worker"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +374,7 @@ func TestAnthropicToCodexDoesNotAddSubagentTaskListGuidanceToMainSession(t *test
 	}
 }
 
-func TestAnthropicToCodexUsesClaudeAgentIDForStableSubagentRoute(t *testing.T) {
+func TestAnthropicToCodexUsesNativeAgentIDForStableSubagentRoute(t *testing.T) {
 	var first AnthropicRequest
 	if err := json.Unmarshal([]byte(`{
 		"model":"claude-opus-4-6",
@@ -383,7 +383,7 @@ func TestAnthropicToCodexUsesClaudeAgentIDForStableSubagentRoute(t *testing.T) {
 	}`), &first); err != nil {
 		t.Fatal(err)
 	}
-	firstResult, err := AnthropicToCodex(first, ConvertOptions{SessionID: "parent-session"})
+	firstResult, err := AnthropicToCodex(first, ConvertOptions{SessionID: "parent-session", AgentID: "a402ca36aa7e3f928"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +403,7 @@ func TestAnthropicToCodexUsesClaudeAgentIDForStableSubagentRoute(t *testing.T) {
 	}`), &followup); err != nil {
 		t.Fatal(err)
 	}
-	followupResult, err := AnthropicToCodex(followup, ConvertOptions{SessionID: "parent-session"})
+	followupResult, err := AnthropicToCodex(followup, ConvertOptions{SessionID: "parent-session", AgentID: "a402ca36aa7e3f928"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -385,6 +385,7 @@ func TestMessagesRoutesClaudeCodeSubagentAsCodexChildThread(t *testing.T) {
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("x-claude-code-session-id", "parent-123")
+	req.Header.Set("X-Claude-Code-Agent-Id", "route-worker")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -741,6 +742,7 @@ func TestMessagesRetriesFullRequestWhenWebSocketPreviousResponseIsMissing(t *tes
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("x-claude-code-session-id", "recover-session")
+	req.Header.Set("X-Claude-Code-Agent-Id", "recover-worker")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -755,6 +757,7 @@ func TestMessagesRetriesFullRequestWhenWebSocketPreviousResponseIsMissing(t *tes
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("x-claude-code-session-id", "recover-session")
+	req.Header.Set("X-Claude-Code-Agent-Id", "recover-worker")
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -857,6 +860,7 @@ func TestMessagesRetriesFullRequestWhenWebSocketPreviousResponseErrorArrivesAfte
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("x-claude-code-session-id", "created-error-session")
+	req.Header.Set("X-Claude-Code-Agent-Id", "created-worker")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -871,6 +875,7 @@ func TestMessagesRetriesFullRequestWhenWebSocketPreviousResponseErrorArrivesAfte
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("x-claude-code-session-id", "created-error-session")
+	req.Header.Set("X-Claude-Code-Agent-Id", "created-worker")
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -962,6 +967,7 @@ func TestMessagesFullSubagentRequestFallsBackToHTTPWhenWebSocketIsBusy(t *testin
 		}
 		req.Header.Set("content-type", "application/json")
 		req.Header.Set("x-claude-code-session-id", "busy-session")
+		req.Header.Set("X-Claude-Code-Agent-Id", "busy-worker")
 		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			_, _ = io.ReadAll(resp.Body)
@@ -984,6 +990,7 @@ func TestMessagesFullSubagentRequestFallsBackToHTTPWhenWebSocketIsBusy(t *testin
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("x-claude-code-session-id", "busy-session")
+	req.Header.Set("X-Claude-Code-Agent-Id", "busy-worker")
 	resp, err := client.Do(req)
 	if err != nil {
 		close(releaseWS)
@@ -1009,6 +1016,8 @@ func TestMessagesRetriesFullRequestWhenWebSocketContinuationClosesBeforeFirstEve
 	var wsHandshakes atomic.Int32
 	var secondWSRequest map[string]any
 	var retryWSRequest map[string]any
+	secondRequestRead := make(chan struct{})
+	retryRequestRead := make(chan struct{})
 	upgrader := websocket.Upgrader{}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !websocket.IsWebSocketUpgrade(r) {
@@ -1038,11 +1047,13 @@ func TestMessagesRetriesFullRequestWhenWebSocketContinuationClosesBeforeFirstEve
 			if err := conn.ReadJSON(&secondWSRequest); err != nil {
 				t.Fatal(err)
 			}
+			close(secondRequestRead)
 			return
 		case 2:
 			if err := conn.ReadJSON(&retryWSRequest); err != nil {
 				t.Fatal(err)
 			}
+			close(retryRequestRead)
 			writeWSJSON(t, conn, map[string]any{"type": "response.created", "response": map[string]any{"id": "resp-2"}})
 			writeWSJSON(t, conn, map[string]any{
 				"type": "response.output_item.done",
@@ -1077,6 +1088,7 @@ func TestMessagesRetriesFullRequestWhenWebSocketContinuationClosesBeforeFirstEve
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("x-claude-code-session-id", "closed-session")
+	req.Header.Set("X-Claude-Code-Agent-Id", "closed-worker")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -1091,6 +1103,7 @@ func TestMessagesRetriesFullRequestWhenWebSocketContinuationClosesBeforeFirstEve
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("x-claude-code-session-id", "closed-session")
+	req.Header.Set("X-Claude-Code-Agent-Id", "closed-worker")
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -1102,6 +1115,13 @@ func TestMessagesRetriesFullRequestWhenWebSocketContinuationClosesBeforeFirstEve
 	}
 	if wsHandshakes.Load() != 2 {
 		t.Fatalf("websocket handshakes = %d, want retry on a fresh connection", wsHandshakes.Load())
+	}
+	for _, ready := range []<-chan struct{}{secondRequestRead, retryRequestRead} {
+		select {
+		case <-ready:
+		case <-time.After(2 * time.Second):
+			t.Fatal("upstream request capture did not complete")
+		}
 	}
 	if secondWSRequest["previous_response_id"] != "resp-1" {
 		t.Fatalf("previous_response_id = %#v, request %#v", secondWSRequest["previous_response_id"], secondWSRequest)

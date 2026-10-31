@@ -1009,7 +1009,15 @@ func normalizeClaudeCodeToolArgs(toolName string, args map[string]any, models mo
 	target := ""
 	switch {
 	case normalized == "":
-		target = models.Opus
+		out := cloneMap(args)
+		delete(out, "model")
+		return out
+	case normalized == "inherit":
+		return args
+	case strings.HasPrefix(normalized, "gpt-"):
+		// Explicit Codex pins stay exact even when their names contain a
+		// compatibility family word. Catalog validation owns availability.
+		return args
 	case normalized == strings.ToLower(models.Opus),
 		normalized == strings.ToLower(models.Sonnet),
 		normalized == strings.ToLower(models.Haiku),
@@ -1022,7 +1030,6 @@ func normalizeClaudeCodeToolArgs(toolName string, args map[string]any, models mo
 	case strings.Contains(normalized, "fable"), strings.Contains(normalized, "mythos"):
 		target = models.Fable
 	case strings.Contains(normalized, "opus"),
-		normalized == "inherit",
 		strings.HasPrefix(normalized, "claude-"):
 		target = models.Opus
 	default:

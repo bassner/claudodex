@@ -65,6 +65,8 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	sessionID := sessionIDFromRequest(r)
 	result, err := convert.AnthropicToCodex(anthropicReq, convert.ConvertOptions{
 		SessionID:     sessionID,
+		AgentID:       r.Header.Get("X-Claude-Code-Agent-Id"),
+		RequestClass:  r.Header.Get("X-Claude-Code-Request-Class"),
 		Models:        s.cfg.ModelConfig,
 		CodexModels:   s.cfg.Models,
 		ClientVersion: s.cfg.Version,
@@ -82,6 +84,15 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	route := codex.MaterializeRoute(codexRouteForResult(result, sessionID))
 	traceID := s.nextTraceID()
 	chainKey := responseChainKey(route.ThreadID, traceID, result.Request)
+	if result.StatelessSubagent {
+		defer func() {
+			s.closeWebSocket(route.ThreadID)
+			s.chainsMu.Lock()
+			delete(s.chains, chainKey)
+			delete(s.usage, chainKey)
+			s.chainsMu.Unlock()
+		}()
+	}
 	s.inheritResponseTurnIdentity(chainKey, &route, result.Request)
 	fullRequest := result.Request
 	codex.ApplyResponsesMetadata(&fullRequest, "", route)
@@ -93,6 +104,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		"thread_id":                   route.ThreadID,
 		"parent_thread_id":            route.ParentThreadID,
 		"subagent":                    route.Subagent,
+		"stateless_subagent":          result.StatelessSubagent,
 		"turn_id":                     route.TurnID,
 		"root_turn_id":                route.RootTurnID,
 		"chain_key":                   chainKey,
@@ -159,7 +171,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			"generation_attempt":            3 - remainingGenerationAttempts,
 			"generation_attempts_remaining": remainingGenerationAttempts,
 		}))
-		resp, used, err := s.createCodexResponse(r, req, route, remainingGenerationAttempts)
+		resp, used, err := s.createCodexResponseWithTransport(r, req, route, remainingGenerationAttempts, !result.StatelessSubagent)
 		if used < 0 {
 			used = 0
 		}
@@ -408,6 +420,10 @@ func queuedSteeringLocations(req convert.AnthropicRequest) []string {
 }
 
 func (s *Server) createCodexResponse(r *http.Request, req codex.Request, route codex.Route, generationAttemptBudget int) (*http.Response, int, error) {
+	return s.createCodexResponseWithTransport(r, req, route, generationAttemptBudget, true)
+}
+
+func (s *Server) createCodexResponseWithTransport(r *http.Request, req codex.Request, route codex.Route, generationAttemptBudget int, allowWebSocket bool) (*http.Response, int, error) {
 	attemptsUsed := 0
 	finish := func(resp *http.Response, err error) (*http.Response, int, error) {
 		if attemptsUsed > 0 {
@@ -464,7 +480,7 @@ func (s *Server) createCodexResponse(r *http.Request, req codex.Request, route c
 		authRefreshed = true
 		return nil
 	}
-	if s.shouldUseCodexWebSocket(req, route) {
+	if allowWebSocket && s.shouldUseCodexWebSocket(req, route) {
 		for {
 			reused := s.hasWebSocket(route.ThreadID)
 			if conversation := s.websocketConversation(route.ThreadID); conversation != nil {

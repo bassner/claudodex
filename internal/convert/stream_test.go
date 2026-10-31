@@ -1050,8 +1050,7 @@ func TestNormalizeClaudeCodeToolArgsMapsAllAgentAliasesToCodexTiers(t *testing.T
 		Fable:  "gpt-astra-custom",
 	}
 	tests := map[string]string{
-		"":                  "gpt-sol-custom",
-		"inherit":           "gpt-sol-custom",
+		"inherit":           "inherit",
 		"fable":             "gpt-astra-custom",
 		"claude-fable-5":    "gpt-astra-custom",
 		"opus":              "gpt-sol-custom",
@@ -1090,7 +1089,7 @@ func TestNormalizeClaudeCodeToolArgsRewritesPlanMutationToAssignedFile(t *testin
 	}
 }
 
-func TestStreamReducerDefaultsEmptyAgentModelToSol(t *testing.T) {
+func TestStreamReducerLeavesEmptyAgentModelToNativeInheritance(t *testing.T) {
 	reducer := NewStreamReducerWithOptions("msg_1", "gpt-5.5", StreamReducerOptions{
 		ToolSchemas: map[string]map[string]any{
 			"Agent": {
@@ -1122,8 +1121,8 @@ func TestStreamReducerDefaultsEmptyAgentModelToSol(t *testing.T) {
 	}
 	content := message["content"].([]map[string]any)
 	input := content[0]["input"].(map[string]any)
-	if input["model"] != "gpt-6.1-sol" {
-		t.Fatalf("empty agent model did not default to sol: %#v", input)
+	if _, exists := input["model"]; exists {
+		t.Fatalf("empty agent model overrode native inheritance: %#v", input)
 	}
 }
 

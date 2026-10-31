@@ -59,6 +59,9 @@ Why not call it `claudex`? Because that name is already used in multiple places.
 ## What It Does
 
 - Runs your installed `claude` binary with normal Claude Code flags.
+- Keeps subagent conversations separate using Claude Code's native worker IDs.
+  Agent model overrides use exact Codex IDs; omitted models and `inherit` retain
+  Claude Code's normal inheritance rules.
 - Uses a direct OpenAI login or safely reuses an eligible local Codex login.
 - Discovers the newest available numeric model generation within each family:
   Opus -> Sol, Sonnet -> Terra, Haiku -> Luna, Fable -> Astra. Explicit model
