@@ -80,4 +80,5 @@ metadata changes before the update is announced as latest. CI uses a normal
 after that pour does it read back and verify the signed manifest, asset hashes,
 and tested formula, then mark latest. Verification checks the expected version
 and every signed asset's size and SHA256. Publication, tap creation, and secret
-configuration require maintainer approval.
+configuration require maintainer authorization. Once configured, authorized
+version tags publish without a human approval gate; all validation jobs must pass.

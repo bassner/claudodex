@@ -278,4 +278,5 @@ model generation or copying refresh tokens.
 The overall plan was approved by an independent Claude Opus review. Its final
 implementation review hit a quota limit; the required fresh Astra fallback
 review approved items 1–3 after all findings were fixed. Items 4–6 remain planned.
-This implementation has not been published or installed.
+Items 1–3 are prepared for the separately authorized v0.5.0 release. Publication
+and installation are verified by the release workflow and local acceptance run.
