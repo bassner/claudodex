@@ -22,6 +22,7 @@ import (
 	"github.com/bassner/claudodex/internal/modelcatalog"
 	"github.com/bassner/claudodex/internal/modelconfig"
 	"github.com/bassner/claudodex/internal/proxy"
+	"github.com/bassner/claudodex/internal/startup"
 )
 
 type Config struct {
@@ -38,6 +39,8 @@ type Config struct {
 	ModelPins     modelconfig.Pins
 	// StatusLineExecutable is an already pinned helper supplied before an update.
 	StatusLineExecutable string
+	Startup              *startup.Display
+	RuntimeContext       context.Context
 }
 
 type ProcessLauncher struct{}
@@ -62,10 +65,6 @@ func LookCodex() (string, error) {
 
 func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) error {
 	modelCfg := cfg.Models.Normalize()
-	claudePath, err := LookClaude()
-	if err != nil {
-		return fmt.Errorf("missing required claude binary: %w", err)
-	}
 	stdin := cfg.Stdin
 	if stdin == nil {
 		stdin = os.Stdin
@@ -78,6 +77,21 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	if stderr == nil {
 		stderr = os.Stderr
 	}
+	progress := cfg.Startup
+	if progress == nil {
+		progress = startup.New(stderr, cfg.Version, cfg.Interactive && !DirectClaudeFastPath(args))
+	}
+	defer progress.Close()
+	runtimeCtx := cfg.RuntimeContext
+	if runtimeCtx == nil {
+		runtimeCtx = ctx
+	}
+	ctx = progress.Context(ctx)
+	progress.Info("🔎", "Locating Claude Code")
+	claudePath, err := LookClaude()
+	if err != nil {
+		return fmt.Errorf("missing required claude binary: %w", err)
+	}
 
 	if DirectClaudeFastPath(args) {
 		return runChild(ctx, claudePath, args, BuildClaudePrivacyEnv(os.Environ()), stdin, stdout, stderr, false)
@@ -86,11 +100,13 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	if err != nil {
 		return fmt.Errorf("resolve installed Claude Code: %w", err)
 	}
-	selected, err := selectClaudeExecutableWithRetention(ctx, cfg.Home, claudePath, cfg.Version, modelCfg, stderr, false)
+	progress.Info("🔧", "Verifying binary and preparing the compatibility patch")
+	selected, err := selectClaudeExecutableWithRetention(ctx, cfg.Home, claudePath, cfg.Version, modelCfg, progress.Warnings(), false)
 	if err != nil {
 		return err
 	}
 	defer selected.Release()
+	progress.Info("✅", "Claude Code %s compatibility ready", displayClaudeVersion(selected.Version))
 	if cfg.CodexBaseURL == "" {
 		cfg.CodexBaseURL = os.Getenv("CLAUDODEX_CODEX_BASE_URL")
 	}
@@ -99,18 +115,21 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 		return err
 	}
 	provider := auth.NewProvider(auth.NewStore(cfg.Home), cfg.HTTPClient, cfg.TokenEndpoint)
+	progress.Info("🔐", "Loading Codex login")
 	file, err := provider.EnsureLoggedIn(ctx, cfg.Interactive)
 	if err != nil {
 		return err
 	}
-	cfg.Stderr = stderr
+	cfg.Stderr = progress.Warnings()
+	progress.Info("📚", "Loading the Codex model catalog")
 	snapshot, err := ResolveCodexModels(ctx, cfg, file, provider)
 	if err != nil {
 		return err
 	}
 	models := snapshot.Models
 	if snapshot.Config != modelCfg {
-		final, err := selectClaudeExecutableWithRetention(ctx, cfg.Home, selected.SourcePath, cfg.Version, snapshot.Config, stderr, true)
+		progress.Info("🔧", "Preparing compatibility for the discovered models")
+		final, err := selectClaudeExecutableWithRetention(ctx, cfg.Home, selected.SourcePath, cfg.Version, snapshot.Config, progress.Warnings(), true)
 		if err != nil {
 			return fmt.Errorf("prepare Claude Code for discovered model labels: %w; update Claudodex or select models with --claudodex-models", err)
 		}
@@ -129,6 +148,7 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 		unlock()
 	}
 	modelCfg = snapshot.Config
+	progress.Info("✅", "Models ready: %s, %s, %s, %s", modelCfg.Fable, modelCfg.Opus, modelCfg.Sonnet, modelCfg.Haiku)
 	claudePath = selected.SourcePath
 	if requested, ok := explicitModelArg(args); ok && isDirectCodexModel(requested) {
 		if _, err := modelcatalog.ValidateTarget(models, modelconfig.StripLongContext(requested), cfg.Version); err != nil {
@@ -138,6 +158,7 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	claude246Compatibility := claudeFastModeSettingsFallbackRequired(ctx, claudePath)
 	claude258Compatibility := claudeThreeTierPickerArgsRequired(ctx, claudePath)
 	claude259SourcePicker := claudeSourcePatchedPickerArgsRequired(ctx, claudePath)
+	progress.Info("⚙️ ", "Preparing Claude Code settings and status line")
 	claudeConfigDir, err := PrepareClaudeConfigSidecar(cfg.Home, modelCfg)
 	if err != nil {
 		return fmt.Errorf("prepare Claude Code compatibility config: %w", err)
@@ -150,7 +171,7 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	if err := WriteClaudeModelCapabilitiesCache(claudeConfigDir, models, modelCfg); err != nil {
 		return fmt.Errorf("prepare Claude Code model capabilities: %w", err)
 	}
-	configMirror, err := StartClaudeConfigMirror(ctx, claudeConfigDir, modelCfg)
+	configMirror, err := StartClaudeConfigMirror(runtimeCtx, claudeConfigDir, modelCfg)
 	if err != nil {
 		return fmt.Errorf("start Claude Code config mirror: %w", err)
 	}
@@ -194,6 +215,7 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	if claude246Compatibility {
 		serverCfg.FastModeEnabledFallback = fastModeSettingsResolver(childArgs)
 	}
+	progress.Info("🔌", "Starting local compatibility proxies")
 	oauthServer := proxy.New(serverCfg)
 	addr, err := oauthServer.Start("127.0.0.1", 0)
 	if err != nil {
@@ -227,6 +249,14 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 		defer os.RemoveAll(apiSocketDir)
 	}
 	childEnv := BuildClaudeEnv(os.Environ(), port, claudeConfigDir, apiSocket, oauthProxy.ProxyURL(), oauthProxy.CAPath(), models, modelCfg)
+	if _, complete := modelcatalog.AutoCompactWindows(models, modelCfg); complete && supportsNativeModelCompaction(selected.Version) {
+		nativeEnv := envMap(childEnv)
+		delete(nativeEnv, "CLAUDE_CODE_AUTO_COMPACT_WINDOW")
+		childEnv = flattenEnv(nativeEnv)
+		progress.Info("✅", "Auto-compaction follows the active model's context window")
+	} else {
+		progress.Warn("Using a shared compaction ceiling; per-model compaction needs a supported Claude version and representable model limits")
+	}
 	if claude258Compatibility {
 		childEnv = WithPrivateFeatureCache(childEnv)
 	}
@@ -234,8 +264,14 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 	if runtimeModel, ok := explicitModelArg(childArgs); ok {
 		childEnv = WithFriendlyCustomModelOptionForConfig(childEnv, runtimeModel, modelCfg)
 	}
-	childErr := runChild(ctx, selected.Executable, childArgs, childEnv, stdin, stdout, stderr, !cfg.Interactive)
+	progress.Info("🚀", "Launching Claude Code")
+	progress.Close()
+	childErr := runChild(runtimeCtx, selected.Executable, childArgs, childEnv, stdin, stdout, stderr, !cfg.Interactive)
 	return errors.Join(childErr, configMirror.Close())
+}
+
+func supportsNativeModelCompaction(version string) bool {
+	return version == "2.1.314" || version == "2.1.316"
 }
 
 func isDirectCodexModel(model string) bool {

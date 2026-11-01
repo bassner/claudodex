@@ -68,7 +68,7 @@ jobs:
         run: |
           export PATH="$RUNNER_TEMP/claude-bin:$PATH"
           go test -count=1 ./internal/launcher \
-            -run '^(TestInstalledClaudePrintSmokeWithFakeCodexUpstream|TestInstalledClaudeUIPatchSmoke|TestInstalledClaudeAgentIsolationLifecycle)$' -v
+            -run '^(TestInstalledClaudePrintSmokeWithFakeCodexUpstream|TestInstalledClaudeUIPatchSmoke|TestInstalledClaudeAgentIsolationLifecycle|TestInstalledClaudeStartupAndModelCompaction)$' -v
 
   source:
     needs: validate

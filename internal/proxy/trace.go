@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/bassner/claudodex/internal/codex"
+	"github.com/bassner/claudodex/internal/convert"
 )
 
 const (
@@ -67,7 +71,15 @@ func (s *Server) proxyTracePath() string {
 		return ""
 	}
 
-	home := strings.TrimSpace(s.cfg.Home)
+	dir := proxyTraceDirectory(s.cfg.Home)
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "proxy-trace-"+time.Now().Format("2006-01-02")+".jsonl")
+}
+
+func proxyTraceDirectory(home string) string {
+	home = strings.TrimSpace(home)
 	if home == "" {
 		if userHome, err := os.UserHomeDir(); err == nil && userHome != "" {
 			home = filepath.Join(userHome, ".claudodex")
@@ -76,7 +88,54 @@ func (s *Server) proxyTracePath() string {
 	if home == "" {
 		return ""
 	}
-	return filepath.Join(home, "logs", "proxy-trace-"+time.Now().Format("2006-01-02")+".jsonl")
+	return filepath.Join(home, "logs")
+}
+
+// PruneTraceLogs only deletes managed daily trace files. Explicit custom trace
+// paths, symlinks, directories, and other diagnostics remain user-owned.
+func PruneTraceLogs(home string, now time.Time) (int, int64, error) {
+	dir := proxyTraceDirectory(home)
+	if dir == "" {
+		return 0, 0, nil
+	}
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return 0, 0, nil
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	cutoff := now.Add(-7 * 24 * time.Hour)
+	var removed int
+	var bytes int64
+	var failures []error
+	for _, entry := range entries {
+		name := entry.Name()
+		date := strings.TrimSuffix(strings.TrimPrefix(name, "proxy-trace-"), ".jsonl")
+		if _, err := time.Parse("2006-01-02", date); err != nil || name != "proxy-trace-"+date+".jsonl" {
+			continue
+		}
+		info, err := entry.Info()
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		if !info.Mode().IsRegular() || !info.ModTime().Before(cutoff) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, name)); err != nil {
+			if !os.IsNotExist(err) {
+				failures = append(failures, err)
+			}
+			continue
+		}
+		removed++
+		bytes += info.Size()
+	}
+	return removed, bytes, errors.Join(failures...)
 }
 
 func isTruthyTraceValue(value string) bool {
@@ -192,9 +251,81 @@ func (s *Server) startStreamIdleTrace(base map[string]any, started time.Time) (f
 
 func shouldTraceCodexEvent(event string) bool {
 	switch event {
-	case "response.created", "response.completed", "response.done", "response.failed", "error":
+	case "response.created", "response.completed", "response.done", "response.incomplete", "response.failed", "error":
 		return true
 	default:
 		return strings.HasSuffix(event, ".done")
 	}
+}
+
+func (s *Server) traceStreamEvent(base map[string]any, started time.Time, event codex.SSEEvent, reducer *convert.StreamReducer, converted []convert.AnthropicSSE) {
+	if !shouldTraceCodexEvent(event.Event) || s.proxyTracePath() == "" {
+		return
+	}
+	fields := map[string]any{
+		"elapsed_ms":              traceDurationMS(started),
+		"codex_event":             event.Event,
+		"reducer_done":            reducer.Done(),
+		"reducer_needs_follow_up": reducer.NeedsFollowUp(),
+		"reducer_failed":          reducer.Failed(),
+	}
+	if msg := eventErrorMessage(event); msg != "" {
+		fields["upstream_error"] = msg
+	}
+	var payload map[string]any
+	if json.Unmarshal(event.Data, &payload) == nil {
+		if response, ok := payload["response"].(map[string]any); ok {
+			for _, key := range []string{"id", "status", "stop_reason", "finish_reason"} {
+				if value, ok := response[key].(string); ok {
+					fields["upstream_"+key] = value
+				}
+			}
+			value, present := response["end_turn"]
+			endTurn, valid := value.(bool)
+			fields["upstream_end_turn_present"] = present
+			fields["upstream_end_turn_valid"] = valid
+			if valid {
+				fields["upstream_end_turn"] = endTurn
+			}
+			if output, ok := response["output"].([]any); ok {
+				types := make([]string, 0, len(output))
+				phases := make([]string, 0)
+				for _, raw := range output {
+					item, _ := raw.(map[string]any)
+					typ, _ := item["type"].(string)
+					types = append(types, typ)
+					if phase, ok := item["phase"].(string); ok {
+						phases = append(phases, phase)
+					}
+				}
+				fields["upstream_output_item_types"] = types
+				fields["upstream_message_phases"] = phases
+			}
+			if details, ok := response["incomplete_details"].(map[string]any); ok {
+				if reason, ok := details["reason"].(string); ok {
+					fields["upstream_incomplete_reason"] = reason
+				}
+			}
+		}
+		if endTurn, ok := payload["end_turn"].(bool); ok {
+			fields["event_end_turn"] = endTurn
+		}
+		if item, ok := payload["item"].(map[string]any); ok {
+			for _, key := range []string{"type", "phase", "status"} {
+				if value, ok := item[key].(string); ok {
+					fields["upstream_item_"+key] = value
+				}
+			}
+		}
+	}
+	for _, event := range converted {
+		if event.Event == "message_delta" {
+			if delta, ok := event.Data["delta"].(map[string]any); ok {
+				if reason, ok := delta["stop_reason"].(string); ok {
+					fields["anthropic_stop_reason"] = reason
+				}
+			}
+		}
+	}
+	s.trace("stream.event", mergeTraceFields(base, fields))
 }

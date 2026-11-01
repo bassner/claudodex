@@ -29,6 +29,7 @@ var errClaudeConfigLockBusy = errors.New("Claude config lock busy")
 
 var protectedGlobalConfigKeys = map[string]struct{}{
 	"additionalModelOptionsCache":  {},
+	"autoCompactWindowsCache":      {},
 	"bridgeOauthDeadExpiresAt":     {},
 	"bridgeOauthDeadFailCount":     {},
 	"cachedDynamicConfigs":         {},
@@ -36,6 +37,7 @@ var protectedGlobalConfigKeys = map[string]struct{}{
 	"cachedStatsigGates":           {},
 	"claudeCodeFirstTokenDate":     {},
 	"clientDataCache":              {},
+	"clientDataCacheSlots":         {},
 	"customApiKeyResponses":        {},
 	"hasAvailableSubscription":     {},
 	"metricsStatusCache":           {},

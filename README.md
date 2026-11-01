@@ -267,6 +267,26 @@ internal API proxy.
 
 ## Diagnostics
 
+Interactive sessions write metadata traces to
+`~/.claudodex/logs/proxy-trace-YYYY-MM-DD.jsonl`. On startup, Claudodex removes
+managed daily trace files whose last write was more than seven days ago.
+Set `CLAUDODEX_PROXY_TRACE=0` to disable tracing, or set it to a file path to
+write a custom trace. Custom files have no automatic retention. Automation
+does not enable tracing by default.
+
+The interactive startup screen shows the version and progress while preparing
+Claude Code, login, model metadata, settings, and local proxies. It disappears
+when Claude Code starts. Warnings are retained in stderr history, and startup
+errors remain visible. Print mode and
+administrative commands keep their normal output.
+
+On Claude Code 2.1.314 and 2.1.316, auto-compaction uses the active model's live
+Codex window, including its explicit `[1m]` route. Switching to a model with a
+smaller window updates compaction accordingly. Claude Code still reserves room
+for its summary and output. Older supported Claude versions, or model limits
+outside the native compaction schema, use a conservative shared ceiling with a
+startup warning.
+
 `clx:doctor` checks whether `claude` is installed, whether Claudodex auth is
 present, and whether Codex usage is reachable. `clx:usage` prints Codex-backed
 usage windows directly.

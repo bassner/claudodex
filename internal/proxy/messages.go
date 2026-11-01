@@ -15,6 +15,7 @@ import (
 	"github.com/bassner/claudodex/internal/auth"
 	"github.com/bassner/claudodex/internal/codex"
 	"github.com/bassner/claudodex/internal/convert"
+	"github.com/bassner/claudodex/internal/modelcatalog"
 	"github.com/bassner/claudodex/internal/ratelimit"
 )
 
@@ -120,8 +121,12 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		"queued_steering_markers":     strings.Count(string(body), "The user sent a new message while you were working:"),
 		"queued_steering_locations":   queuedSteeringLocations(anthropicReq),
 		"converted_steering_items":    countConvertedSteeringItems(fullRequest.Input),
-		"claude_auto_compact_window":  os.Getenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW"),
-		"claude_max_context_tokens":   os.Getenv("CLAUDE_CODE_MAX_CONTEXT_TOKENS"),
+	}
+	if s.proxyTracePath() != "" {
+		windows, _ := modelcatalog.AutoCompactWindows(s.cfg.Models, s.cfg.ModelConfig)
+		if window, ok := windows[strings.ToLower(strings.TrimSpace(result.OriginalModel))]; ok {
+			traceBase["catalog_auto_compact_window"] = window
+		}
 	}
 	replayedStateless, replayReason, replayTrimItems, replayInputItems := s.applyStatelessReplayDetailed(chainKey, &fullRequest)
 	usedImplicitResume := false
@@ -843,18 +848,9 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 					"codex_event": event.Event,
 				}))
 			}
-			if shouldTraceCodexEvent(event.Event) {
-				fields := map[string]any{
-					"elapsed_ms":  traceDurationMS(streamStarted),
-					"codex_event": event.Event,
-				}
-				if msg := eventErrorMessage(event); msg != "" {
-					fields["upstream_error"] = msg
-				}
-				s.trace("stream.event", mergeTraceFields(traceBase, fields))
-			}
 			segmentTrace.observe(event)
 			events, reduceErr := reducer.ReduceNamed(event.Event, event.Data)
+			s.traceStreamEvent(traceBase, streamStarted, event, reducer, events)
 			if reduceErr != nil {
 				return reduceErr
 			}
@@ -894,6 +890,13 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 		}
 		sameWebSocket := currentHeaders.Get("x-claudodex-transport") == "websocket" && s.hasWebSocket(chainKey)
 		nextRequest := continuationRequest(fullRequest, trace, sameWebSocket)
+		s.trace("stream.continue", mergeTraceFields(traceBase, map[string]any{
+			"elapsed_ms":           traceDurationMS(streamStarted),
+			"response_id":          trace.ResponseID,
+			"previous_response_id": nextRequest.PreviousResponseID,
+			"upstream_input_items": len(nextRequest.Input),
+			"same_websocket":       sameWebSocket,
+		}))
 		reducer.ContinueSampling()
 		nextResponse, continueErr := continueResponse(nextRequest)
 		if continueErr != nil {
@@ -1107,18 +1110,9 @@ func (s *Server) writeNonStreamingMessageWithSchemas(w http.ResponseWriter, body
 					"codex_event": event.Event,
 				}))
 			}
-			if shouldTraceCodexEvent(event.Event) {
-				fields := map[string]any{
-					"elapsed_ms":  traceDurationMS(streamStarted),
-					"codex_event": event.Event,
-				}
-				if msg := eventErrorMessage(event); msg != "" {
-					fields["upstream_error"] = msg
-				}
-				s.trace("stream.event", mergeTraceFields(traceBase, fields))
-			}
 			segmentTrace.observe(event)
 			next, reduceErr := reducer.ReduceNamed(event.Event, event.Data)
+			s.traceStreamEvent(traceBase, streamStarted, event, reducer, next)
 			if reduceErr != nil {
 				return reduceErr
 			}
@@ -1138,6 +1132,13 @@ func (s *Server) writeNonStreamingMessageWithSchemas(w http.ResponseWriter, body
 		}
 		sameWebSocket := currentHeaders.Get("x-claudodex-transport") == "websocket" && s.hasWebSocket(chainKey)
 		nextRequest := continuationRequest(fullRequest, trace, sameWebSocket)
+		s.trace("stream.continue", mergeTraceFields(traceBase, map[string]any{
+			"elapsed_ms":           traceDurationMS(streamStarted),
+			"response_id":          trace.ResponseID,
+			"previous_response_id": nextRequest.PreviousResponseID,
+			"upstream_input_items": len(nextRequest.Input),
+			"same_websocket":       sameWebSocket,
+		}))
 		reducer.ContinueSampling()
 		nextResponse, continueErr := continueResponse(nextRequest)
 		if continueErr != nil {

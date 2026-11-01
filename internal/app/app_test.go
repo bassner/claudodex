@@ -28,7 +28,7 @@ func (f *fakeLauncher) Launch(_ context.Context, args []string, cfg launcher.Con
 
 func TestVersionCommand(t *testing.T) {
 	var out bytes.Buffer
-	code := Run(context.Background(), Config{Version: "1.2.3", Stdout: &out}, []string{"clx:version"})
+	code := Run(context.Background(), Config{Home: t.TempDir(), Version: "1.2.3", Stdout: &out}, []string{"clx:version"})
 	if code != 0 {
 		t.Fatalf("code = %d", code)
 	}
@@ -54,7 +54,7 @@ func TestPromptClxPassesThrough(t *testing.T) {
 
 func TestForcePassThroughDropsSeparator(t *testing.T) {
 	launcher := &fakeLauncher{}
-	code := Run(context.Background(), Config{Launcher: launcher}, []string{"--", "clx:doctor"})
+	code := Run(context.Background(), Config{Home: t.TempDir(), Launcher: launcher}, []string{"--", "clx:doctor"})
 	if code != 0 {
 		t.Fatalf("code = %d", code)
 	}
@@ -65,7 +65,7 @@ func TestForcePassThroughDropsSeparator(t *testing.T) {
 
 func TestStartupModelFlagsPassConfiguredTargetsToLauncher(t *testing.T) {
 	launcher := &fakeLauncher{}
-	code := Run(context.Background(), Config{Launcher: launcher}, []string{
+	code := Run(context.Background(), Config{Home: t.TempDir(), Launcher: launcher}, []string{
 		"--claudodex-opus-model", "gpt-opus-next",
 		"--claudodex-models=sonnet=gpt-sonnet-next,haiku=gpt-haiku-next",
 		"--model", "sonnet",
@@ -87,7 +87,7 @@ func TestStartupModelFlagsPassConfiguredTargetsToLauncher(t *testing.T) {
 
 func TestStartupModelFlagEqualToCompiledDefaultIsPinned(t *testing.T) {
 	launcher := &fakeLauncher{}
-	code := Run(context.Background(), Config{Launcher: launcher}, []string{
+	code := Run(context.Background(), Config{Home: t.TempDir(), Launcher: launcher}, []string{
 		"--claudodex-opus-model", modelconfig.DefaultOpusModel,
 	})
 	if code != 0 {
@@ -104,7 +104,7 @@ func TestStartupModelFlagEqualToCompiledDefaultIsPinned(t *testing.T) {
 func TestCallerModelConfigOverridesArePinned(t *testing.T) {
 	launcher := &fakeLauncher{}
 	callerModels := modelconfig.Config{Sonnet: "gpt-6.2-terra"}
-	code := Run(context.Background(), Config{Launcher: launcher, Models: callerModels}, []string{"--model", "sonnet"})
+	code := Run(context.Background(), Config{Home: t.TempDir(), Launcher: launcher, Models: callerModels}, []string{"--model", "sonnet"})
 	if code != 0 {
 		t.Fatalf("code = %d", code)
 	}

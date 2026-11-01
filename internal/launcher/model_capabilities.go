@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bassner/claudodex/internal/codex"
+	"github.com/bassner/claudodex/internal/modelcatalog"
 	"github.com/bassner/claudodex/internal/modelconfig"
 )
 
@@ -111,7 +112,19 @@ func writeClaudeContextCompatibilityCache(sidecarDir string, models []codex.Mode
 			clientData = cloneJSONMap(clientData)
 		}
 		clientData["kelp_forest_sonnet"] = strconv.FormatInt(modelContextWindow(models, modelCfg.Sonnet, modelconfig.WithLongContext(modelCfg.Sonnet)), 10)
+		delete(clientData, "rowan_thicket")
 		next["clientDataCache"] = clientData
+		if slots := mapValue(next["clientDataCacheSlots"]); slots != nil {
+			for _, raw := range slots {
+				if slot := mapValue(raw); slot != nil {
+					if data := mapValue(slot["data"]); data != nil {
+						delete(data, "rowan_thicket")
+					}
+				}
+			}
+		}
+		windows, _ := modelcatalog.AutoCompactWindows(models, modelCfg)
+		next["autoCompactWindowsCache"] = windows
 		next["additionalModelOptionsCache"] = claudeAdditionalModelOptions(modelCfg)
 		next = clearSidecarOAuthBranding(next)
 		if reflect.DeepEqual(config, next) {

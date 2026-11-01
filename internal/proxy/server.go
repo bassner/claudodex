@@ -17,6 +17,7 @@ import (
 	"github.com/bassner/claudodex/internal/auth"
 	"github.com/bassner/claudodex/internal/codex"
 	"github.com/bassner/claudodex/internal/convert"
+	"github.com/bassner/claudodex/internal/modelcatalog"
 	"github.com/bassner/claudodex/internal/modelconfig"
 )
 
@@ -241,7 +242,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 		case r.Method == http.MethodPost && path == "/v1/messages":
 			s.handleMessages(w, r)
 		case r.Method == http.MethodGet && path == "/api/claude_cli/bootstrap":
-			writeJSON(w, http.StatusOK, bootstrapResponse(s.cfg.ModelConfig))
+			writeJSON(w, http.StatusOK, bootstrapResponse(s.cfg.ModelConfig, s.cfg.Models))
 		case r.Method == http.MethodGet && path == "/api/oauth/usage":
 			s.handleUsage(w, r)
 		case r.Method == http.MethodGet && (path == "/api/oauth/profile" || path == "/api/claude_cli_profile"):
@@ -406,10 +407,12 @@ func modelContextWindow(models []codex.ModelInfo, slug, route string) (int64, bo
 	return 0, false
 }
 
-func bootstrapResponse(modelCfg modelconfig.Config) map[string]any {
+func bootstrapResponse(modelCfg modelconfig.Config, catalog []codex.ModelInfo) map[string]any {
 	modelCfg = modelCfg.Normalize()
+	windows, _ := modelcatalog.AutoCompactWindows(catalog, modelCfg)
 	return map[string]any{
-		"client_data": nil,
+		"client_data":          nil,
+		"auto_compact_windows": windows,
 		"additional_model_options": []map[string]string{
 			{"model": modelconfig.WithLongContext(modelCfg.Opus), "name": modelCfg.Opus, "description": modelCfg.Opus + " - default complex-work model"},
 			{"model": modelconfig.WithLongContext(modelCfg.Sonnet), "name": modelCfg.Sonnet, "description": modelCfg.Sonnet + " - everyday coding model"},

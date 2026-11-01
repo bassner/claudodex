@@ -21,6 +21,7 @@ import (
 	"github.com/bassner/claudodex/internal/modelconfig"
 	"github.com/bassner/claudodex/internal/proxy"
 	"github.com/bassner/claudodex/internal/selfupdate"
+	"github.com/bassner/claudodex/internal/startup"
 )
 
 type Config struct {
@@ -38,6 +39,8 @@ type Config struct {
 	ModelPins            modelconfig.Pins
 	Updater              Updater
 	StatusLineExecutable string
+	Startup              *startup.Display
+	RuntimeContext       context.Context
 }
 
 type Updater interface {
@@ -65,13 +68,33 @@ func Run(ctx context.Context, cfg Config, args []string) int {
 	if launcher.IsStatusLineWrapperCommand(args) {
 		return launcher.RunStatusLineWrapper(args[1:], cfg.Stdin, cfg.Stdout, cfg.Stderr)
 	}
+	showStartup := launcher.DetectInteractive(args, cfg.Stdin, os.Stdout)
+	launchArgs := args
+	if launcher.ForcePassThrough(launchArgs) {
+		launchArgs = launchArgs[1:]
+	}
+	if _, _, command := launcher.ClaudodexCommand(launchArgs); command || launcher.DirectClaudeFastPath(launchArgs) {
+		showStartup = false
+	}
+	cfg.Startup = startup.New(cfg.Stderr, cfg.Version, showStartup)
+	cfg.RuntimeContext = ctx
+	ctx = cfg.Startup.Context(ctx)
+	defer cfg.Startup.Close()
+	cfg.Startup.Info("🧹", "Checking trace retention (7 days since last write)")
+	removed, bytes, cleanupErr := proxy.PruneTraceLogs(cfg.Home, time.Now())
+	if cleanupErr != nil {
+		cfg.Startup.Warn("Could not remove some expired trace files: %v", cleanupErr)
+	}
+	if removed > 0 {
+		cfg.Startup.Info("🧹", "Removed %d expired trace files (%.1f MiB)", removed, float64(bytes)/(1024*1024))
+	}
 	rawArgs := append([]string(nil), args...)
 	var err error
 	var pins modelconfig.Pins
 	args, cfg.Models, pins, err = extractStartupModelConfigWithPins(args, cfg.Models)
 	cfg.ModelPins |= pins
 	if err != nil {
-		fmt.Fprintln(cfg.Stderr, err)
+		cfg.Startup.Error(err)
 		return 2
 	}
 	manualUpdate := len(args) > 0 && args[0] == "clx:update"
@@ -84,11 +107,13 @@ func Run(ctx context.Context, cfg Config, args []string) int {
 		yes = len(args) == 2
 	}
 	if cfg.Updater != nil {
+		cfg.Startup.Info("🔎", "Checking for Claudodex updates")
 		result, updateErr := cfg.Updater.BeforeLaunch(ctx, selfupdate.Request{Args: rawArgs, Manual: manualUpdate, Yes: yes})
 		cfg.StatusLineExecutable = result.StatusLineExecutable
 		if updateErr != nil {
-			fmt.Fprintf(cfg.Stderr, "Claudodex update: %v\n", updateErr)
+			cfg.Startup.Warn("Update check failed: %v", updateErr)
 			if manualUpdate {
+				cfg.Startup.Close()
 				return 1
 			}
 		}
@@ -150,6 +175,8 @@ func runClaude(ctx context.Context, cfg Config, args []string) int {
 		Models:               cfg.Models,
 		ModelPins:            cfg.ModelPins,
 		StatusLineExecutable: cfg.StatusLineExecutable,
+		Startup:              cfg.Startup,
+		RuntimeContext:       cfg.RuntimeContext,
 	})
 	if err == nil {
 		return 0
@@ -160,7 +187,11 @@ func runClaude(ctx context.Context, cfg Config, args []string) int {
 		return exitErr.Code
 	}
 
-	fmt.Fprintln(cfg.Stderr, err)
+	if cfg.Startup != nil {
+		cfg.Startup.Error(err)
+	} else {
+		fmt.Fprintln(cfg.Stderr, err)
+	}
 	return 1
 }
 
