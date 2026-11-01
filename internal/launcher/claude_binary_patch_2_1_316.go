@@ -197,6 +197,16 @@ func patchContextWarningHint_2_1_316(data []byte) bool {
 	return replaceClaude208Function(data, `function u(o,e,n){let{source:d,window:r}=jb`, "export{pIo", `function u(o,e,n){return null}`)
 }
 
+// Suppress Anthropic's Opus/Sonnet 1M upgrade hint in both the context
+// footer and tips. Claudodex resolves context limits from the Codex catalog.
+func patchContextUpgradeHint_2_1_316(data []byte) bool {
+	const start = `function tTe(e){let t=n();if(!t)return null;switch(e){case"warning":return`
+	if bytes.Count(data, []byte(start)) != 1 {
+		return false
+	}
+	return replaceClaude208Function(data, start, "\nexport{tTe};", `function tTe(e){return null}`)
+}
+
 func patchActiveHeaderBrand_2_1_316(data []byte) bool {
 	const target = `Claude Code";function rHe(h){`
 	if bytes.Count(data, []byte(target)) != 1 {
@@ -274,6 +284,7 @@ func claude316SourceTransformationsForConfig(claudodexVersion, claudeVersion str
 		{"active-fast-mode-brand", patchActiveFastModeBrand_2_1_316},
 		{"fast-mode-pricing", patchFastModePricing_2_1_316},
 		{"context-warning", patchContextWarningHint_2_1_316},
+		{"context-upgrade-hint", patchContextUpgradeHint_2_1_316},
 		{"resume-hints", patchResumeCommandHints_2_1_316},
 		{"remote-control", func(data []byte) bool {
 			for _, transformation := range claude316RemoteControlTransformations() {

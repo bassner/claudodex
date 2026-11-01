@@ -21,7 +21,7 @@ import (
 
 const (
 	claudodexPatchedClaudeDirName = "patched-claude"
-	claudodexPatchSchemaVersion   = "claude-ui-patch-v126"
+	claudodexPatchSchemaVersion   = "claude-ui-patch-v127"
 )
 
 var (

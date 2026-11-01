@@ -25,7 +25,8 @@ func TestInstalledClaudeStartupCompactionChild(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
-	err := (ProcessLauncher{}).Launch(ctx, []string{"--model", "gpt-6.1-sol", "--dangerously-skip-permissions", "--system-prompt", "Local synthetic acceptance fixture.", "Reply ready"}, Config{
+	model := os.Getenv("CLAUDODEX_STARTUP_TEST_MODEL")
+	err := (ProcessLauncher{}).Launch(ctx, []string{"--model", model, "--dangerously-skip-permissions", "--system-prompt", "Local synthetic acceptance fixture.", "Reply ready"}, Config{
 		Version: "0.5.3", Home: os.Getenv("CLAUDODEX_STARTUP_TEST_HOME"), CodexBaseURL: os.Getenv("CLAUDODEX_CODEX_BASE_URL"), Interactive: true,
 	})
 	if err != nil && ctx.Err() == nil {
@@ -34,6 +35,14 @@ func TestInstalledClaudeStartupCompactionChild(t *testing.T) {
 }
 
 func TestInstalledClaudeStartupAndModelCompaction(t *testing.T) {
+	installedClaudeStartupAndModelCompaction(t, false)
+}
+
+func TestInstalledClaudeContextUpgradeHint(t *testing.T) {
+	installedClaudeStartupAndModelCompaction(t, true)
+}
+
+func installedClaudeStartupAndModelCompaction(t *testing.T, contextHint bool) {
 	nativeCatalogRequire(t)
 	tmux, err := exec.LookPath("tmux")
 	if err != nil {
@@ -85,6 +94,13 @@ func TestInstalledClaudeStartupAndModelCompaction(t *testing.T) {
 			return
 		}
 		modelRequests.Add(1)
+		if contextHint {
+			recorder := httptest.NewRecorder()
+			nativeCatalogText(recorder, "startup-handoff-ready")
+			w.Header().Set("content-type", "text/event-stream")
+			_, _ = w.Write(bytes.ReplaceAll(recorder.Body.Bytes(), []byte(`"input_tokens":2`), []byte(`"input_tokens":270000`)))
+			return
+		}
 		nativeCatalogText(w, "startup-handoff-ready")
 	}))
 	defer upstream.Close()
@@ -100,12 +116,17 @@ func TestInstalledClaudeStartupAndModelCompaction(t *testing.T) {
 	socket := filepath.Join(socketDir, "tmux.sock")
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
+	model := "gpt-6.1-sol"
+	if contextHint {
+		model = "opus"
+	}
 	command := "cd " + shellQuote(work) + " && env"
 	for key, value := range map[string]string{
 		"HOME": userHome, "CLAUDE_CONFIG_DIR": "", "CLAUDE_SECURESTORAGE_CONFIG_DIR": "", "CLAUDODEX_DISABLE_REAL_CLAUDE_BRIDGE_AUTH": "1",
 		"CLAUDODEX_STARTUP_TEST_CHILD": "1", "CLAUDODEX_STARTUP_TEST_HOME": home, "CLAUDODEX_CODEX_BASE_URL": upstream.URL,
 		"CLAUDODEX_DISABLE_CODEX_WEBSOCKET": "1", "CLAUDODEX_DISABLE_CLAUDE_PATCH": "", "TERM": "xterm-256color",
-		"CLAUDODEX_PROXY_LOG": filepath.Join(artifacts, "http.log"),
+		"CLAUDODEX_PROXY_LOG":          filepath.Join(artifacts, "http.log"),
+		"CLAUDODEX_STARTUP_TEST_MODEL": model,
 	} {
 		command += " " + key + "=" + shellQuote(value)
 	}
@@ -185,6 +206,14 @@ func TestInstalledClaudeStartupAndModelCompaction(t *testing.T) {
 	screen = wait("harness-handoff", "startup-handoff-ready")
 	if strings.Contains(screen, "Loading the Codex model catalog") || strings.Contains(screen, "[INFO]") || strings.Contains(screen, "▗▄▄▖") {
 		t.Fatalf("startup screen remained after handoff: %s", screen)
+	}
+	if contextHint {
+		screen = wait("high-context-footer", "% until auto-compact")
+		if strings.Contains(screen, "/model opus[1m]") || strings.Contains(screen, "/model sonnet[1m]") || strings.Contains(screen, "x more context") {
+			t.Fatalf("Anthropic context upgrade recommendation remained in footer:\n%s", screen)
+		}
+		t.Logf("real terminal context footer capture: %s", artifacts)
+		return
 	}
 	for _, check := range []struct{ model, window string }{{"gpt-6.1-sol", "475k"}, {"gpt-6-luna", "285k"}, {"opus", "285k"}, {"gpt-6.1-sol[1m]", "828.4k"}} {
 		send("/model "+check.model, "Enter")
