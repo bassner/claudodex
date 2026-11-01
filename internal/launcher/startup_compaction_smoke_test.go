@@ -186,12 +186,18 @@ func TestInstalledClaudeStartupAndModelCompaction(t *testing.T) {
 	if strings.Contains(screen, "Loading the Codex model catalog") || strings.Contains(screen, "[INFO]") || strings.Contains(screen, "▗▄▄▖") {
 		t.Fatalf("startup screen remained after handoff: %s", screen)
 	}
-	for _, check := range []struct{ model, window string }{{"gpt-6.1-sol", "475k"}, {"gpt-6-luna", "285k"}, {"opus", "475k"}, {"gpt-6.1-sol[1m]", "828.4k"}} {
+	for _, check := range []struct{ model, window string }{{"gpt-6.1-sol", "475k"}, {"gpt-6-luna", "285k"}, {"opus", "285k"}, {"gpt-6.1-sol[1m]", "828.4k"}} {
 		send("/model "+check.model, "Enter")
 		waitModel(check.model)
 		send("/autocompact", "Enter")
 		screen = wait("window-"+check.model, "Select auto-compact window")
-		if !strings.Contains(screen, check.window) {
+		current := ""
+		for _, line := range strings.Split(screen, "\n") {
+			if strings.Contains(line, "Current setting for ") {
+				current = line
+			}
+		}
+		if !strings.Contains(current, check.window+" tokens") {
 			t.Fatalf("%s did not use its own %s compaction window:\n%s", check.model, check.window, screen)
 		}
 		send("Escape")
