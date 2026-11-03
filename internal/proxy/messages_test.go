@@ -216,7 +216,7 @@ func TestMessagesHTTPToolContinuationReplaysEncryptedReasoningLosslessly(t *test
 				`data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"**Inspecting state**"}],"encrypted_content":"opaque-reasoning-state","provider_extension":{"keep":true}}}`,
 				``,
 				`event: response.output_item.done`,
-				`data: {"type":"response.output_item.done","output_index":1,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Checking."}]}}`,
+				`data: {"type":"response.output_item.done","output_index":1,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"commentary","internal_chat_message_metadata_passthrough":{"content_token_count":42,"create_time":12.25,"future":"keep"},"content":[{"type":"output_text","text":"Checking."}]}}`,
 				``,
 				`event: response.output_item.done`,
 				`data: {"type":"response.output_item.done","output_index":2,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"Read","arguments":"{\"file_path\":\"a.go\"}"}}`,
@@ -336,6 +336,13 @@ func TestMessagesHTTPToolContinuationReplaysEncryptedReasoningLosslessly(t *test
 		t.Fatalf("unknown reasoning fields were not replayed: %#v", reasoning)
 	}
 	commentary := input[2].(map[string]any)
+	metadata := commentary["internal_chat_message_metadata_passthrough"].(map[string]any)
+	if _, exists := metadata["content_token_count"]; exists {
+		t.Fatal("response-only token count replayed through tool continuation")
+	}
+	if metadata["create_time"] != 12.25 || metadata["future"] != "keep" {
+		t.Fatal("other replay metadata lost")
+	}
 	if commentary["phase"] != "commentary" {
 		t.Fatalf("assistant phase was not replayed: %#v", commentary)
 	}

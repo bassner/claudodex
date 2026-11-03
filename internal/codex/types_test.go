@@ -161,3 +161,60 @@ func TestInputItemPreservesMessagePhaseAndRichContent(t *testing.T) {
 		t.Fatalf("rich message content was not preserved: %#v", got)
 	}
 }
+
+func TestInputItemOmitsOnlyResponseTokenCountWithoutMutatingRecordedItem(t *testing.T) {
+	for _, metadata := range []string{`{"content_token_count":42,"create_time":12.25,"future":{"content_token_count":7}}`, `{"content_token_count":0}`, `null`} {
+		var item InputItem
+		original := `{"type":"reasoning","encrypted_content":"opaque","provider_extension":{"content_token_count":8},"internal_chat_message_metadata_passthrough":` + metadata + `}`
+		if err := json.Unmarshal([]byte(original), &item); err != nil {
+			t.Fatal(err)
+		}
+		before := string(item.Raw["internal_chat_message_metadata_passthrough"])
+		for range 2 {
+			encoded, err := json.Marshal(item)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got map[string]json.RawMessage
+			if err := json.Unmarshal(encoded, &got); err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(got["internal_chat_message_metadata_passthrough"], &fields); err != nil {
+				t.Fatal(err)
+			}
+			if _, exists := fields["content_token_count"]; exists {
+				t.Fatal("response token count replayed")
+			}
+			if strings.Contains(metadata, "create_time") && (!strings.Contains(string(encoded), `"create_time":12.25`) || !strings.Contains(string(encoded), `"future":{"content_token_count":7}`)) {
+				t.Fatal("other metadata lost")
+			}
+			if string(got["encrypted_content"]) != `"opaque"` || !strings.Contains(string(got["provider_extension"]), `"content_token_count":8`) {
+				t.Fatal("opaque fields lost")
+			}
+			if string(item.Raw["internal_chat_message_metadata_passthrough"]) != before {
+				t.Fatal("recorded response mutated")
+			}
+		}
+	}
+}
+
+func TestInputItemPreservesUnknownMetadataShapes(t *testing.T) {
+	for _, metadata := range []string{`42`, `"future"`, `[]`, `[{"content_token_count":7}]`, `true`} {
+		item := InputItem{Type: "message", Raw: map[string]json.RawMessage{
+			"type": json.RawMessage(`"message"`),
+			"internal_chat_message_metadata_passthrough": json.RawMessage(metadata),
+		}}
+		encoded, err := json.Marshal(item)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &got); err != nil {
+			t.Fatal(err)
+		}
+		if string(got["internal_chat_message_metadata_passthrough"]) != metadata {
+			t.Fatalf("opaque metadata changed: %s", encoded)
+		}
+	}
+}

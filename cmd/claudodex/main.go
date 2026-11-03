@@ -8,7 +8,7 @@ import (
 	"github.com/bassner/claudodex/internal/selfupdate"
 )
 
-var version = "0.5.5"
+var version = "0.5.6"
 var installMethod = "unknown"
 
 func main() {

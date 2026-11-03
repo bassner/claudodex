@@ -17,7 +17,7 @@ import (
 	"github.com/bassner/claudodex/internal/codex"
 )
 
-func TestInstalledClaudeRelativeMarkdownFileLinksChild(t *testing.T) {
+func TestClaudeRelativeMarkdownFileLinksChild(t *testing.T) {
 	if os.Getenv("CLAUDODEX_LINK_TEST_CHILD") != "1" {
 		t.Skip("private terminal child only")
 	}
@@ -109,7 +109,7 @@ func TestInstalledClaudeRelativeMarkdownFileLinks(t *testing.T) {
 	} {
 		command += " " + key + "=" + shellQuote(value)
 	}
-	command += " " + shellQuote(executable) + " -test.run='^TestInstalledClaudeRelativeMarkdownFileLinksChild$' -test.v"
+	command += " " + shellQuote(executable) + " -test.run='^TestClaudeRelativeMarkdownFileLinksChild$' -test.v"
 	if output, err := exec.CommandContext(ctx, tmux, "-S", socket, "new-session", "-d", "-s", "links", "-x", "140", "-y", "45", "/bin/sh -c "+shellQuote(command)).CombinedOutput(); err != nil {
 		t.Fatalf("start private terminal: %v: %s", err, output)
 	}

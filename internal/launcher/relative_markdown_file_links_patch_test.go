@@ -16,12 +16,16 @@ func TestRelativeMarkdownFileLinksPatch(t *testing.T) {
 	}{
 		{"2.1.314", "WJn", "Jn", "Bo", "mW", "kZo", "M3", "CZo", "vZo", "v7r", "hp", patchRelativeMarkdownFileLinks_2_1_314},
 		{"2.1.316", "yZn", "Qn", "Po", "DW", "Nts", "X3", "Fts", "Lts", "SQr", "Dp", patchRelativeMarkdownFileLinks_2_1_316},
+		{"2.1.317", "ior", "Jn", "Po", "y2", "ods", "T4", "sds", "rds", "Aoo", "fp", patchRelativeMarkdownFileLinks_2_1_317},
 	} {
 		t.Run(test.version, func(t *testing.T) {
 			// Exact normalizer from each SHA-verified source. Its injected path
 			// and safety dependencies below make calls to the native validators
 			// observable without requiring an installed Claude binary in CI.
 			original := fmt.Sprintf(`function %s(e){let n=/^file:/i.test(e);if(!n){if(!(e.startsWith("/")&&!%s(e)))return e}let r=n?e.slice(5):e;if(r.startsWith("//")){if(r=r.slice(2),r==="localhost")r="/";else if(r.startsWith("localhost/"))r=r.slice(9)}let o=r.search(/[#?]/),s=o===-1?"":r.slice(o),a=o===-1?r:r.slice(0,o);if(a==="")return null;try{a=decodeURIComponent(a)}catch{}a=%s(a);let u=bn(a)?a:kn(pe(),a),h=%s(u);if(h===null)return null;let f=h+s;return %s(f)?null:f}`, test.name, test.network, test.normalize, test.validate, test.defang)
+			if test.version == "2.1.317" {
+				original = strings.NewReplacer("bn(", "yn(", "kn(", "Tn(").Replace(original)
+			}
 			markdown := fmt.Sprintf(`function Jt(e){let t=%s(e);if(t===null||%s.test(t)||je.test(t)||t!==t.trimEnd())return null;if(ze.test(t))return t;let n=%s(t),r=n.some((o)=>/^file:/i.test(%s(o)));return %s(t,n)||r?null:t}`, test.name, test.control, test.decode, test.unescape, test.unsafe)
 			plugin := `function ` + test.plugin + `(e){let r=/^www\./i.test(e)?` + "`http://${e}`" + `:` + test.name + `(e)??e;try{return new URL(r).href}catch{return r}}`
 			const prefix, suffix = "untouched prefix;", "function nextModule(){return 1}"
@@ -49,7 +53,7 @@ func TestRelativeMarkdownFileLinksPatch(t *testing.T) {
 			markdownStart := len(prefix) + len(original) + len(plugin)
 			patchedMarkdown := string(data[markdownStart : markdownStart+len(markdown)])
 			script := `const assert=require("node:assert/strict"),path=require("node:path"),{pathToFileURL}=require("node:url");
-const pe=()=>"/workspace/repo",bn=path.isAbsolute,kn=path.resolve;
+const pe=()=>"/workspace/repo",bn=path.isAbsolute,kn=path.resolve,yn=bn,Tn=kn;
 let validated=[],defanged=[],rejectURI=false,rejectFinal=false;
 const NETWORK=e=>/^[\\/]{2}/.test(e),NORMALIZE=e=>e;
 const VALIDATE=e=>{validated.push(e);return rejectURI?null:pathToFileURL(e).href};

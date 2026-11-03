@@ -14,6 +14,7 @@ func TestContextUpgradeHintPatch(t *testing.T) {
 	}{
 		{"2.1.314", "RCe", patchContextUpgradeHint_2_1_314},
 		{"2.1.316", "tTe", patchContextUpgradeHint_2_1_316},
+		{"2.1.317", "oAe", patchContextUpgradeHint_2_1_317},
 	} {
 		t.Run(test.version, func(t *testing.T) {
 			// Exact helper body from the SHA-verified native version. The footer

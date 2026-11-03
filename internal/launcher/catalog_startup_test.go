@@ -130,8 +130,6 @@ func TestInstalledClaudeCatalogStartupFakeUpstream(t *testing.T) {
 	}))
 	defer upstream.Close()
 	t.Setenv("CLAUDODEX_CODEX_BASE_URL", upstream.URL)
-	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
-	defer cancel()
 	for index, route := range []struct {
 		requested, expected, effort string
 		cached                      bool
@@ -164,7 +162,10 @@ func TestInstalledClaudeCatalogStartupFakeUpstream(t *testing.T) {
 			args = append(args, "--effort", "max")
 		}
 		var stdout, stderr bytes.Buffer
+		// Give every independent launch its full budget, including binary verification.
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		err := (ProcessLauncher{}).Launch(ctx, args, Config{Version: "smoke", Home: home, CodexBaseURL: upstream.URL, Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr})
+		cancel()
 		name := fmt.Sprintf("launch-%d", index)
 		for suffix, data := range map[string][]byte{"-stdout.jsonl": stdout.Bytes(), "-stderr.txt": stderr.Bytes()} {
 			if writeErr := os.WriteFile(filepath.Join(artifacts, name+suffix), data, 0o600); writeErr != nil {
@@ -296,8 +297,6 @@ func TestInstalledClaudeCatalogEffortPreferencesFakeUpstream(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
-	defer cancel()
 	for index, current := range tests {
 		phase.Store(int32(index))
 		t.Setenv("CLAUDE_CODE_EFFORT_LEVEL", current.envEffort)
@@ -305,7 +304,10 @@ func TestInstalledClaudeCatalogEffortPreferencesFakeUpstream(t *testing.T) {
 			t.Fatal(err)
 		}
 		var stdout, stderr bytes.Buffer
+		// Give every independent launch its full budget, including binary verification.
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		err := (ProcessLauncher{}).Launch(ctx, []string{"-p", "Reply with native-effort-ok", "--model", "opus", "--max-turns", "1", "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose", "--system-prompt", "Local synthetic catalog effort acceptance fixture."}, Config{Version: "smoke", Home: home, CodexBaseURL: upstream.URL, Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr})
+		cancel()
 		for suffix, data := range map[string][]byte{"-stdout.jsonl": stdout.Bytes(), "-stderr.txt": stderr.Bytes()} {
 			if err := os.WriteFile(filepath.Join(artifacts, current.name+suffix), data, 0o600); err != nil {
 				t.Fatal(err)
@@ -344,7 +346,7 @@ func TestInstalledClaudeCatalogEffortPreferencesFakeUpstream(t *testing.T) {
 }
 
 // This helper runs only as a child inside the test's private tmux server.
-func TestInstalledClaudeCatalogTmuxChild(t *testing.T) {
+func TestClaudeCatalogTmuxChild(t *testing.T) {
 	if os.Getenv("CLAUDODEX_CATALOG_TMUX_CHILD") != "1" {
 		t.Skip("private tmux child only")
 	}
@@ -449,7 +451,7 @@ func TestInstalledClaudeCatalogTmuxInheritedFastFakeUpstream(t *testing.T) {
 	for key, value := range assignments {
 		command += " " + key + "=" + shellQuote(value)
 	}
-	command += " " + shellQuote(executable) + " -test.run='^TestInstalledClaudeCatalogTmuxChild$' -test.v"
+	command += " " + shellQuote(executable) + " -test.run='^TestClaudeCatalogTmuxChild$' -test.v"
 	if output, err := exec.CommandContext(ctx, tmux, "-S", socket, "new-session", "-d", "-s", "catalog", "-x", "130", "-y", "40", command).CombinedOutput(); err != nil {
 		t.Fatalf("start private tmux: %v: %s", err, output)
 	}

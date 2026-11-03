@@ -22,7 +22,7 @@ const instructionResumeGuidanceMarker = "CLX_NATIVE_INSTRUCTION_GUIDANCE_V1"
 const instructionResumeFinalMarker = "native-instruction-resume-complete"
 const instructionResumeReadRounds = 16
 
-func TestInstalledClaudeInstructionResumeChild(t *testing.T) {
+func TestClaudeInstructionResumeChild(t *testing.T) {
 	if os.Getenv("CLAUDODEX_INSTRUCTION_TEST_CHILD") != "1" {
 		t.Skip("private terminal child only")
 	}
@@ -262,7 +262,7 @@ func TestInstalledClaudeInstructionResume(t *testing.T) {
 	} {
 		command += " " + key + "=" + shellQuote(value)
 	}
-	command += " " + shellQuote(executable) + " -test.run='^TestInstalledClaudeInstructionResumeChild$' -test.v"
+	command += " " + shellQuote(executable) + " -test.run='^TestClaudeInstructionResumeChild$' -test.v"
 	if output, err := exec.CommandContext(ctx, tmux, "-S", socket, "new-session", "-d", "-s", "instructions", "-x", "140", "-y", "48", "/bin/sh -c "+shellQuote(command)).CombinedOutput(); err != nil {
 		t.Fatalf("start private terminal: %v: %s", err, output)
 	}

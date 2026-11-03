@@ -10,6 +10,8 @@ const catalogModelIDsEnv = "CLAUDODEX_MODEL_IDS"
 func patchClaudeCatalogRecognition(data []byte, source claudeSource) bool {
 	var function, matches, expectedSHA string
 	switch source.Version {
+	case "2.1.317":
+		function, matches, expectedSHA = "Ect", "Lv", claude317SHA
 	case "2.1.314":
 		function, matches, expectedSHA = "kat", "uv", claude314SHA
 	case "2.1.316":

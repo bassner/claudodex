@@ -304,3 +304,31 @@ func containsAll(value string, wants ...string) bool {
 	}
 	return true
 }
+
+func TestContinuationAfterWebSocketReconnectOmitsOnlyResponseTokenCounts(t *testing.T) {
+	var item codex.InputItem
+	const raw = `{"type":"reasoning","id":"rs_reconnect","encrypted_content":"opaque","future":{"keep":true},"internal_chat_message_metadata_passthrough":{"create_time":42,"content_token_count":17,"future":"keep"}}`
+	if err := json.Unmarshal([]byte(raw), &item); err != nil {
+		t.Fatal(err)
+	}
+	request := codex.Request{Store: false, Input: []codex.InputItem{{Type: "message", Role: "user"}}}
+	trace := responseTrace{ResponseID: "old_socket_response", Output: []codex.InputItem{item}}
+	same := continuationRequest(request, trace, true)
+	if same.PreviousResponseID != trace.ResponseID || len(same.Input) != 0 {
+		t.Fatal("live WebSocket continuation lost")
+	}
+	reconnected := continuationRequest(request, trace, false)
+	encoded, err := json.Marshal(reconnected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconnected.PreviousResponseID != "" || len(reconnected.Input) != 2 {
+		t.Fatal("reconnection did not replay ordered items")
+	}
+	if strings.Contains(string(encoded), "content_token_count") || !containsAll(string(encoded), `"encrypted_content":"opaque"`, `"create_time":42`, `"future":"keep"`, `"future":{"keep":true}`) {
+		t.Fatal("reconnection metadata changed")
+	}
+	if !strings.Contains(string(item.Raw["internal_chat_message_metadata_passthrough"]), "content_token_count") {
+		t.Fatal("recorded response mutated")
+	}
+}

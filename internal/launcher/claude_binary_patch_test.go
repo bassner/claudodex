@@ -1990,3 +1990,26 @@ func TestDetectClaudeVersionFromResolvedPath(t *testing.T) {
 		t.Fatal("non-version path was accepted")
 	}
 }
+
+func TestReplaceAllFixedMatchesSinglePassBytes(t *testing.T) {
+	for _, test := range []struct{ input, old, replacement string }{
+		{"old oldold tail", "old", "new"},
+		{"aaaaa", "aa", "b"},
+		{"prefix old suffix", "missing", "new"},
+		{"old old", "old", "old"},
+	} {
+		data := []byte(test.input)
+		want := bytes.ReplaceAll(data, []byte(test.old), fitDisplayReplacement([]byte(test.old), test.replacement))
+		changed := replaceAllFixed(data, test.old, test.replacement)
+		if changed != strings.Contains(test.input, test.old) || !bytes.Equal(data, want) {
+			t.Fatalf("fixed replacement differs from a single nonoverlapping pass for %q", test.input)
+		}
+	}
+}
+
+func TestReplaceAllFixedRejectsEmptyPattern(t *testing.T) {
+	data := []byte("unchanged")
+	if replaceAllFixed(data, "", "anything") || string(data) != "unchanged" {
+		t.Fatal("empty fixed replacement pattern changed data")
+	}
+}

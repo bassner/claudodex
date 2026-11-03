@@ -145,6 +145,22 @@ func (i InputItem) MarshalJSON() ([]byte, error) {
 		for key, value := range i.Raw {
 			raw[key] = append(json.RawMessage(nil), value...)
 		}
+		// Codex emits token counts as response-only telemetry. Keep the stored
+		// item intact and remove only this producer-only field from requests.
+		const metadataKey = "internal_chat_message_metadata_passthrough"
+		if metadata, ok := raw[metadataKey]; ok {
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(metadata, &fields); err == nil {
+				if _, present := fields["content_token_count"]; present {
+					delete(fields, "content_token_count")
+					encoded, err := json.Marshal(fields)
+					if err != nil {
+						return nil, err
+					}
+					raw[metadataKey] = encoded
+				}
+			}
+		}
 		if i.Arguments != "" {
 			encoded, err := json.Marshal(i.Arguments)
 			if err != nil {

@@ -13,6 +13,7 @@ func TestCatalogRecognitionOverlayRequiresExactRegisteredIdentity(t *testing.T) 
 	for _, test := range []struct{ version, sha, function, matches string }{
 		{"2.1.314", claude314SHA, "kat", "uv"},
 		{"2.1.316", claude316SHA, "tlt", "wv"},
+		{"2.1.317", claude317SHA, "Ect", "Lv"},
 	} {
 		t.Run(test.version, func(t *testing.T) {
 			original := `function ` + test.function + `(e){return[i.ANTHROPIC_DEFAULT_FABLE_MODEL,i.ANTHROPIC_DEFAULT_OPUS_MODEL,i.ANTHROPIC_DEFAULT_SONNET_MODEL,i.ANTHROPIC_DEFAULT_HAIKU_MODEL].some((n)=>n!==void 0&&` + test.matches + `(n,e))}`

@@ -19,7 +19,7 @@ import (
 	"github.com/bassner/claudodex/internal/codex"
 )
 
-func TestInstalledClaudeStartupCompactionChild(t *testing.T) {
+func TestClaudeStartupCompactionChild(t *testing.T) {
 	if os.Getenv("CLAUDODEX_STARTUP_TEST_CHILD") != "1" {
 		t.Skip("private terminal child only")
 	}
@@ -130,7 +130,7 @@ func installedClaudeStartupAndModelCompaction(t *testing.T, contextHint bool) {
 	} {
 		command += " " + key + "=" + shellQuote(value)
 	}
-	command += " " + shellQuote(executable) + " -test.run='^TestInstalledClaudeStartupCompactionChild$' -test.v"
+	command += " " + shellQuote(executable) + " -test.run='^TestClaudeStartupCompactionChild$' -test.v"
 	if output, err := exec.CommandContext(ctx, tmux, "-S", socket, "new-session", "-d", "-s", "startup", "-x", "120", "-y", "36", command).CombinedOutput(); err != nil {
 		t.Fatalf("start private terminal: %v: %s", err, output)
 	}
@@ -168,8 +168,10 @@ func installedClaudeStartupAndModelCompaction(t *testing.T, contextHint bool) {
 	}
 	wait := func(name, text string) string {
 		t.Helper()
+		var lastScreen string
 		for ctx.Err() == nil {
 			screen := capture()
+			lastScreen = screen
 			if strings.Contains(screen, text) {
 				_ = os.WriteFile(filepath.Join(artifacts, name+".txt"), []byte(screen), 0o600)
 				return screen
@@ -177,7 +179,7 @@ func installedClaudeStartupAndModelCompaction(t *testing.T, contextHint bool) {
 			acceptDialogs(screen)
 			time.Sleep(200 * time.Millisecond)
 		}
-		t.Fatalf("waiting for %s (%s):\n%s", name, text, capture())
+		t.Fatalf("waiting for %s (%s):\n%s", name, text, lastScreen)
 		return ""
 	}
 	waitModel := func(model string) {
@@ -242,7 +244,15 @@ func installedClaudeStartupAndModelCompaction(t *testing.T, contextHint bool) {
 		t.Fatalf("lower user window did not win: %s", screen)
 	}
 	send("Escape")
+	for strings.Contains(capture(), "Select auto-compact window") && ctx.Err() == nil {
+		time.Sleep(100 * time.Millisecond)
+	}
 	before := modelRequests.Load()
+	send("/model gpt-9-outside-catalog", "Enter")
+	wait("outside-catalog-model", `Codex model "gpt-9-outside-catalog" is not available in this account's catalog`)
+	if modelRequests.Load() != before {
+		t.Fatal("outside-catalog model reached upstream")
+	}
 	t.Setenv("HOME", userHome)
 	var stdout, stderr bytes.Buffer
 	err = (ProcessLauncher{}).Launch(ctx, []string{"-p", "unused", "--model", "gpt-9-missing"}, Config{
