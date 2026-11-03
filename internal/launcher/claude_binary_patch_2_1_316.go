@@ -193,6 +193,19 @@ func patchFastModePricing_2_1_316(data []byte) bool {
 	return replaceClaude208Function(data, "function ZUe(e){", "function KEi(e){", `function ZUe(e){return"Codex priority"}`)
 }
 
+// Only Markdown opts in to resolving scheme-less destinations. The shared
+// normalizer retains its native behavior for plugin URL and allowlist callers.
+func patchRelativeMarkdownFileLinks_2_1_316(data []byte) bool {
+	const original = `function yZn(e){let n=/^file:/i.test(e);if(!n){if(!(e.startsWith("/")&&!Qn(e)))return e}let r=n?e.slice(5):e;if(r.startsWith("//")){if(r=r.slice(2),r==="localhost")r="/";else if(r.startsWith("localhost/"))r=r.slice(9)}let o=r.search(/[#?]/),s=o===-1?"":r.slice(o),a=o===-1?r:r.slice(0,o);if(a==="")return null;try{a=decodeURIComponent(a)}catch{}a=Po(a);let u=bn(a)?a:kn(pe(),a),h=DW(u);if(h===null)return null;let f=h+s;return Nts(f)?null:f}`
+	const replacement = `function yZn(e,t){let n=/^file:/i.test(e);if(!n&&(t?/^[a-z][a-z0-9+.-]*:|^[#?]|^$/i.test(e)||Qn(e):!(e.startsWith("/")&&!Qn(e))))return e;let r=n?e.slice(5):e;if(r.startsWith("//"))r=r.slice(2).replace(/^localhost(?:\/|(?![\s\S]))/,"/");let o=r.search(/[#?]/),s=o<0?"":r.slice(o),a=o<0?r:r.slice(0,o);if(!a)return null;try{a=decodeURIComponent(a)}catch{}a=Po(a);let h=DW(bn(a)?a:kn(pe(),a));if(h===null)return null;return Nts(h+=s)?null:h}`
+	const originalMarkdown = `function Jt(e){let t=yZn(e);if(t===null||X3.test(t)||je.test(t)||t!==t.trimEnd())return null;if(ze.test(t))return t;let n=Fts(t),r=n.some((o)=>/^file:/i.test(Lts(o)));return SQr(t,n)||r?null:t}`
+	const replacementMarkdown = `function Jt(e){let t=yZn(e,1);if(t===null||X3.test(t)||je.test(t)||t!==t.trimEnd())return null;if(ze.test(t))return t;let n=Fts(t),r=n.some(o=>/^file:/i.test(Lts(o)));return SQr(t,n)||r?null:t}`
+	if bytes.Count(data, []byte(original)) != 1 || bytes.Count(data, []byte(originalMarkdown)) != 1 {
+		return false
+	}
+	return replaceFirstFixed(data, original, replacement) && replaceFirstFixed(data, originalMarkdown, replacementMarkdown)
+}
+
 func patchContextWarningHint_2_1_316(data []byte) bool {
 	return replaceClaude208Function(data, `function u(o,e,n){let{source:d,window:r}=jb`, "export{pIo", `function u(o,e,n){return null}`)
 }
@@ -283,6 +296,7 @@ func claude316SourceTransformationsForConfig(claudodexVersion, claudeVersion str
 		{"fast-mode", patchFastModeRuntimeFunctions_2_1_316},
 		{"active-fast-mode-brand", patchActiveFastModeBrand_2_1_316},
 		{"fast-mode-pricing", patchFastModePricing_2_1_316},
+		{"relative-markdown-file-links", patchRelativeMarkdownFileLinks_2_1_316},
 		{"context-warning", patchContextWarningHint_2_1_316},
 		{"context-upgrade-hint", patchContextUpgradeHint_2_1_316},
 		{"resume-hints", patchResumeCommandHints_2_1_316},

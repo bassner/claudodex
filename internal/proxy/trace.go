@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -328,4 +330,10 @@ func (s *Server) traceStreamEvent(base map[string]any, started time.Time, event 
 		}
 	}
 	s.trace("stream.event", mergeTraceFields(base, fields))
+}
+
+// instructionsTraceHash identifies guidance changes without logging its text.
+func instructionsTraceHash(instructions string) string {
+	hash := sha256.Sum256([]byte(strings.TrimSpace(instructions)))
+	return hex.EncodeToString(hash[:8])
 }

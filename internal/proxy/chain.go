@@ -80,7 +80,10 @@ func continuationRequest(request codex.Request, trace responseTrace, sameWebSock
 	request.PreviousResponseID = ""
 	if sameWebSocket && strings.TrimSpace(trace.ResponseID) != "" {
 		request.PreviousResponseID = trace.ResponseID
-		request.Input = nil
+		request.Input = []codex.InputItem{}
+		// The referenced response already contains this developer guidance.
+		// Re-sending it as input would append it to provider history again.
+		request.Instructions = ""
 		return request
 	}
 	request.Input = append(append([]codex.InputItem(nil), request.Input...), trace.Output...)
@@ -139,6 +142,11 @@ func (s *Server) applyImplicitResumeDetailed(chainKey string, request *codex.Req
 	if !resumeCompatible(chain.Request, *request) {
 		return false, "request_options_changed", len(chain.Request.Input) + len(chain.Output), len(request.Input)
 	}
+	// Instructions serialize as a developer input item. An incremental input
+	// must omit stable guidance; changed guidance needs a full context instead.
+	if strings.TrimSpace(chain.Request.Instructions) != strings.TrimSpace(request.Instructions) {
+		return false, "instructions_changed", len(chain.Request.Input) + len(chain.Output), len(request.Input)
+	}
 	prefix := make([]codex.InputItem, 0, len(chain.Request.Input)+len(chain.Output))
 	prefix = append(prefix, chain.Request.Input...)
 	prefix = append(prefix, chain.Output...)
@@ -147,6 +155,7 @@ func (s *Server) applyImplicitResumeDetailed(chainKey string, request *codex.Req
 			return false, "no_new_input", len(prefix), len(request.Input)
 		}
 		request.PreviousResponseID = chain.ResponseID
+		request.Instructions = ""
 		request.Input = append([]codex.InputItem(nil), request.Input[len(prefix):]...)
 		return true, "applied", len(prefix), len(request.Input)
 	}
@@ -155,6 +164,7 @@ func (s *Server) applyImplicitResumeDetailed(chainKey string, request *codex.Req
 			return false, "no_new_input", trimFrom, len(request.Input)
 		}
 		request.PreviousResponseID = chain.ResponseID
+		request.Instructions = ""
 		request.Input = append([]codex.InputItem(nil), request.Input[trimFrom:]...)
 		return true, "applied_by_output_calls", trimFrom, len(request.Input)
 	}

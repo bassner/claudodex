@@ -95,7 +95,6 @@ func TestImplicitResumeAllowsToolSetChangesAndTrimsAfterRecordedCalls(t *testing
 	server.recordResponseChain("chain-2", previous, trace)
 
 	current := previous
-	current.Instructions = "updated instructions after skill load"
 	current.Tools = []codex.Tool{{Type: "function", Name: "Bash"}, {Type: "function", Name: "Glob"}}
 	current.Input = append(append([]codex.InputItem(nil), previous.Input...), codex.InputItem{
 		Type:      "function_call",

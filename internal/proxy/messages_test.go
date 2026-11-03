@@ -502,9 +502,6 @@ func TestMessagesUsesWebSocketPreviousResponseForMainTurnSteering(t *testing.T) 
 		t.Fatalf("previous_response_id = %#v, request %#v", secondWSRequest["previous_response_id"], secondWSRequest)
 	}
 	input, ok := secondWSRequest["input"].([]any)
-	if ok {
-		input = input[1:]
-	}
 	if !ok || len(input) != 2 {
 		t.Fatalf("websocket input = %#v, want tool output plus steering", secondWSRequest["input"])
 	}
@@ -660,8 +657,8 @@ func TestMessagesContinuesWebSocketPartialAnswerOnSameConversation(t *testing.T)
 		t.Fatalf("websocket continuation IDs: first=%#v second=%#v", firstRequest["previous_response_id"], secondRequest["previous_response_id"])
 	}
 	input := secondRequest["input"].([]any)
-	if len(input) != 1 || input[0].(map[string]any)["role"] != "developer" {
-		t.Fatalf("same-websocket continuation should only carry stable developer input: %#v", input)
+	if len(input) != 0 {
+		t.Fatalf("same-websocket continuation repeated developer guidance: %#v", input)
 	}
 }
 

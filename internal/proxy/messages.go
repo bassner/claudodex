@@ -118,6 +118,8 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		"anthropic_messages":          len(anthropicReq.Messages),
 		"anthropic_max_tokens":        anthropicReq.MaxTokens,
 		"anthropic_system_bytes":      len(anthropicReq.System),
+		"full_instructions_bytes":     len(fullRequest.Instructions),
+		"instructions_hash":           instructionsTraceHash(fullRequest.Instructions),
 		"queued_steering_markers":     strings.Count(string(body), "The user sent a new message while you were working:"),
 		"queued_steering_locations":   queuedSteeringLocations(anthropicReq),
 		"converted_steering_items":    countConvertedSteeringItems(fullRequest.Input),
@@ -146,16 +148,17 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		resumeInputItems = len(upstreamRequest.Input)
 	}
 	traceBase = mergeTraceFields(traceBase, map[string]any{
-		"stateless_replay":     replayedStateless,
-		"replay_reason":        replayReason,
-		"replay_trim_items":    replayTrimItems,
-		"replay_input_items":   replayInputItems,
-		"implicit_resume":      usedImplicitResume,
-		"resume_reason":        resumeReason,
-		"resume_prefix_items":  resumePrefixItems,
-		"resume_input_items":   resumeInputItems,
-		"upstream_input_items": len(upstreamRequest.Input),
-		"previous_response_id": upstreamRequest.PreviousResponseID,
+		"stateless_replay":            replayedStateless,
+		"replay_reason":               replayReason,
+		"replay_trim_items":           replayTrimItems,
+		"replay_input_items":          replayInputItems,
+		"implicit_resume":             usedImplicitResume,
+		"resume_reason":               resumeReason,
+		"resume_prefix_items":         resumePrefixItems,
+		"resume_input_items":          resumeInputItems,
+		"upstream_input_items":        len(upstreamRequest.Input),
+		"upstream_instructions_bytes": len(upstreamRequest.Instructions),
+		"previous_response_id":        upstreamRequest.PreviousResponseID,
 	})
 	fallbackInputTokens := estimateTokenCountFromBytes(body, false)
 	var incrementalInput []codex.InputItem
@@ -891,11 +894,12 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 		sameWebSocket := currentHeaders.Get("x-claudodex-transport") == "websocket" && s.hasWebSocket(chainKey)
 		nextRequest := continuationRequest(fullRequest, trace, sameWebSocket)
 		s.trace("stream.continue", mergeTraceFields(traceBase, map[string]any{
-			"elapsed_ms":           traceDurationMS(streamStarted),
-			"response_id":          trace.ResponseID,
-			"previous_response_id": nextRequest.PreviousResponseID,
-			"upstream_input_items": len(nextRequest.Input),
-			"same_websocket":       sameWebSocket,
+			"elapsed_ms":                  traceDurationMS(streamStarted),
+			"response_id":                 trace.ResponseID,
+			"previous_response_id":        nextRequest.PreviousResponseID,
+			"upstream_input_items":        len(nextRequest.Input),
+			"upstream_instructions_bytes": len(nextRequest.Instructions),
+			"same_websocket":              sameWebSocket,
 		}))
 		reducer.ContinueSampling()
 		nextResponse, continueErr := continueResponse(nextRequest)
@@ -1133,11 +1137,12 @@ func (s *Server) writeNonStreamingMessageWithSchemas(w http.ResponseWriter, body
 		sameWebSocket := currentHeaders.Get("x-claudodex-transport") == "websocket" && s.hasWebSocket(chainKey)
 		nextRequest := continuationRequest(fullRequest, trace, sameWebSocket)
 		s.trace("stream.continue", mergeTraceFields(traceBase, map[string]any{
-			"elapsed_ms":           traceDurationMS(streamStarted),
-			"response_id":          trace.ResponseID,
-			"previous_response_id": nextRequest.PreviousResponseID,
-			"upstream_input_items": len(nextRequest.Input),
-			"same_websocket":       sameWebSocket,
+			"elapsed_ms":                  traceDurationMS(streamStarted),
+			"response_id":                 trace.ResponseID,
+			"previous_response_id":        nextRequest.PreviousResponseID,
+			"upstream_input_items":        len(nextRequest.Input),
+			"upstream_instructions_bytes": len(nextRequest.Instructions),
+			"same_websocket":              sameWebSocket,
 		}))
 		reducer.ContinueSampling()
 		nextResponse, continueErr := continueResponse(nextRequest)
