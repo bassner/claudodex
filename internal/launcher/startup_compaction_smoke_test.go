@@ -25,6 +25,22 @@ func TestClaudeStartupCompactionChild(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
+	defer func() { _ = os.WriteFile(os.Getenv("CLAUDODEX_STARTUP_TEST_CHILD_DONE"), []byte("done"), 0o600) }()
+	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if _, err := os.Stat(os.Getenv("CLAUDODEX_STARTUP_TEST_SHUTDOWN")); err == nil {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 	model := os.Getenv("CLAUDODEX_STARTUP_TEST_MODEL")
 	err := (ProcessLauncher{}).Launch(ctx, []string{"--model", model, "--dangerously-skip-permissions", "--system-prompt", "Local synthetic acceptance fixture.", "Reply ready"}, Config{
 		Version: "0.5.3", Home: os.Getenv("CLAUDODEX_STARTUP_TEST_HOME"), CodexBaseURL: os.Getenv("CLAUDODEX_CODEX_BASE_URL"), Interactive: true,
@@ -114,6 +130,8 @@ func installedClaudeStartupAndModelCompaction(t *testing.T, contextHint bool) {
 	}
 	defer os.RemoveAll(socketDir)
 	socket := filepath.Join(socketDir, "tmux.sock")
+	childDone := filepath.Join(socketDir, "child.done")
+	shutdown := filepath.Join(socketDir, "shutdown")
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	model := "gpt-6.1-sol"
@@ -123,6 +141,7 @@ func installedClaudeStartupAndModelCompaction(t *testing.T, contextHint bool) {
 	command := "cd " + shellQuote(work) + " && env"
 	for key, value := range map[string]string{
 		"HOME": userHome, "CLAUDE_CONFIG_DIR": "", "CLAUDE_SECURESTORAGE_CONFIG_DIR": "", "CLAUDODEX_DISABLE_REAL_CLAUDE_BRIDGE_AUTH": "1",
+		"CLAUDODEX_STARTUP_TEST_CHILD_DONE": childDone, "CLAUDODEX_STARTUP_TEST_SHUTDOWN": shutdown,
 		"CLAUDODEX_STARTUP_TEST_CHILD": "1", "CLAUDODEX_STARTUP_TEST_HOME": home, "CLAUDODEX_CODEX_BASE_URL": upstream.URL,
 		"CLAUDODEX_DISABLE_CODEX_WEBSOCKET": "1", "CLAUDODEX_DISABLE_CLAUDE_PATCH": "", "TERM": "xterm-256color",
 		"CLAUDODEX_PROXY_LOG":          filepath.Join(artifacts, "http.log"),
@@ -135,17 +154,21 @@ func installedClaudeStartupAndModelCompaction(t *testing.T, contextHint bool) {
 		t.Fatalf("start private terminal: %v: %s", err, output)
 	}
 	defer func() {
-		_ = exec.Command(tmux, "-S", socket, "send-keys", "-t", "startup:0.0", "Escape").Run()
-		time.Sleep(200 * time.Millisecond)
-		_ = exec.Command(tmux, "-S", socket, "send-keys", "-t", "startup:0.0", "C-d").Run()
-		deadline := time.Now().Add(8 * time.Second)
+		// A disappearing tmux session does not prove Launch has finished its
+		// settings reconciliation. Wait for that work before removing the homes.
+		if err := os.WriteFile(shutdown, []byte("stop"), 0o600); err != nil {
+			t.Errorf("request native child shutdown: %v", err)
+		}
+		deadline := time.Now().Add(12 * time.Second)
 		for time.Now().Before(deadline) {
-			if exec.Command(tmux, "-S", socket, "has-session", "-t", "startup").Run() != nil {
+			if _, err := os.Stat(childDone); err == nil {
+				_ = exec.Command(tmux, "-S", socket, "kill-server").Run()
 				return
 			}
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 		}
 		_ = exec.Command(tmux, "-S", socket, "kill-server").Run()
+		t.Error("native child did not finish launcher shutdown before cleanup")
 	}()
 	capture := func() string {
 		output, _ := exec.CommandContext(ctx, tmux, "-S", socket, "capture-pane", "-p", "-t", "startup:0.0").CombinedOutput()

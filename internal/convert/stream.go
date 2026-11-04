@@ -1155,7 +1155,7 @@ func anthropicFailureType(code string) string {
 	switch strings.ToLower(strings.TrimSpace(code)) {
 	case "slow_down", "rate_limit_exceeded":
 		return "rate_limit_error"
-	case "bio_policy":
+	case "bio_policy", "budget_reached":
 		return "invalid_request_error"
 	default:
 		return "api_error"

@@ -32,7 +32,7 @@ func writeMappedUpstreamError(w http.ResponseWriter, err error) {
 }
 
 func mapUpstreamStatus(status int, code string) (int, string) {
-	if strings.EqualFold(strings.TrimSpace(code), "bio_policy") {
+	if strings.EqualFold(strings.TrimSpace(code), "bio_policy") || strings.EqualFold(strings.TrimSpace(code), "budget_reached") {
 		return http.StatusBadRequest, "invalid_request_error"
 	}
 	if status == http.StatusServiceUnavailable && isRetryableRateLimitCode(code) {

@@ -95,13 +95,13 @@ Why not call it `claudex`? Because that name is already used in multiple places.
 Claudodex is experimental. Each compatibility patch targets a specific Claude
 Code version and binary checksum for an operating system and CPU architecture.
 Current verified patches cover macOS on Apple Silicon, including Claude Code
-2.1.317. If the installed Claude version has no supported patch,
+2.1.318. If the installed Claude version has no supported patch,
 whether older or newer, Claudodex uses a verified local copy from its cache or
 Claude's retained versions without changing system Claude. If none is available,
 launch stops with recovery steps:
 
 ```sh
-claude install 2.1.317
+claude install 2.1.318
 claudodex clx:doctor
 ```
 
@@ -280,8 +280,8 @@ when Claude Code starts. Warnings are retained in stderr history, and startup
 errors remain visible. Print mode and
 administrative commands keep their normal output.
 
-On Claude Code 2.1.314, 2.1.316 and 2.1.317, auto-compaction uses the active model's live
-Codex window, including its explicit `[1m]` route. Switching to a model with a
+On Claude Code 2.1.314, 2.1.316, 2.1.317 and 2.1.318, auto-compaction uses the active
+model's live Codex window, including its explicit `[1m]` route. Switching to a model with a
 smaller window updates compaction accordingly. Claude Code still reserves room
 for its summary and output. Older supported Claude versions, or model limits
 outside the native compaction schema, use a conservative shared ceiling with a

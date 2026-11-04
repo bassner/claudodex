@@ -1301,3 +1301,25 @@ func containsInputJSONDelta(events []AnthropicSSE) bool {
 	}
 	return false
 }
+
+func TestStreamReducerBudgetReachedIgnoresLaterCompletion(t *testing.T) {
+	for _, raw := range []string{
+		`{"type":"error","error":{"code":"budget_reached","message":" ","headers":{"retry-after":"0"},"retryable":true}}`,
+		`{"type":"response.failed","response":{"error":{"code":"budget_reached","headers":{"Retry-After":"0"},"retryable":true}}}`,
+	} {
+		reducer := NewStreamReducer("msg_budget", "sonnet")
+		events, err := reducer.Reduce(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		last := events[len(events)-1]
+		data := last.Data["error"].(map[string]any)
+		if last.Event != "error" || data["type"] != "invalid_request_error" || data["message"] != codex.BudgetReachedFallbackMessage || !reducer.Done() || !reducer.Failed() {
+			t.Fatalf("invalid terminal failure: %#v", events)
+		}
+		later, err := reducer.Reduce(json.RawMessage(`{"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"must not appear"}]}]}}`))
+		if err != nil || len(later) != 0 || !reducer.Failed() {
+			t.Fatalf("completion replaced terminal failure: %#v %v", later, err)
+		}
+	}
+}

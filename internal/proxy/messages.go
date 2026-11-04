@@ -699,9 +699,11 @@ func isRetryableStreamFailureCode(code string) bool {
 	}
 }
 
+var errTerminalStreamFailure = errors.New("terminal Codex stream failure")
+
 func isTerminalStreamFailureCode(code string) bool {
 	switch strings.ToLower(strings.TrimSpace(code)) {
-	case "flex_unavailable", "bio_policy", "insufficient_quota", "billing_hard_limit_reached", "policy_violation", "content_policy_violation":
+	case "budget_reached", "flex_unavailable", "bio_policy", "insufficient_quota", "billing_hard_limit_reached", "policy_violation", "content_policy_violation":
 		return true
 	default:
 		return false
@@ -875,11 +877,17 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 					return err
 				}
 			}
+			if reducer.Failed() && isTerminalStreamFailureCode(code) {
+				return errTerminalStreamFailure
+			}
 			// Schema-backed tool arguments remain buffered until their JSON is complete.
 			// A protocol-level ping lets Claude Code observe that Codex is still active
 			// without exposing an incomplete tool block.
 			return writeKeepaliveIfDue()
 		})
+		if errors.Is(err, errTerminalStreamFailure) {
+			err = nil // The mapped terminal error has already been captured.
+		}
 		if ownedBody {
 			_ = currentBody.(io.Closer).Close()
 		}
@@ -1050,7 +1058,7 @@ func retryDelayFromHeaders(headers http.Header) time.Duration {
 
 func writeMappedStreamError(w http.ResponseWriter, err error) {
 	var streamErr upstreamStreamEventError
-	if errors.As(err, &streamErr) && strings.EqualFold(strings.TrimSpace(streamErr.code), "bio_policy") {
+	if errors.As(err, &streamErr) && (strings.EqualFold(strings.TrimSpace(streamErr.code), "bio_policy") || strings.EqualFold(strings.TrimSpace(streamErr.code), "budget_reached")) {
 		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", streamErr.message)
 		return
 	}
@@ -1121,8 +1129,14 @@ func (s *Server) writeNonStreamingMessageWithSchemas(w http.ResponseWriter, body
 				return reduceErr
 			}
 			events = append(events, next...)
+			if reducer.Failed() && isTerminalStreamFailureCode(reducer.FailureCode()) {
+				return errTerminalStreamFailure
+			}
 			return nil
 		})
+		if errors.Is(err, errTerminalStreamFailure) {
+			err = nil // The mapped terminal error has already been captured.
+		}
 		if ownedBody {
 			_ = currentBody.(io.Closer).Close()
 		}

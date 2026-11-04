@@ -13,6 +13,7 @@ func TestCatalogRecognitionOverlayRequiresExactRegisteredIdentity(t *testing.T) 
 	for _, test := range []struct{ version, sha, function, matches string }{
 		{"2.1.314", claude314SHA, "kat", "uv"},
 		{"2.1.316", claude316SHA, "tlt", "wv"},
+		{"2.1.318", claude318SHA, "Lmt", "bv"},
 		{"2.1.317", claude317SHA, "Ect", "Lv"},
 	} {
 		t.Run(test.version, func(t *testing.T) {

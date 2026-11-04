@@ -104,3 +104,14 @@ func TestParseResponseFailureRecognizesFlexUnavailableTransportShapes(t *testing
 		})
 	}
 }
+
+func TestParseResponseFailureBudgetReachedFallback(t *testing.T) {
+	for _, body := range []string{`{"code":"budget_reached"}`, `{"error":{"code":"budget_reached","message":" "}}`, `{"response":{"error":{"code":"budget_reached"}}}`} {
+		if got := ParseResponseFailure([]byte(body)); got.Code != "budget_reached" || got.Message != BudgetReachedFallbackMessage {
+			t.Fatalf("failure=%#v", got)
+		}
+	}
+	if got := ParseResponseFailure([]byte(`{"error":{"code":"budget_reached","message":"Account session budget exhausted"}}`)); got.Message != "Account session budget exhausted" {
+		t.Fatalf("lost provider message: %#v", got)
+	}
+}

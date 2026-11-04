@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const BudgetReachedFallbackMessage = "The Codex session budget has been reached. Start a new session to continue."
+
 const BioPolicyFallbackMessage = "This content was flagged for possible biological risk."
 
 type ResponseFailure struct {
@@ -54,6 +56,9 @@ func ParseResponseFailure(data []byte) ResponseFailure {
 		}
 		if strings.EqualFold(failure.Code, "bio_policy") && strings.TrimSpace(failure.Message) == "" {
 			failure.Message = BioPolicyFallbackMessage
+		}
+		if strings.EqualFold(failure.Code, "budget_reached") && strings.TrimSpace(failure.Message) == "" {
+			failure.Message = BudgetReachedFallbackMessage
 		}
 		return failure
 	}

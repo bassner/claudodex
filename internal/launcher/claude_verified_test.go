@@ -171,7 +171,7 @@ func TestStrictClaudeNoFallbackFailsBeforeAuthAndSettings(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	err := (ProcessLauncher{}).Launch(context.Background(), nil, Config{Home: home})
-	if err == nil || !strings.Contains(err.Error(), "claude install 2.1.317") || !strings.Contains(err.Error(), "CLAUDODEX_DISABLE_CLAUDE_PATCH=1") {
+	if err == nil || !strings.Contains(err.Error(), "claude install 2.1.318") || !strings.Contains(err.Error(), "CLAUDODEX_DISABLE_CLAUDE_PATCH=1") {
 		t.Fatalf("missing actionable strict failure: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".claudodex", "claude-config")); !os.IsNotExist(err) {
