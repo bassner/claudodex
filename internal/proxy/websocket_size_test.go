@@ -23,14 +23,16 @@ func TestMessagesLargeWebSocketFallsBackToHTTP(t *testing.T) {
 		largeInput   bool
 		largeHistory bool
 		missingID    bool
-		httpTooLarge bool
+		httpStatus   int
 	}{
 		{name: "large_full_request", largeInput: true},
 		{name: "early_close_1009"},
 		{name: "resumed_close_1009", resume: true},
 		{name: "large_delta", resume: true, largeInput: true},
 		{name: "missing_reference_with_large_replay", resume: true, largeHistory: true, missingID: true},
-		{name: "http_also_rejects_size", httpTooLarge: true},
+		{name: "http_also_rejects_size", httpStatus: http.StatusRequestEntityTooLarge},
+		{name: "http_rejects_input", httpStatus: http.StatusBadRequest},
+		{name: "http_rate_limit", httpStatus: http.StatusTooManyRequests},
 	} {
 		for _, stream := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s/stream=%t", tc.name, stream), func(t *testing.T) {
@@ -94,8 +96,8 @@ func TestMessagesLargeWebSocketFallsBackToHTTP(t *testing.T) {
 					if tc.largeInput && len(input) < 9<<20 {
 						t.Errorf("large payload was truncated: %d bytes", len(input))
 					}
-					if tc.httpTooLarge {
-						w.WriteHeader(http.StatusRequestEntityTooLarge)
+					if tc.httpStatus != 0 {
+						w.WriteHeader(tc.httpStatus)
 						_, _ = io.WriteString(w, `{"error":{"message":"HTTP request is too large"}}`)
 						return
 					}
@@ -134,8 +136,8 @@ func TestMessagesLargeWebSocketFallsBackToHTTP(t *testing.T) {
 				}
 				got := request()
 				wantStatus := http.StatusOK
-				if tc.httpTooLarge {
-					wantStatus = http.StatusRequestEntityTooLarge
+				if tc.httpStatus != 0 {
+					wantStatus = tc.httpStatus
 				} else if !strings.Contains(got.Body.String(), "size-recovered") {
 					t.Errorf("fallback response missing: %.500s", got.Body.String())
 				}
@@ -150,6 +152,16 @@ func TestMessagesLargeWebSocketFallsBackToHTTP(t *testing.T) {
 				}
 				if wsCalls.Load() != wantWS {
 					t.Errorf("WS generation requests=%d, want %d", wsCalls.Load(), wantWS)
+				}
+				if !tc.resume && tc.httpStatus == 0 {
+					messages = append(messages, map[string]any{"role": "user", "content": "A new turn after size recovery"})
+					followup := request()
+					if followup.Code != http.StatusOK || !strings.Contains(followup.Body.String(), "size-recovered") || wsCalls.Load() != wantWS || httpCalls.Load() != 2 {
+						t.Errorf("later turn repeated a rejected WS request: status=%d WS=%d HTTP=%d", followup.Code, wsCalls.Load(), httpCalls.Load())
+					}
+					if !server.shouldUseCodexWebSocket(codex.Request{Tools: []codex.Tool{{Name: "Read"}}}, codex.Route{ThreadID: "unrelated-session"}) {
+						t.Error("size fallback disabled WebSocket for an unrelated thread")
+					}
 				}
 			})
 		}

@@ -49,6 +49,7 @@ type Server struct {
 	usage          map[string]convert.Usage
 	wsMu           sync.Mutex
 	ws             map[string]*codex.WebSocketConversation
+	httpOnly       map[string]bool
 }
 
 func New(cfg Config) *Server {
@@ -66,10 +67,11 @@ func New(cfg Config) *Server {
 		cfg.AuthProvider = auth.NewProvider(auth.NewStore(cfg.Home), cfg.HTTPClient, cfg.TokenEndpoint)
 	}
 	return &Server{
-		cfg:    cfg,
-		chains: make(map[string]responseChain),
-		usage:  make(map[string]convert.Usage),
-		ws:     make(map[string]*codex.WebSocketConversation),
+		cfg:      cfg,
+		chains:   make(map[string]responseChain),
+		usage:    make(map[string]convert.Usage),
+		ws:       make(map[string]*codex.WebSocketConversation),
+		httpOnly: make(map[string]bool),
 	}
 }
 
@@ -179,6 +181,18 @@ func (s *Server) hasWebSocket(chainKey string) bool {
 	s.wsMu.Lock()
 	defer s.wsMu.Unlock()
 	return s.ws[chainKey] != nil
+}
+
+func (s *Server) preferHTTP(chainKey string) {
+	s.wsMu.Lock()
+	defer s.wsMu.Unlock()
+	s.httpOnly[strings.TrimSpace(chainKey)] = true
+}
+
+func (s *Server) prefersHTTP(chainKey string) bool {
+	s.wsMu.Lock()
+	defer s.wsMu.Unlock()
+	return s.httpOnly[strings.TrimSpace(chainKey)]
 }
 
 func (s *Server) closeWebSocket(chainKey string) {

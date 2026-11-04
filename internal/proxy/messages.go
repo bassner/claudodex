@@ -178,6 +178,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	fallbackFromLargeWebSocket := func(err error) {
 		if codex.IsWebSocketMessageTooBig(err) {
 			allowWebSocket = false
+			s.preferHTTP(route.ThreadID)
 			s.trace("upstream.transport_fallback", mergeTraceFields(traceBase, map[string]any{
 				"reason": "websocket_message_too_big", "transport": "http",
 			}))
@@ -522,6 +523,7 @@ func (s *Server) createCodexResponseWithTransport(r *http.Request, req codex.Req
 						"websocket_payload_bytes": tooLarge.Bytes, "preferred_websocket_bytes": tooLarge.Limit,
 					})
 					s.closeWebSocket(route.ThreadID)
+					s.preferHTTP(route.ThreadID)
 					if strings.TrimSpace(req.PreviousResponseID) != "" {
 						return finish(nil, err)
 					}
@@ -608,7 +610,7 @@ func (s *Server) codexWebSocketEnabled() bool {
 }
 
 func (s *Server) shouldUseCodexWebSocket(req codex.Request, route codex.Route) bool {
-	if !s.codexWebSocketEnabled() {
+	if !s.codexWebSocketEnabled() || s.prefersHTTP(route.ThreadID) {
 		return false
 	}
 	// Claude Code issues tool-less auxiliary requests (for example title

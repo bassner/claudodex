@@ -11,7 +11,7 @@ import (
 	"github.com/bassner/claudodex/internal/codex"
 )
 
-const websocketTooLargeMessage = "Codex rejected the request because its WebSocket message is too large. Reduce attached images or PDF pages and retry."
+const websocketTooLargeMessage = "Codex rejected a WebSocket message as too large, and automatic HTTP recovery could not complete. Retry with fewer images or PDF pages."
 
 func writeMappedUpstreamError(w http.ResponseWriter, err error) {
 	if codex.IsWebSocketMessageTooBig(err) {
