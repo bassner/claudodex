@@ -174,12 +174,22 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	initialInputUsage := s.estimatedNextInputUsage(chainKey, incrementalInput, incrementalInputKnown)
 	s.trace("messages.request", traceBase)
 	remainingGenerationAttempts := 2
+	allowWebSocket := !result.StatelessSubagent
+	fallbackFromLargeWebSocket := func(err error) {
+		if codex.IsWebSocketMessageTooBig(err) {
+			allowWebSocket = false
+			s.trace("upstream.transport_fallback", mergeTraceFields(traceBase, map[string]any{
+				"reason": "websocket_message_too_big", "transport": "http",
+			}))
+		}
+	}
 	createResponse := func(req codex.Request) (*http.Response, error) {
 		s.trace("upstream.waiting_headers", mergeTraceFields(traceBase, map[string]any{
 			"generation_attempt":            3 - remainingGenerationAttempts,
 			"generation_attempts_remaining": remainingGenerationAttempts,
 		}))
-		resp, used, err := s.createCodexResponseWithTransport(r, req, route, remainingGenerationAttempts, !result.StatelessSubagent)
+		resp, used, err := s.createCodexResponseWithTransport(r, req, route, remainingGenerationAttempts, allowWebSocket)
+		fallbackFromLargeWebSocket(err)
 		if used < 0 {
 			used = 0
 		}
@@ -278,6 +288,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			return createResponse(req)
 		})
 		_ = upstream.Body.Close()
+		fallbackFromLargeWebSocket(err)
 		if shouldRetryStream(r, err, usedImplicitResume) && remainingGenerationAttempts > 0 {
 			if waitErr := s.waitForStreamRetry(r.Context(), err, upstream.Header); waitErr != nil {
 				err = waitErr
@@ -338,6 +349,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return createResponse(req)
 	})
 	_ = upstream.Body.Close()
+	fallbackFromLargeWebSocket(err)
 	if shouldRetryStream(r, err, usedImplicitResume) && remainingGenerationAttempts > 0 {
 		if isContentFilterError(err) {
 			fullRequest = s.appendContentFilterGuidance(fullRequest)
@@ -381,7 +393,8 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		var timeoutErr *codex.ResponseHeaderTimeoutError
-		if errors.As(err, &timeoutErr) {
+		var upstreamErr *codex.UpstreamError
+		if errors.As(err, &timeoutErr) || errors.As(err, &upstreamErr) || codex.IsWebSocketMessageTooBig(err) {
 			writeMappedUpstreamError(w, err)
 		} else {
 			var streamErr upstreamStreamEventError
@@ -500,6 +513,20 @@ func (s *Server) createCodexResponseWithTransport(r *http.Request, req codex.Req
 					resp.Header.Set("x-claudodex-ws-reused", strconv.FormatBool(reused))
 					return finish(resp, nil)
 				}
+				var tooLarge *codex.WebSocketRequestTooLargeError
+				if errors.As(err, &tooLarge) {
+					// Rejected locally before sending, so no generation attempt was
+					// used. A delta must be rebuilt from full history before HTTP.
+					s.trace("upstream.transport_fallback", map[string]any{
+						"thread_id": route.ThreadID, "reason": "websocket_request_size", "transport": "http",
+						"websocket_payload_bytes": tooLarge.Bytes, "preferred_websocket_bytes": tooLarge.Limit,
+					})
+					s.closeWebSocket(route.ThreadID)
+					if strings.TrimSpace(req.PreviousResponseID) != "" {
+						return finish(nil, err)
+					}
+					break
+				}
 				if errors.Is(err, codex.ErrWebSocketBusy) && strings.TrimSpace(req.PreviousResponseID) == "" {
 					// No request was sent: preserve the full budget for the HTTP fallback.
 				} else {
@@ -614,6 +641,9 @@ func shouldRetryStream(r *http.Request, err error, usedImplicitResume bool) bool
 	}
 	if r != nil && r.Context().Err() != nil {
 		return false
+	}
+	if codex.IsWebSocketMessageTooBig(err) {
+		return true // The caller retries full history over HTTP, within its budget.
 	}
 	var upstreamEvent upstreamStreamEventError
 	if errors.As(err, &upstreamEvent) {
@@ -932,7 +962,13 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 		if !wrote {
 			return err
 		}
-		_ = writeEvent(streamErrorEvent("Codex upstream stream failed"))
+		if codex.IsWebSocketMessageTooBig(err) {
+			_ = writeEvent(convert.AnthropicSSE{Event: "error", Data: map[string]any{
+				"type": "error", "error": map[string]any{"type": "invalid_request_error", "message": websocketTooLargeMessage},
+			}})
+		} else {
+			_ = writeEvent(streamErrorEvent("Codex upstream stream failed"))
+		}
 		return nil
 	}
 	if reducer.Failed() {
@@ -1057,6 +1093,15 @@ func retryDelayFromHeaders(headers http.Header) time.Duration {
 }
 
 func writeMappedStreamError(w http.ResponseWriter, err error) {
+	var upstreamErr *codex.UpstreamError
+	if errors.As(err, &upstreamErr) {
+		writeMappedUpstreamError(w, err)
+		return
+	}
+	if codex.IsWebSocketMessageTooBig(err) {
+		writeAnthropicError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", websocketTooLargeMessage)
+		return
+	}
 	var streamErr upstreamStreamEventError
 	if errors.As(err, &streamErr) && (strings.EqualFold(strings.TrimSpace(streamErr.code), "bio_policy") || strings.EqualFold(strings.TrimSpace(streamErr.code), "budget_reached")) {
 		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", streamErr.message)

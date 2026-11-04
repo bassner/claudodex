@@ -5,10 +5,12 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,6 +18,32 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+func TestWebSocketLargeWireRequestRejectedBeforeConnecting(t *testing.T) {
+	// JSON escapes each '<' as six bytes: measure the actual wire encoding,
+	// including developer guidance, rather than the raw input text length.
+	request := Request{Instructions: strings.Repeat("<", preferredWebSocketRequestBytes/5)}
+	wire, err := json.Marshal(wsCreateRequest{Type: "response.create", Request: request})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conversation WebSocketConversation
+	_, err = conversation.CreateResponse(context.Background(), Client{BaseURL: "invalid-no-network"}, request, Credentials{}, Route{}, false)
+	var tooLarge *WebSocketRequestTooLargeError
+	if !errors.As(err, &tooLarge) || tooLarge.Bytes != len(wire) || tooLarge.Limit != preferredWebSocketRequestBytes {
+		t.Fatalf("expected local wire-size rejection before resolving a destination: %v", err)
+	}
+	if !IsWebSocketMessageTooBig(fmt.Errorf("wrapped: %w", err)) {
+		t.Fatal("wrapped local rejection lost its size classification")
+	}
+	if !IsWebSocketMessageTooBig(fmt.Errorf("wrapped: %w", &websocket.CloseError{Code: websocket.CloseMessageTooBig})) || IsWebSocketMessageTooBig(&websocket.CloseError{Code: websocket.CloseGoingAway}) {
+		t.Fatal("peer close codes were not classified correctly")
+	}
+	if !conversation.mu.TryLock() {
+		t.Fatal("local size rejection retained the conversation lock")
+	}
+	conversation.mu.Unlock()
+}
 
 func TestWebSocketResponseHandshakeCarriesRoutingHintAndRetriesConnectFailures(t *testing.T) {
 	upgrader := websocket.Upgrader{}

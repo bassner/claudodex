@@ -68,7 +68,7 @@ jobs:
         run: |
           export PATH="$RUNNER_TEMP/claude-bin:$PATH"
           go test -timeout=30m -count=1 ./internal/launcher \
-            -run '^(TestInstalledClaudePrintSmokeWithFakeCodexUpstream|TestInstalledClaudeUIPatchSmoke|TestInstalledClaudeAgentIsolationLifecycle|TestInstalledClaudeStartupAndModelCompaction|TestInstalledClaudeContextUpgradeHint|TestInstalledClaudeRelativeMarkdownFileLinks|TestInstalledClaudeInstructionResume)$' -v
+            -run '^(TestInstalledClaudePrintSmokeWithFakeCodexUpstream|TestInstalledClaudeWebSocketSizeFallback|TestInstalledClaudeUIPatchSmoke|TestInstalledClaudeAgentIsolationLifecycle|TestInstalledClaudeStartupAndModelCompaction|TestInstalledClaudeContextUpgradeHint|TestInstalledClaudeRelativeMarkdownFileLinks|TestInstalledClaudeInstructionResume)$' -v
 
   source:
     needs: validate

@@ -11,7 +11,13 @@ import (
 	"github.com/bassner/claudodex/internal/codex"
 )
 
+const websocketTooLargeMessage = "Codex rejected the request because its WebSocket message is too large. Reduce attached images or PDF pages and retry."
+
 func writeMappedUpstreamError(w http.ResponseWriter, err error) {
+	if codex.IsWebSocketMessageTooBig(err) {
+		writeAnthropicError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", websocketTooLargeMessage)
+		return
+	}
 	if errors.Is(err, auth.ErrNotLoggedIn) || errors.Is(err, auth.ErrInvalidAuth) || errors.Is(err, auth.ErrPermanentRefreshFailure) {
 		writeAnthropicError(w, http.StatusUnauthorized, "authentication_error", "Codex authentication is missing or expired; run claudodex clx:auth-login")
 		return

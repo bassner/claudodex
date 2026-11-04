@@ -23,6 +23,7 @@ import (
 	"github.com/bassner/claudodex/internal/convert"
 	"github.com/bassner/claudodex/internal/modelcatalog"
 	"github.com/bassner/claudodex/internal/modelconfig"
+	"github.com/gorilla/websocket"
 )
 
 func TestInstalledClaudeLiveCodexModelEfforts(t *testing.T) {
@@ -73,6 +74,11 @@ func TestInstalledClaudePrintSmokeWithFakeCodexUpstream(t *testing.T) {
 	}
 }
 
+func TestInstalledClaudeWebSocketSizeFallback(t *testing.T) {
+	t.Setenv("CLAUDODEX_FORCE_CODEX_WEBSOCKET", "1")
+	installedClaudePrintSmokeWithFakeCodexUpstream(t, "websocket-size-fallback", "gpt-6.1-sol")
+}
+
 func installedClaudePrintSmokeWithFakeCodexUpstream(t *testing.T, requested, expected string) {
 	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
 		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
@@ -97,6 +103,7 @@ func installedClaudePrintSmokeWithFakeCodexUpstream(t *testing.T, requested, exp
 	debugPath := filepath.Join(t.TempDir(), "claude-debug.log")
 
 	var upstreamRequests atomic.Int32
+	var websocketRequests atomic.Int32
 	var captured map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/codex/models" {
@@ -107,6 +114,21 @@ func installedClaudePrintSmokeWithFakeCodexUpstream(t *testing.T, requested, exp
 			t.Fatalf("unexpected upstream path %s", r.URL.Path)
 		}
 		upstreamRequests.Add(1)
+		if requested == "websocket-size-fallback" && websocket.IsWebSocketUpgrade(r) {
+			conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			defer conn.Close()
+			if _, _, err := conn.ReadMessage(); err != nil {
+				t.Error(err)
+				return
+			}
+			websocketRequests.Add(1)
+			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseMessageTooBig, "message too big"), time.Now().Add(time.Second))
+			return
+		}
 		if got := r.Header.Get("authorization"); got != "Bearer access-1" {
 			t.Fatalf("authorization = %q", got)
 		}
@@ -166,7 +188,11 @@ func installedClaudePrintSmokeWithFakeCodexUpstream(t *testing.T, requested, exp
 		"--include-partial-messages",
 	}
 	if requested != "inherited-provider" {
-		launchArgs = append(launchArgs, "--model", requested)
+		model := requested
+		if requested == "websocket-size-fallback" {
+			model = "opus"
+		}
+		launchArgs = append(launchArgs, "--model", model)
 	}
 	err := (ProcessLauncher{}).Launch(ctx, launchArgs, Config{
 		Version:      "smoke",
@@ -181,6 +207,9 @@ func installedClaudePrintSmokeWithFakeCodexUpstream(t *testing.T, requested, exp
 	}
 	if upstreamRequests.Load() == 0 {
 		t.Fatalf("fake Codex upstream was not called\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if requested == "websocket-size-fallback" && (websocketRequests.Load() != 1 || upstreamRequests.Load() != 2) {
+		t.Fatalf("expected one rejected WebSocket generation then one HTTP generation; WS=%d total=%d", websocketRequests.Load(), upstreamRequests.Load())
 	}
 	if !strings.Contains(stdout.String(), "ok") {
 		t.Fatalf("stdout did not include model output\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())

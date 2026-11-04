@@ -17,6 +17,25 @@ import (
 
 var ErrWebSocketBusy = errors.New("websocket conversation is busy")
 
+// Prefer HTTP for large response.create messages. This is a transport choice,
+// not a model context limit or an advertised upstream size limit.
+const preferredWebSocketRequestBytes = 8 << 20
+
+type WebSocketRequestTooLargeError struct {
+	Bytes int
+	Limit int
+}
+
+func (e *WebSocketRequestTooLargeError) Error() string {
+	return fmt.Sprintf("Codex WebSocket request has %d bytes, above the preferred %d bytes", e.Bytes, e.Limit)
+}
+
+func IsWebSocketMessageTooBig(err error) bool {
+	var local *WebSocketRequestTooLargeError
+	var closed *websocket.CloseError
+	return errors.As(err, &local) || (errors.As(err, &closed) && closed.Code == websocket.CloseMessageTooBig)
+}
+
 type wsCreateRequest struct {
 	Type string `json:"type"`
 	Request
@@ -63,6 +82,15 @@ func (w *WebSocketConversation) CreateResponse(ctx context.Context, client Clien
 	} else if !w.mu.TryLock() {
 		return nil, ErrWebSocketBusy
 	}
+	payload, err := json.Marshal(wsCreateRequest{Type: "response.create", Request: request})
+	if err != nil {
+		w.mu.Unlock()
+		return nil, err
+	}
+	if len(payload) > preferredWebSocketRequestBytes {
+		w.mu.Unlock()
+		return nil, &WebSocketRequestTooLargeError{Bytes: len(payload), Limit: preferredWebSocketRequestBytes}
+	}
 	connectFailures := 0
 	var conn *websocket.Conn
 	var header http.Header
@@ -83,11 +111,6 @@ func (w *WebSocketConversation) CreateResponse(ctx context.Context, client Clien
 		}
 	}
 
-	payload, err := json.Marshal(wsCreateRequest{Type: "response.create", Request: request})
-	if err != nil {
-		w.mu.Unlock()
-		return nil, err
-	}
 	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
 		w.closeLocked()
 		w.mu.Unlock()
