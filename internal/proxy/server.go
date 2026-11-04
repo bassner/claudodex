@@ -184,9 +184,20 @@ func (s *Server) hasWebSocket(chainKey string) bool {
 }
 
 func (s *Server) preferHTTP(chainKey string) {
+	chainKey = strings.TrimSpace(chainKey)
+	if chainKey == "" {
+		return
+	}
 	s.wsMu.Lock()
-	defer s.wsMu.Unlock()
-	s.httpOnly[strings.TrimSpace(chainKey)] = true
+	s.httpOnly[chainKey] = true
+	conversation := s.ws[chainKey]
+	delete(s.ws, chainKey)
+	s.wsMu.Unlock()
+	// Keep the response chain for encrypted full-history replay, but retire
+	// the socket even if no generation budget remains for immediate recovery.
+	if conversation != nil {
+		_ = conversation.Close()
+	}
 }
 
 func (s *Server) prefersHTTP(chainKey string) bool {

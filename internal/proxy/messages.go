@@ -561,6 +561,11 @@ func (s *Server) createCodexResponseWithTransport(r *http.Request, req codex.Req
 			break
 		}
 	}
+	if strings.TrimSpace(req.PreviousResponseID) != "" {
+		// A WebSocket delta cannot be sent over HTTP, including when the
+		// transport preference changed after implicit-resume selection.
+		return finish(nil, errPreviousResponseNotFound)
+	}
 	if remainingAttempts() == 0 {
 		return finish(nil, errors.New("Codex generation attempt budget exhausted"))
 	}
@@ -952,6 +957,9 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 		ownedBody = true
 	}
 	if err != nil {
+		if codex.IsWebSocketMessageTooBig(err) {
+			s.preferHTTP(chainKey)
+		}
 		s.trace("stream.error", mergeTraceFields(traceBase, map[string]any{
 			"elapsed_ms":            traceDurationMS(streamStarted),
 			"events":                eventCount,

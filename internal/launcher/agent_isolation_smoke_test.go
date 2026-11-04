@@ -250,7 +250,7 @@ func TestInstalledClaudeAgentIsolationLifecycle(t *testing.T) {
 	if output, err := exec.CommandContext(ctx, tmux, "-S", socket, "new-session", "-d", "-s", "isolation", "-x", "150", "-y", "45", command).CombinedOutput(); err != nil {
 		t.Fatalf("start private tmux: %v: %s", err, output)
 	}
-	defer func() {
+	shutdownChild := sync.OnceFunc(func() {
 		// Wait for Launch's settings reconciliation and proxy shutdown before
 		// Go removes the isolated homes. Killing tmux alone races those writes.
 		_ = os.WriteFile(shutdown, []byte("stop"), 0o600)
@@ -264,15 +264,21 @@ func TestInstalledClaudeAgentIsolationLifecycle(t *testing.T) {
 		}
 		_ = exec.Command(tmux, "-S", socket, "kill-server").Run()
 		t.Error("native child did not finish launcher shutdown before cleanup")
-	}()
+	})
+	defer shutdownChild()
 	capture := func() string {
 		captureCtx, captureCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer captureCancel()
 		output, _ := exec.CommandContext(captureCtx, tmux, "-S", socket, "capture-pane", "-p", "-S", "-2000", "-t", "isolation:0.0").CombinedOutput()
 		return redact.Replace(string(output))
 	}
+	var screen string
 	defer func() {
-		_ = os.WriteFile(filepath.Join(artifacts, "terminal-final.txt"), []byte(capture()), 0o600)
+		terminal := screen
+		if terminal == "" {
+			terminal = capture()
+		}
+		_ = os.WriteFile(filepath.Join(artifacts, "terminal-final.txt"), []byte(terminal), 0o600)
 		mu.Lock()
 		captured := append([]observation(nil), observations...)
 		mu.Unlock()
@@ -280,7 +286,6 @@ func TestInstalledClaudeAgentIsolationLifecycle(t *testing.T) {
 	}()
 	ticker := time.NewTicker(300 * time.Millisecond)
 	defer ticker.Stop()
-	var screen string
 	complete := false
 	for !complete {
 		select {
@@ -302,6 +307,9 @@ func TestInstalledClaudeAgentIsolationLifecycle(t *testing.T) {
 	if ctx.Err() != nil || !strings.Contains(screen, "using Claude Code v"+version) {
 		t.Fatalf("native lifecycle terminal acceptance failed: %s", screen)
 	}
+	// Both counts must describe the same completed lifetime. The native UI
+	// can still submit background requests after displaying the final text.
+	shutdownChild()
 	mu.Lock()
 	captured := append([]observation(nil), observations...)
 	gotAstra, gotSol, gotAstraRequests := astraThread, solThread, astraRequests

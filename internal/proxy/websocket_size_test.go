@@ -24,10 +24,12 @@ func TestMessagesLargeWebSocketFallsBackToHTTP(t *testing.T) {
 		largeHistory bool
 		missingID    bool
 		httpStatus   int
+		preferHTTP   bool
 	}{
 		{name: "large_full_request", largeInput: true},
 		{name: "early_close_1009"},
 		{name: "resumed_close_1009", resume: true},
+		{name: "deferred_size_recovery_preserves_chain", resume: true, preferHTTP: true},
 		{name: "large_delta", resume: true, largeInput: true},
 		{name: "missing_reference_with_large_replay", resume: true, largeHistory: true, missingID: true},
 		{name: "http_also_rejects_size", httpStatus: http.StatusRequestEntityTooLarge},
@@ -124,6 +126,11 @@ func TestMessagesLargeWebSocketFallsBackToHTTP(t *testing.T) {
 					if first.Code != http.StatusOK || !strings.Contains(first.Body.String(), "tool_use") {
 						t.Fatalf("setup tool call failed: %d %s", first.Code, first.Body.String())
 					}
+					if tc.preferHTTP {
+						// Simulate a preference transition after a prior request used
+						// its retry budget. The recorded chain must survive for replay.
+						server.preferHTTP("size-session")
+					}
 					result := "fixture-result"
 					if tc.largeInput {
 						result += strings.Repeat("x", 9<<20)
@@ -145,7 +152,7 @@ func TestMessagesLargeWebSocketFallsBackToHTTP(t *testing.T) {
 					t.Errorf("status=%d HTTP calls=%d, want %d and 1: %.500s", got.Code, httpCalls.Load(), wantStatus, got.Body.String())
 				}
 				wantWS := int32(1)
-				if tc.resume && !tc.largeInput {
+				if tc.resume && !tc.largeInput && !tc.preferHTTP {
 					wantWS = 2
 				} else if !tc.resume && tc.largeInput {
 					wantWS = 0
@@ -173,8 +180,11 @@ func TestCommittedWebSocketSizeFailureDoesNotReplayOutput(t *testing.T) {
 	reader := io.MultiReader(strings.NewReader("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"already-visible\"}\n\n"), sizeFailureReader{closed})
 	server := New(Config{})
 	w := httptest.NewRecorder()
-	if err := server.streamAnthropicWithSchemas(w, reader, nil, "opus", nil, "", 0, 0, convert.Usage{}, "", codex.Request{}, nil, false, nil); err != nil {
+	if err := server.streamAnthropicWithSchemas(w, reader, nil, "opus", nil, "", 0, 0, convert.Usage{}, "committed-thread", codex.Request{}, nil, false, nil); err != nil {
 		t.Fatalf("committed response must not trigger a replay: %v", err)
+	}
+	if !server.prefersHTTP("committed-thread") {
+		t.Fatal("committed size failure did not retain the HTTP preference")
 	}
 	if strings.Count(w.Body.String(), "already-visible") != 1 || !strings.Contains(w.Body.String(), "invalid_request_error") || strings.Contains(w.Body.String(), "overloaded_error") {
 		t.Fatalf("expected visible output once and a useful terminal size error: %s", w.Body.String())
@@ -185,6 +195,24 @@ func TestCommittedWebSocketSizeFailureDoesNotReplayOutput(t *testing.T) {
 		if w.Code != http.StatusRequestEntityTooLarge || !strings.Contains(w.Body.String(), "too large") {
 			t.Fatalf("size error mapped to retryable failure: %d %s", w.Code, w.Body.String())
 		}
+	}
+}
+
+func TestHTTPTransportRejectsWebSocketDeltaBeforeSending(t *testing.T) {
+	home := t.TempDir()
+	saveTestAuth(t, home, "access-1")
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.Error(w, "delta must not reach HTTP", http.StatusBadRequest)
+	}))
+	defer upstream.Close()
+	server := New(Config{Home: home, CodexBaseURL: upstream.URL, HTTPClient: upstream.Client(), AuthPresent: true})
+	defer server.Close()
+	request := codex.Request{Model: "gpt-6.1-sol", PreviousResponseID: "ws-only-response"}
+	_, used, err := server.createCodexResponseWithTransport(httptest.NewRequest(http.MethodPost, "/v1/messages", nil), request, codex.Route{ThreadID: "thread"}, 2, false)
+	if err != errPreviousResponseNotFound || used != 0 || calls.Load() != 0 {
+		t.Fatalf("HTTP delta guard: err=%v used=%d HTTP calls=%d", err, used, calls.Load())
 	}
 }
 
