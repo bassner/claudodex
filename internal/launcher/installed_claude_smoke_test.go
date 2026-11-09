@@ -290,6 +290,8 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 		"Codex Plan",
 	}
 	switch claudeVersion {
+	case "2.1.319":
+		wants = append(wants, "function wR(){return process.env.CLAUDE_BRIDGE_OAUTH_TOKEN}")
 	case "2.1.318":
 		wants = append(wants, "function eR(){return process.env.CLAUDE_BRIDGE_OAUTH_TOKEN}")
 	case "2.1.317":
@@ -382,12 +384,17 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 			t.Fatalf("patched installed Claude missing %q for version=%s sha=%s", want, claudeVersion, sourceSHA)
 		}
 	}
-	if claudeVersion == "2.1.216" || claudeVersion == "2.1.218" || claudeVersion == "2.1.219" || claudeVersion == "2.1.220" || claudeVersion == "2.1.221" || claudeVersion == "2.1.222" || claudeVersion == "2.1.223" || claudeVersion == "2.1.226" || claudeVersion == "2.1.227" || claudeVersion == "2.1.228" || claudeVersion == "2.1.229" || claudeVersion == "2.1.233" || claudeVersion == "2.1.234" || claudeVersion == "2.1.245" || claudeVersion == "2.1.246" || claudeVersion == "2.1.247" || claudeVersion == "2.1.251" || claudeVersion == "2.1.252" || claudeVersion == "2.1.258" || claudeVersion == "2.1.259" || claudeVersion == "2.1.260" || claudeVersion == "2.1.261" || claudeVersion == "2.1.263" || claudeVersion == "2.1.273" || claudeVersion == "2.1.274" || claudeVersion == "2.1.276" || claudeVersion == "2.1.278" || claudeVersion == "2.1.281" || claudeVersion == "2.1.282" || claudeVersion == "2.1.283" || claudeVersion == "2.1.284" || claudeVersion == "2.1.286" || claudeVersion == "2.1.287" || claudeVersion == "2.1.288" || claudeVersion == "2.1.289" || claudeVersion == "2.1.291" || claudeVersion == "2.1.292" || claudeVersion == "2.1.294" || claudeVersion == "2.1.295" || claudeVersion == "2.1.296" || claudeVersion == "2.1.314" || claudeVersion == "2.1.316" || claudeVersion == "2.1.317" || claudeVersion == "2.1.318" {
+	if claudeVersion == "2.1.216" || claudeVersion == "2.1.218" || claudeVersion == "2.1.219" || claudeVersion == "2.1.220" || claudeVersion == "2.1.221" || claudeVersion == "2.1.222" || claudeVersion == "2.1.223" || claudeVersion == "2.1.226" || claudeVersion == "2.1.227" || claudeVersion == "2.1.228" || claudeVersion == "2.1.229" || claudeVersion == "2.1.233" || claudeVersion == "2.1.234" || claudeVersion == "2.1.245" || claudeVersion == "2.1.246" || claudeVersion == "2.1.247" || claudeVersion == "2.1.251" || claudeVersion == "2.1.252" || claudeVersion == "2.1.258" || claudeVersion == "2.1.259" || claudeVersion == "2.1.260" || claudeVersion == "2.1.261" || claudeVersion == "2.1.263" || claudeVersion == "2.1.273" || claudeVersion == "2.1.274" || claudeVersion == "2.1.276" || claudeVersion == "2.1.278" || claudeVersion == "2.1.281" || claudeVersion == "2.1.282" || claudeVersion == "2.1.283" || claudeVersion == "2.1.284" || claudeVersion == "2.1.286" || claudeVersion == "2.1.287" || claudeVersion == "2.1.288" || claudeVersion == "2.1.289" || claudeVersion == "2.1.291" || claudeVersion == "2.1.292" || claudeVersion == "2.1.294" || claudeVersion == "2.1.295" || claudeVersion == "2.1.296" || claudeVersion == "2.1.314" || claudeVersion == "2.1.316" || claudeVersion == "2.1.317" || claudeVersion == "2.1.318" || claudeVersion == "2.1.319" {
 		normalizer := "function CDX216("
 		pickerEnd := "function tAe("
 		tierCall := `n("`
 		tierCount := 3
 		switch claudeVersion {
+		case "2.1.319":
+			tierCount = 4
+			normalizer = "function CDX319("
+			pickerEnd = "function ow("
+			tierCall = `r("`
 		case "2.1.318":
 			tierCount = 4
 			normalizer = "function CDX318("
@@ -566,7 +573,7 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 			}
 		}
 		forbiddenMarkers := []string{"fable", "Fable", "mythos", "Mythos", "ANTHROPIC_DEFAULT_FABLE_MODEL"}
-		if claudeVersion == "2.1.314" || claudeVersion == "2.1.316" || claudeVersion == "2.1.317" || claudeVersion == "2.1.318" {
+		if claudeVersion == "2.1.314" || claudeVersion == "2.1.316" || claudeVersion == "2.1.317" || claudeVersion == "2.1.318" || claudeVersion == "2.1.319" {
 			forbiddenMarkers = []string{"mythos", "Mythos"}
 			if !bytes.Contains(picker, []byte(`r("fable",`)) || !bytes.Contains(picker, []byte(modelconfig.DefaultFableModel)) {
 				t.Fatal("Fable/Astra picker option missing")
@@ -604,6 +611,8 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 	}
 	var brandingReplacements []claude209UIBrandingReplacement
 	switch claudeVersion {
+	case "2.1.319":
+		brandingReplacements = claude319UIBrandingReplacements
 	case "2.1.318":
 		brandingReplacements = claude318UIBrandingReplacements
 	case "2.1.317":
@@ -748,6 +757,7 @@ func installedClaudeTargetsCoveredByLaterTest(version, target string) bool {
 		"2.1.316": 38,
 		"2.1.317": 39,
 		"2.1.318": 40,
+		"2.1.319": 41,
 	}
 	return order[version] > order[target]
 }
@@ -2611,6 +2621,10 @@ func TestInstalledClaude318PatchTargets(t *testing.T) {
 		t.Fatalf("claude binary not available: %v", err)
 	}
 	if version := detectClaudeVersion(context.Background(), claudePath); version != "2.1.318" {
+		if installedClaudeTargetsCoveredByLaterTest(version, "2.1.318") {
+			t.Logf("installed Claude %s targets are covered by its version-specific test", version)
+			return
+		}
 		t.Fatalf("installed Claude version = %s, want 2.1.318", version)
 	}
 	for name, check := range map[string]func(context.Context, string) bool{
@@ -2653,6 +2667,61 @@ func TestInstalledClaude318PatchTargets(t *testing.T) {
 	t.Run("all-required-transformations-gate", func(t *testing.T) {
 		broken := bytes.Replace(append([]byte(nil), source...), claude318RequiredLogoAnchor(), []byte("function MISSING_TARGET(){"), 1)
 		if applyClaudeUIPatches_2_1_318(broken, "test", "2.1.318", modelconfig.Default()) {
+			t.Fatal("patch succeeded without the required logo transformation target")
+		}
+	})
+}
+func TestInstalledClaude319PatchTargets(t *testing.T) {
+	if os.Getenv("CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE") != "1" {
+		t.Skip("set CLAUDODEX_RUN_INSTALLED_CLAUDE_SMOKE=1 to run installed Claude smoke test")
+	}
+	claudePath, err := exec.LookPath("claude")
+	if err != nil {
+		t.Fatalf("claude binary not available: %v", err)
+	}
+	if version := detectClaudeVersion(context.Background(), claudePath); version != "2.1.319" {
+		t.Fatalf("installed Claude version = %s, want 2.1.319", version)
+	}
+	for name, check := range map[string]func(context.Context, string) bool{
+		"settings":           claudeFastModeSettingsFallbackRequired,
+		"picker-args":        claudeThreeTierPickerArgsRequired,
+		"source-picker-args": claudeSourcePatchedPickerArgsRequired,
+	} {
+		if !check(context.Background(), claudePath) {
+			t.Fatalf("selected 2.1.319 source is missing its %s compatibility", name)
+		}
+	}
+	source, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sha256Hex(source); got != claude319SHA {
+		t.Fatalf("installed Claude SHA = %s, want %s", got, claude319SHA)
+	}
+	for _, transformation := range claude319Transformations("test") {
+		t.Run(transformation.name, func(t *testing.T) {
+			data := append([]byte(nil), source...)
+			if !transformation.apply(data) {
+				t.Fatalf("%s patch target did not match installed Claude 2.1.319", transformation.name)
+			}
+		})
+	}
+	for _, transformation := range claude319RemoteControlTransformations() {
+		t.Run("remote-control/"+transformation.name, func(t *testing.T) {
+			data := append([]byte(nil), source...)
+			if !transformation.apply(data) {
+				t.Errorf("remote-control %s patch target did not match installed Claude 2.1.319", transformation.name)
+			}
+		})
+	}
+	for _, replacement := range claude319UIBrandingReplacements {
+		if got := bytes.Count(source, []byte(replacement.old)); got != replacement.expectedCount {
+			t.Errorf("branding count for %q = %d, want %d", replacement.old, got, replacement.expectedCount)
+		}
+	}
+	t.Run("all-required-transformations-gate", func(t *testing.T) {
+		broken := bytes.Replace(append([]byte(nil), source...), claude319RequiredLogoAnchor(), []byte("function MISSING_TARGET(){"), 1)
+		if applyClaudeUIPatches_2_1_319(broken, "test", "2.1.319", modelconfig.Default()) {
 			t.Fatal("patch succeeded without the required logo transformation target")
 		}
 	})

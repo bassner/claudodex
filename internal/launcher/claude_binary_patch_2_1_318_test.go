@@ -38,7 +38,7 @@ func TestClaude318WrongSHAFailsStrictSelection(t *testing.T) {
 	}
 	var stderr strings.Builder
 	_, err := selectClaudeExecutable(context.Background(), t.TempDir(), claudePath, "test", modelconfig.Default(), &stderr)
-	if err == nil || !strings.Contains(err.Error(), "claude install 2.1.318") {
+	if err == nil || !strings.Contains(err.Error(), "claude install 2.1.319") {
 		t.Fatalf("wrong-SHA source did not fail closed with an exact install command: %v", err)
 	}
 }

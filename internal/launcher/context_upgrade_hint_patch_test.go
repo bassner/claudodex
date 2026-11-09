@@ -14,6 +14,7 @@ func TestContextUpgradeHintPatch(t *testing.T) {
 	}{
 		{"2.1.314", "RCe", patchContextUpgradeHint_2_1_314},
 		{"2.1.316", "tTe", patchContextUpgradeHint_2_1_316},
+		{"2.1.319", "AOe", patchContextUpgradeHint_2_1_319},
 		{"2.1.318", "pPe", patchContextUpgradeHint_2_1_318},
 		{"2.1.317", "oAe", patchContextUpgradeHint_2_1_317},
 	} {
