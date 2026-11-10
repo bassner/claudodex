@@ -33,6 +33,7 @@ var errPreviousResponseNotFound = errors.New("previous response not found")
 type upstreamStreamEventError struct {
 	typ        string
 	code       string
+	status     int
 	message    string
 	retryAfter time.Duration
 	retrySet   bool
@@ -655,7 +656,7 @@ func shouldRetryStream(r *http.Request, err error, usedImplicitResume bool) bool
 	var upstreamEvent upstreamStreamEventError
 	if errors.As(err, &upstreamEvent) {
 		code := strings.ToLower(strings.TrimSpace(upstreamEvent.code))
-		if isTerminalStreamFailureCode(code) {
+		if isTerminalStreamFailure(code, upstreamEvent.status) {
 			return false
 		}
 		if code == "content_filter" {
@@ -664,7 +665,7 @@ func shouldRetryStream(r *http.Request, err error, usedImplicitResume bool) bool
 		if usedImplicitResume {
 			return true
 		}
-		return upstreamEvent.retryable || upstreamEvent.retrySet || isRetryableStreamFailureCode(code)
+		return upstreamEvent.retryable || upstreamEvent.retrySet || isRetryableStreamFailureCode(code) || upstreamEvent.status >= 500
 	}
 	if usedImplicitResume {
 		return true
@@ -737,6 +738,16 @@ func isRetryableStreamFailureCode(code string) bool {
 }
 
 var errTerminalStreamFailure = errors.New("terminal Codex stream failure")
+
+// Provider rejection codes are terminal unless a transient HTTP status says
+// the request failed before that rejection could be authoritative.
+func isTerminalStreamFailure(code string, status int) bool {
+	switch strings.ToLower(strings.TrimSpace(code)) {
+	case "context_length_exceeded", "inference_hook_denied", "invalid_access_program", "unsupported_access_program", "access_program_not_enabled":
+		return status == 0 || (status >= 400 && status < 500 && status != 429)
+	}
+	return isTerminalStreamFailureCode(code)
+}
 
 func isTerminalStreamFailureCode(code string) bool {
 	switch strings.ToLower(strings.TrimSpace(code)) {
@@ -902,19 +913,19 @@ func (s *Server) streamAnthropicWithSchemas(w http.ResponseWriter, body io.Reade
 				s.recordResponseUsage(chainKey, reducer.Usage())
 			}
 			code := strings.ToLower(strings.TrimSpace(reducer.FailureCode()))
-			if reducer.Failed() && !isTerminalStreamFailureCode(code) && (!wrote || code == "content_filter") && (retryEarlyUpstreamErrors || reducer.FailureRetryable() || reducer.FailureRetryAfterSet() || isRetryableStreamFailureCode(code) || code == "content_filter") {
+			if reducer.Failed() && !isTerminalStreamFailure(code, reducer.FailureStatus()) && (!wrote || code == "content_filter") && (retryEarlyUpstreamErrors || reducer.FailureRetryable() || reducer.FailureRetryAfterSet() || isRetryableStreamFailureCode(code) || reducer.FailureStatus() >= 500 || code == "content_filter") {
 				retryAfter := retryDelayFromHeaders(currentHeaders)
 				if messageDelay := reducer.FailureRetryAfter(); messageDelay > retryAfter {
 					retryAfter = messageDelay
 				}
-				return upstreamStreamEventError{typ: reducer.FailureType(), code: reducer.FailureCode(), message: reducer.FailureMessage(), retryAfter: retryAfter, retrySet: reducer.FailureRetryAfterSet(), retryable: reducer.FailureRetryable()}
+				return upstreamStreamEventError{typ: reducer.FailureType(), code: reducer.FailureCode(), status: reducer.FailureStatus(), message: reducer.FailureMessage(), retryAfter: retryAfter, retrySet: reducer.FailureRetryAfterSet(), retryable: reducer.FailureRetryable()}
 			}
 			for _, anthropicEvent := range events {
 				if err := writeConvertedEvent(anthropicEvent); err != nil {
 					return err
 				}
 			}
-			if reducer.Failed() && isTerminalStreamFailureCode(code) {
+			if reducer.Failed() && isTerminalStreamFailure(code, reducer.FailureStatus()) {
 				return errTerminalStreamFailure
 			}
 			// Schema-backed tool arguments remain buffered until their JSON is complete.
@@ -1184,7 +1195,7 @@ func (s *Server) writeNonStreamingMessageWithSchemas(w http.ResponseWriter, body
 				return reduceErr
 			}
 			events = append(events, next...)
-			if reducer.Failed() && isTerminalStreamFailureCode(reducer.FailureCode()) {
+			if reducer.Failed() && isTerminalStreamFailure(reducer.FailureCode(), reducer.FailureStatus()) {
 				return errTerminalStreamFailure
 			}
 			return nil
@@ -1245,7 +1256,7 @@ func (s *Server) writeNonStreamingMessageWithSchemas(w http.ResponseWriter, body
 				"output_items": len(trace.Output),
 			}))
 		}
-		return upstreamStreamEventError{typ: reducer.FailureType(), code: reducer.FailureCode(), message: reducer.FailureMessage(), retryAfter: reducer.FailureRetryAfter(), retrySet: reducer.FailureRetryAfterSet(), retryable: reducer.FailureRetryable()}
+		return upstreamStreamEventError{typ: reducer.FailureType(), code: reducer.FailureCode(), status: reducer.FailureStatus(), message: reducer.FailureMessage(), retryAfter: reducer.FailureRetryAfter(), retrySet: reducer.FailureRetryAfterSet(), retryable: reducer.FailureRetryable()}
 	}
 	if !reducer.Done() {
 		s.trace("stream.incomplete", mergeTraceFields(traceBase, map[string]any{

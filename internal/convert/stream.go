@@ -64,6 +64,7 @@ type StreamReducer struct {
 	failed              bool
 	failureType         string
 	failureCode         string
+	failureStatus       int
 	failureMessage      string
 	failureRetryAfter   time.Duration
 	failureRetrySet     bool
@@ -173,6 +174,8 @@ func (r *StreamReducer) FailureMessage() string {
 func (r *StreamReducer) FailureCode() string {
 	return r.failureCode
 }
+
+func (r *StreamReducer) FailureStatus() int { return r.failureStatus }
 
 func (r *StreamReducer) FailureRetryAfter() time.Duration {
 	return r.failureRetryAfter
@@ -1130,6 +1133,7 @@ func (r *StreamReducer) errorEventsWithTypeAndFailure(typ string, failure codex.
 	r.failed = true
 	r.failureType = typ
 	r.failureCode = code
+	r.failureStatus = failure.Status
 	r.failureMessage = message
 	r.failureRetryAfter = failure.RetryAfter
 	r.failureRetrySet = failure.RetryAfterSet

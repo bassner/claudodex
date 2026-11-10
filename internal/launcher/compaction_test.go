@@ -54,7 +54,7 @@ func TestCompactionCacheIsSeededAndIsolatedFromRealClaude(t *testing.T) {
 }
 
 func TestNativeModelCompactionRequiresVerifiedVersion(t *testing.T) {
-	for version, want := range map[string]bool{"2.1.314": true, "2.1.316": true, "2.1.296": false, "": false, "2.1.317": true, "2.1.318": true, "2.1.319": true} {
+	for version, want := range map[string]bool{"2.1.314": true, "2.1.316": true, "2.1.296": false, "": false, "2.1.317": true, "2.1.318": true, "2.1.319": true, "2.1.322": true} {
 		if supportsNativeModelCompaction(version) != want {
 			t.Fatalf("native compaction support for %s = %t", version, !want)
 		}

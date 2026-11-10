@@ -38,6 +38,18 @@ func ParseResponseFailure(data []byte) ResponseFailure {
 		if strings.TrimSpace(code) == "" && strings.TrimSpace(message) == "" && status == 0 {
 			continue
 		}
+		// A WebSocket envelope can carry HTTP status outside its selected error.
+		if status == 0 {
+			for _, enclosing := range candidates {
+				status = responseFailureStatus(enclosing["status"])
+				if status == 0 {
+					status = responseFailureStatus(enclosing["status_code"])
+				}
+				if status != 0 {
+					break
+				}
+			}
+		}
 		var retryAfter time.Duration
 		var retryAfterSet bool
 		for _, headerCandidate := range candidates {
@@ -151,6 +163,7 @@ func responseFailureCandidates(payload map[string]any) []map[string]any {
 		if wrapped, _ := response["error"].(map[string]any); wrapped != nil {
 			candidates = append(candidates, wrapped)
 		}
+		candidates = append(candidates, response)
 	}
 	return append(candidates, payload)
 }

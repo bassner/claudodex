@@ -115,3 +115,20 @@ func TestParseResponseFailureBudgetReachedFallback(t *testing.T) {
 		t.Fatalf("lost provider message: %#v", got)
 	}
 }
+
+func TestParseResponseFailureInheritsEnclosingStatus(t *testing.T) {
+	for _, body := range []string{
+		`{"status":503,"error":{"code":"context_length_exceeded"}}`,
+		`{"status_code":"503","response":{"error":{"code":"context_length_exceeded"}}}`,
+		`{"response":{"status":503,"error":{"code":"context_length_exceeded"}}}`,
+	} {
+		got := ParseResponseFailure([]byte(body))
+		if got.Code != "context_length_exceeded" || got.Status != 503 {
+			t.Fatalf("lost enclosing status: %#v", got)
+		}
+	}
+	got := ParseResponseFailure([]byte(`{"status":503,"error":{"status":400,"code":"context_length_exceeded"}}`))
+	if got.Status != 400 {
+		t.Fatalf("inner status overridden: %#v", got)
+	}
+}
