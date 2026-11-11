@@ -352,8 +352,24 @@ func TestClaudeCatalogTmuxChild(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
+	defer func() { _ = os.WriteFile(os.Getenv("CLAUDODEX_CATALOG_TMUX_CHILD_DONE"), []byte("done"), 0o600) }()
+	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if _, err := os.Stat(os.Getenv("CLAUDODEX_CATALOG_TMUX_SHUTDOWN")); err == nil {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 	args := []string{"--model", "opus", "--effort", "max", "--settings", `{"fastMode":true}`, "--dangerously-skip-permissions", "--system-prompt", "Local fake-backend acceptance. Use the Agent tool when asked.", "Use an Agent worker to return nested-catalog-ok."}
-	if err := (ProcessLauncher{}).Launch(ctx, args, Config{Version: "smoke", Home: os.Getenv("CLAUDODEX_CATALOG_TMUX_HOME"), CodexBaseURL: os.Getenv("CLAUDODEX_CATALOG_TMUX_BACKEND"), Interactive: true}); err != nil {
+	if err := (ProcessLauncher{}).Launch(ctx, args, Config{Version: "smoke", Home: os.Getenv("CLAUDODEX_CATALOG_TMUX_HOME"), CodexBaseURL: os.Getenv("CLAUDODEX_CATALOG_TMUX_BACKEND"), Interactive: true}); err != nil && ctx.Err() == nil {
 		t.Fatal(err)
 	}
 }
@@ -446,7 +462,9 @@ func TestInstalledClaudeCatalogTmuxInheritedFastFakeUpstream(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
 	tracePath := filepath.Join(artifacts, "proxy.jsonl")
-	assignments := map[string]string{"HOME": userHome, "CLAUDE_CONFIG_DIR": "", "CLAUDE_SECURESTORAGE_CONFIG_DIR": "", "CLAUDODEX_DISABLE_REAL_CLAUDE_BRIDGE_AUTH": "1", "CLAUDODEX_CATALOG_TMUX_CHILD": "1", "CLAUDODEX_CATALOG_TMUX_HOME": home, "CLAUDODEX_CATALOG_TMUX_BACKEND": upstream.URL, "CLAUDODEX_CODEX_BASE_URL": upstream.URL, "CLAUDODEX_PROXY_LOG": tracePath, "CLAUDODEX_DISABLE_CLAUDE_PATCH": "", "TERM": "xterm-256color"}
+	childDone := filepath.Join(socketDir, "child.done")
+	shutdown := filepath.Join(socketDir, "shutdown")
+	assignments := map[string]string{"HOME": userHome, "CLAUDE_CONFIG_DIR": "", "CLAUDE_SECURESTORAGE_CONFIG_DIR": "", "CLAUDODEX_DISABLE_REAL_CLAUDE_BRIDGE_AUTH": "1", "CLAUDODEX_CATALOG_TMUX_CHILD": "1", "CLAUDODEX_CATALOG_TMUX_HOME": home, "CLAUDODEX_CATALOG_TMUX_BACKEND": upstream.URL, "CLAUDODEX_CATALOG_TMUX_CHILD_DONE": childDone, "CLAUDODEX_CATALOG_TMUX_SHUTDOWN": shutdown, "CLAUDODEX_CODEX_BASE_URL": upstream.URL, "CLAUDODEX_PROXY_LOG": tracePath, "CLAUDODEX_DISABLE_CLAUDE_PATCH": "", "TERM": "xterm-256color"}
 	command := "cd " + shellQuote(work) + " && env"
 	for key, value := range assignments {
 		command += " " + key + "=" + shellQuote(value)
@@ -456,15 +474,21 @@ func TestInstalledClaudeCatalogTmuxInheritedFastFakeUpstream(t *testing.T) {
 		t.Fatalf("start private tmux: %v: %s", err, output)
 	}
 	defer func() {
-		_ = exec.Command(tmux, "-S", socket, "send-keys", "-t", "catalog:0.0", "C-d").Run()
-		deadline := time.Now().Add(8 * time.Second)
+		// A closed terminal can leave Launch reconciling settings. Wait for
+		// that shutdown before Go removes the isolated homes.
+		if err := os.WriteFile(shutdown, []byte("stop"), 0o600); err != nil {
+			t.Errorf("request native child shutdown: %v", err)
+		}
+		deadline := time.Now().Add(12 * time.Second)
 		for time.Now().Before(deadline) {
-			if exec.Command(tmux, "-S", socket, "has-session", "-t", "catalog").Run() != nil {
+			if _, err := os.Stat(childDone); err == nil {
+				_ = exec.Command(tmux, "-S", socket, "kill-server").Run()
 				return
 			}
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 		}
 		_ = exec.Command(tmux, "-S", socket, "kill-server").Run()
+		t.Error("native child did not finish launcher shutdown before cleanup")
 	}()
 	capture := func() string {
 		captureCtx, captureCancel := context.WithTimeout(context.Background(), 2*time.Second)
