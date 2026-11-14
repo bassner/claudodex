@@ -271,7 +271,7 @@ func (ProcessLauncher) Launch(ctx context.Context, args []string, cfg Config) er
 }
 
 func supportsNativeModelCompaction(version string) bool {
-	return version == "2.1.323" || version == "2.1.322" || version == "2.1.319" || version == "2.1.318" || version == "2.1.314" || version == "2.1.316" || version == "2.1.317"
+	return version == "2.1.325" || version == "2.1.323" || version == "2.1.322" || version == "2.1.319" || version == "2.1.318" || version == "2.1.314" || version == "2.1.316" || version == "2.1.317"
 }
 
 func isDirectCodexModel(model string) bool {

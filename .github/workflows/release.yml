@@ -52,12 +52,12 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/claude-bin"
           curl --fail --location --proto '=https' --proto-redir '=https' --retry 3 \
-            https://downloads.claude.ai/claude-code-releases/2.1.323/darwin-arm64/claude \
+            https://downloads.claude.ai/claude-code-releases/2.1.325/darwin-arm64/claude \
             --output "$RUNNER_TEMP/claude-bin/claude"
-          "$RUNNER_TEMP/clx-release" verify-claude --version 2.1.323 \
+          "$RUNNER_TEMP/clx-release" verify-claude --version 2.1.325 \
             --os darwin --arch arm64 --file "$RUNNER_TEMP/claude-bin/claude"
           chmod 755 "$RUNNER_TEMP/claude-bin/claude"
-          test "$("$RUNNER_TEMP/claude-bin/claude" --version)" = '2.1.323 (Claude Code)'
+          test "$("$RUNNER_TEMP/claude-bin/claude" --version)" = '2.1.325 (Claude Code)'
       - name: Install the native terminal test dependency
         run: |
           brew install --formula tmux
