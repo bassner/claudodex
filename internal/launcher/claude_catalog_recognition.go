@@ -10,6 +10,8 @@ const catalogModelIDsEnv = "CLAUDODEX_MODEL_IDS"
 func patchClaudeCatalogRecognition(data []byte, source claudeSource) bool {
 	var function, matches, expectedSHA string
 	switch source.Version {
+	case "2.1.326":
+		function, matches, expectedSHA = "n0t", "SA", claude326SHA
 	case "2.1.325":
 		function, matches, expectedSHA = "kCt", "dC", claude325SHA
 	case "2.1.323":
@@ -32,8 +34,12 @@ func patchClaudeCatalogRecognition(data []byte, source claudeSource) bool {
 	if source.SHA256 != expectedSHA {
 		return true // No overlay for any other source; strict selection owns verification.
 	}
-	original := `function ` + function + `(e){return[i.ANTHROPIC_DEFAULT_FABLE_MODEL,i.ANTHROPIC_DEFAULT_OPUS_MODEL,i.ANTHROPIC_DEFAULT_SONNET_MODEL,i.ANTHROPIC_DEFAULT_HAIKU_MODEL].some((n)=>n!==void 0&&` + matches + `(n,e))}`
-	// i is Claude's typed environment view and does not export our own key.
-	replacement := `function ` + function + `(e){return["FABLE","OPUS","SONNET","HAIKU"].map(n=>i["ANTHROPIC_DEFAULT_"+n+"_MODEL"]).concat((process.env.` + catalogModelIDsEnv + `??"").split(",")).some(n=>n&&` + matches + `(n,e))}`
+	env := "i"
+	if source.Version == "2.1.326" {
+		env = "s"
+	}
+	original := `function ` + function + `(e){return[` + env + `.ANTHROPIC_DEFAULT_FABLE_MODEL,` + env + `.ANTHROPIC_DEFAULT_OPUS_MODEL,` + env + `.ANTHROPIC_DEFAULT_SONNET_MODEL,` + env + `.ANTHROPIC_DEFAULT_HAIKU_MODEL].some((n)=>n!==void 0&&` + matches + `(n,e))}`
+	// Claude's typed environment view does not export our own key.
+	replacement := `function ` + function + `(e){return["FABLE","OPUS","SONNET","HAIKU"].map(n=>` + env + `["ANTHROPIC_DEFAULT_"+n+"_MODEL"]).concat((process.env.` + catalogModelIDsEnv + `??"").split(",")).some(n=>n&&` + matches + `(n,e))}`
 	return replaceFirstFixed(data, original, replacement)
 }

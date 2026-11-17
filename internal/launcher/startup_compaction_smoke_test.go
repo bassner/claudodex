@@ -59,7 +59,15 @@ func TestInstalledClaudeContextUpgradeHint(t *testing.T) {
 }
 
 func installedClaudeStartupAndModelCompaction(t *testing.T, contextHint bool) {
-	nativeCatalogRequire(t)
+	version := nativeCatalogRequire(t)
+	windowHeading, highContextFooter := "Select auto-compact window", "% until auto-compact"
+	windowMarker := windowHeading
+	if version == "2.1.326" {
+		windowHeading, highContextFooter = "Auto-compact window", "auto-compact is next"
+		// The new heading also occurs in the cancellation message. Only the
+		// open dialog contains this current-setting row.
+		windowMarker = "Current setting for "
+	}
 	tmux, err := exec.LookPath("tmux")
 	if err != nil {
 		t.Fatal(err)
@@ -233,7 +241,7 @@ func installedClaudeStartupAndModelCompaction(t *testing.T, contextHint bool) {
 		t.Fatalf("startup screen remained after handoff: %s", screen)
 	}
 	if contextHint {
-		screen = wait("high-context-footer", "% until auto-compact")
+		screen = wait("high-context-footer", highContextFooter)
 		if strings.Contains(screen, "/model opus[1m]") || strings.Contains(screen, "/model sonnet[1m]") || strings.Contains(screen, "x more context") {
 			t.Fatalf("Anthropic context upgrade recommendation remained in footer:\n%s", screen)
 		}
@@ -244,7 +252,10 @@ func installedClaudeStartupAndModelCompaction(t *testing.T, contextHint bool) {
 		send("/model "+check.model, "Enter")
 		waitModel(check.model)
 		send("/autocompact", "Enter")
-		screen = wait("window-"+check.model, "Select auto-compact window")
+		screen = wait("window-"+check.model, windowMarker)
+		if !strings.Contains(screen, windowHeading) {
+			t.Fatalf("auto-compact dialog heading missing: %s", screen)
+		}
 		current := ""
 		for _, line := range strings.Split(screen, "\n") {
 			if strings.Contains(line, "Current setting for ") {
@@ -255,19 +266,19 @@ func installedClaudeStartupAndModelCompaction(t *testing.T, contextHint bool) {
 			t.Fatalf("%s did not use its own %s compaction window:\n%s", check.model, check.window, screen)
 		}
 		send("Escape")
-		for strings.Contains(capture(), "Select auto-compact window") && ctx.Err() == nil {
+		for strings.Contains(capture(), windowMarker) && ctx.Err() == nil {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
 	send("/autocompact 200k", "Enter")
 	wait("user-lower-window", "200k")
 	send("/autocompact", "Enter")
-	screen = wait("user-lower-window-dialog", "Select auto-compact window")
+	screen = wait("user-lower-window-dialog", windowMarker)
 	if !strings.Contains(screen, "200k tokens (from settings)") {
 		t.Fatalf("lower user window did not win: %s", screen)
 	}
 	send("Escape")
-	for strings.Contains(capture(), "Select auto-compact window") && ctx.Err() == nil {
+	for strings.Contains(capture(), windowMarker) && ctx.Err() == nil {
 		time.Sleep(100 * time.Millisecond)
 	}
 	before := modelRequests.Load()
