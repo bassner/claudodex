@@ -10,6 +10,8 @@ const catalogModelIDsEnv = "CLAUDODEX_MODEL_IDS"
 func patchClaudeCatalogRecognition(data []byte, source claudeSource) bool {
 	var function, matches, expectedSHA string
 	switch source.Version {
+	case "2.1.327":
+		function, matches, expectedSHA = "GDt", "ZA", claude327SHA
 	case "2.1.326":
 		function, matches, expectedSHA = "n0t", "SA", claude326SHA
 	case "2.1.325":
@@ -35,7 +37,7 @@ func patchClaudeCatalogRecognition(data []byte, source claudeSource) bool {
 		return true // No overlay for any other source; strict selection owns verification.
 	}
 	env := "i"
-	if source.Version == "2.1.326" {
+	if source.Version == "2.1.326" || source.Version == "2.1.327" {
 		env = "s"
 	}
 	original := `function ` + function + `(e){return[` + env + `.ANTHROPIC_DEFAULT_FABLE_MODEL,` + env + `.ANTHROPIC_DEFAULT_OPUS_MODEL,` + env + `.ANTHROPIC_DEFAULT_SONNET_MODEL,` + env + `.ANTHROPIC_DEFAULT_HAIKU_MODEL].some((n)=>n!==void 0&&` + matches + `(n,e))}`
