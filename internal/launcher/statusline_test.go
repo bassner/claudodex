@@ -137,7 +137,7 @@ func TestPrepareStatusLineFlagSettingsAddsDefaultMaxEffortWhenUnset(t *testing.T
 	}
 }
 
-func TestPrepareStatusLineFlagSettingsLiftsUltracodeEffortIntoSettings(t *testing.T) {
+func TestPrepareStatusLineFlagSettingsUsesMaxWithLocalUltracode(t *testing.T) {
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
 	t.Chdir(t.TempDir())
@@ -148,11 +148,11 @@ func TestPrepareStatusLineFlagSettingsLiftsUltracodeEffortIntoSettings(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if contains(got, "--effort") || contains(got, "ultracode") {
-		t.Fatalf("ultracode effort CLI arg leaked to Claude: %#v", got)
+	if len(got) != len(args) || !reflect.DeepEqual(got[:4], []string{"--model", "gpt-5.5", "--effort", "max"}) {
+		t.Fatalf("args = %#v, want max effort", got)
 	}
 	settings := mustReadJSONMap(t, flagSettingsArg(t, got))
-	if settings["effortLevel"] != "ultracode" || settings["ultracode"] != true || settings["enableWorkflows"] != true {
+	if settings["effortLevel"] != nil || settings["ultracode"] != true || settings["enableWorkflows"] != true {
 		t.Fatalf("ultracode flag settings missing: %#v", settings)
 	}
 	if settings["theme"] != "dark" {
@@ -170,6 +170,9 @@ func TestPrepareStatusLineFlagSettingsUltracodeOverridesDisabledWorkflows(t *tes
 	got, err := PrepareStatusLineFlagSettings(sidecarDir, args)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !contains(got, "--effort=max") {
+		t.Fatalf("args = %#v, want --effort=max", got)
 	}
 	settings := mustReadJSONMap(t, flagSettingsArg(t, got))
 	if settings["enableWorkflows"] != true {

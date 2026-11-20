@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bassner/claudodex/internal/auth"
 	"github.com/bassner/claudodex/internal/codex"
 	"github.com/bassner/claudodex/internal/modelconfig"
 )
@@ -65,6 +66,11 @@ func TestInstalledClaudeAgentIsolationLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	nativeCatalogAuth(t, home)
+	dataDir, err := auth.DataDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects := filepath.Join(dataDir, claudeSidecarDirName, "projects")
 	if err := writeJSONFile(filepath.Join(userHome, ".claude.json"), map[string]any{"hasCompletedOnboarding": true, "theme": "dark", "projects": map[string]any{work: map[string]any{"hasTrustDialogAccepted": true}}}, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +182,6 @@ func TestInstalledClaudeAgentIsolationLifecycle(t *testing.T) {
 						return
 					}
 					nativeCatalogText(w, "astra-first-ok")
-					astraDoneOnce.Do(func() { close(astraDone) })
 				} else {
 					if !wait(r, solCanceled) {
 						return
@@ -295,6 +300,11 @@ func TestInstalledClaudeAgentIsolationLifecycle(t *testing.T) {
 			t.Fatalf("native agent lifecycle did not finish; artifacts=%s\n%s", artifacts, capture())
 		case <-ticker.C:
 			screen = capture()
+			// The response stream can finish while Claude still considers the
+			// task active. Wait for its state before testing a completed resume.
+			if nativeAgentFinished(projects, "isolation-astra") {
+				astraDoneOnce.Do(func() { close(astraDone) })
+			}
 			if strings.Contains(screen, "Yes, I accept") || strings.Contains(screen, "Yes, I trust this folder") {
 				_ = exec.CommandContext(ctx, tmux, "-S", socket, "send-keys", "-t", "isolation:0.0", "Down", "Enter").Run()
 			}
@@ -405,6 +415,24 @@ func TestInstalledClaudeAgentIsolationLifecycle(t *testing.T) {
 	}
 	writeArtifact("result.json", map[string]any{"passed": !t.Failed(), "claude_version": version, "paid_model_requests": 0, "native_parallel_workers": true, "identical_delegated_prompts": true, "explicit_models": []string{"gpt-6-astra", "gpt-6.1-sol"}, "separate_worker_threads": true, "send_message_stable_thread": gotAstraRequests >= 2, "task_stop_canceled_upstream": true, "sibling_completed_after_cancel": true, "absent_model_inherits_astra": gotAbsent == 1, "inherit_model_inherits_astra": gotExplicit == 1, "generation_requests": len(captured), "proxy_request_ids": requestIDs})
 	t.Logf("native Claude %s agent isolation artifacts: %s", version, artifacts)
+}
+
+func nativeAgentFinished(projects, name string) bool {
+	paths, _ := filepath.Glob(filepath.Join(projects, "*", "*", "subagents", "agent-*.meta.json"))
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var agent struct {
+			Name     string `json:"name"`
+			Finished bool   `json:"finished"`
+		}
+		if json.Unmarshal(data, &agent) == nil && agent.Name == name && agent.Finished {
+			return true
+		}
+	}
+	return false
 }
 
 func agentIsolationRedactIDs(value any) {

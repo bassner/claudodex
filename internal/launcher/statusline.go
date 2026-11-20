@@ -287,15 +287,20 @@ func liftUltracodeEffortArg(args []string, settings map[string]any) ([]string, b
 	sawUltracode := false
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
+		if arg == "--" {
+			return append(out, args[i:]...), sawUltracode
+		}
 		if arg == "--effort" && i+1 < len(args) && strings.EqualFold(args[i+1], "ultracode") {
 			enableUltracodeFlagSettings(settings)
 			sawUltracode = true
+			out = append(out, arg, "max")
 			i++
 			continue
 		}
 		if value, ok := strings.CutPrefix(arg, "--effort="); ok && strings.EqualFold(value, "ultracode") {
 			enableUltracodeFlagSettings(settings)
 			sawUltracode = true
+			out = append(out, "--effort=max")
 			continue
 		}
 		out = append(out, arg)
@@ -304,7 +309,8 @@ func liftUltracodeEffortArg(args []string, settings map[string]any) ([]string, b
 }
 
 func enableUltracodeFlagSettings(settings map[string]any) {
-	settings["effortLevel"] = "ultracode"
+	// Claude treats workflow orchestration and request effort separately.
+	// Pass max as the native effort flag while keeping workflows local.
 	settings["ultracode"] = true
 	settings["enableWorkflows"] = true
 }

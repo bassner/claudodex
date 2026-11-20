@@ -9,7 +9,11 @@ const catalogModelIDsEnv = "CLAUDODEX_MODEL_IDS"
 // validation and all critical routing remain outside this optional UI check.
 func patchClaudeCatalogRecognition(data []byte, source claudeSource) bool {
 	var function, matches, expectedSHA string
+	candidate := "n"
 	switch source.Version {
+	case "2.1.329":
+		function, matches, expectedSHA = "KBt", "lx", claude329SHA
+		candidate = "r"
 	case "2.1.327":
 		function, matches, expectedSHA = "GDt", "ZA", claude327SHA
 	case "2.1.326":
@@ -37,10 +41,10 @@ func patchClaudeCatalogRecognition(data []byte, source claudeSource) bool {
 		return true // No overlay for any other source; strict selection owns verification.
 	}
 	env := "i"
-	if source.Version == "2.1.326" || source.Version == "2.1.327" {
+	if source.Version == "2.1.329" || source.Version == "2.1.326" || source.Version == "2.1.327" {
 		env = "s"
 	}
-	original := `function ` + function + `(e){return[` + env + `.ANTHROPIC_DEFAULT_FABLE_MODEL,` + env + `.ANTHROPIC_DEFAULT_OPUS_MODEL,` + env + `.ANTHROPIC_DEFAULT_SONNET_MODEL,` + env + `.ANTHROPIC_DEFAULT_HAIKU_MODEL].some((n)=>n!==void 0&&` + matches + `(n,e))}`
+	original := `function ` + function + `(e){return[` + env + `.ANTHROPIC_DEFAULT_FABLE_MODEL,` + env + `.ANTHROPIC_DEFAULT_OPUS_MODEL,` + env + `.ANTHROPIC_DEFAULT_SONNET_MODEL,` + env + `.ANTHROPIC_DEFAULT_HAIKU_MODEL].some((` + candidate + `)=>` + candidate + `!==void 0&&` + matches + `(` + candidate + `,e))}`
 	// Claude's typed environment view does not export our own key.
 	replacement := `function ` + function + `(e){return["FABLE","OPUS","SONNET","HAIKU"].map(n=>` + env + `["ANTHROPIC_DEFAULT_"+n+"_MODEL"]).concat((process.env.` + catalogModelIDsEnv + `??"").split(",")).some(n=>n&&` + matches + `(n,e))}`
 	return replaceFirstFixed(data, original, replacement)

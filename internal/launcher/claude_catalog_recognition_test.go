@@ -13,6 +13,7 @@ func TestCatalogRecognitionOverlayRequiresExactRegisteredIdentity(t *testing.T) 
 	for _, test := range []struct{ version, sha, function, matches string }{
 		{"2.1.314", claude314SHA, "kat", "uv"},
 		{"2.1.316", claude316SHA, "tlt", "wv"},
+		{"2.1.329", claude329SHA, "KBt", "lx"},
 		{"2.1.327", claude327SHA, "GDt", "ZA"},
 		{"2.1.326", claude326SHA, "n0t", "SA"},
 		{"2.1.325", claude325SHA, "kCt", "dC"},
@@ -24,8 +25,11 @@ func TestCatalogRecognitionOverlayRequiresExactRegisteredIdentity(t *testing.T) 
 	} {
 		t.Run(test.version, func(t *testing.T) {
 			original := `function ` + test.function + `(e){return[i.ANTHROPIC_DEFAULT_FABLE_MODEL,i.ANTHROPIC_DEFAULT_OPUS_MODEL,i.ANTHROPIC_DEFAULT_SONNET_MODEL,i.ANTHROPIC_DEFAULT_HAIKU_MODEL].some((n)=>n!==void 0&&` + test.matches + `(n,e))}`
-			if test.version == "2.1.326" || test.version == "2.1.327" {
+			if test.version == "2.1.329" || test.version == "2.1.326" || test.version == "2.1.327" {
 				original = strings.ReplaceAll(original, "i.ANTHROPIC", "s.ANTHROPIC")
+			}
+			if test.version == "2.1.329" {
+				original = strings.ReplaceAll(original, "(n)=>n!==void 0&&lx(n,e)", "(r)=>r!==void 0&&lx(r,e)")
 			}
 			data := []byte(original)
 			if !patchClaudeCatalogRecognition(data, claudeSource{Version: test.version, SHA256: "wrong"}) || string(data) != original {

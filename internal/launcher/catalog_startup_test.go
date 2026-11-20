@@ -244,13 +244,14 @@ func TestInstalledClaudeCatalogEffortPreferencesFakeUpstream(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_EFFORT_LEVEL", "")
 	t.Chdir(t.TempDir())
 	tests := []struct {
-		name, desired, settings, envEffort string
-		levels                             []string
+		name, desired, settings, envEffort, cliEffort string
+		levels                                        []string
 	}{
-		{"mixed-none", "none", `{}`, "", []string{"none", "high"}},
-		{"mixed-minimal", "minimal", `{}`, "", []string{"minimal", "high"}},
-		{"saved-per-model", "high", `{"modelSettings":{"gpt-8.2-sol":{"effortLevel":"high"}}}`, "", []string{"low", "high"}},
-		{"explicit-environment", "minimal", `{}`, "low", []string{"none", "minimal", "high"}},
+		{"mixed-none", "none", `{}`, "", "", []string{"none", "high"}},
+		{"mixed-minimal", "minimal", `{}`, "", "", []string{"minimal", "high"}},
+		{"saved-per-model", "high", `{"modelSettings":{"gpt-8.2-sol":{"effortLevel":"high"}}}`, "", "", []string{"low", "high"}},
+		{"explicit-environment", "minimal", `{}`, "low", "", []string{"none", "minimal", "high"}},
+		{"ultracode-alias", "max", `{"effortLevel":"high"}`, "", "ultracode", []string{"low", "high", "max", "ultra"}},
 	}
 	var phase atomic.Int32
 	var mu sync.Mutex
@@ -304,9 +305,13 @@ func TestInstalledClaudeCatalogEffortPreferencesFakeUpstream(t *testing.T) {
 			t.Fatal(err)
 		}
 		var stdout, stderr bytes.Buffer
+		args := []string{"-p", "Reply with native-effort-ok", "--model", "opus", "--max-turns", "1", "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose", "--system-prompt", "Local synthetic catalog effort acceptance fixture."}
+		if current.cliEffort != "" {
+			args = append(args, "--effort", current.cliEffort)
+		}
 		// Give every independent launch its full budget, including binary verification.
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-		err := (ProcessLauncher{}).Launch(ctx, []string{"-p", "Reply with native-effort-ok", "--model", "opus", "--max-turns", "1", "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose", "--system-prompt", "Local synthetic catalog effort acceptance fixture."}, Config{Version: "smoke", Home: home, CodexBaseURL: upstream.URL, Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr})
+		err := (ProcessLauncher{}).Launch(ctx, args, Config{Version: "smoke", Home: home, CodexBaseURL: upstream.URL, Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr})
 		cancel()
 		for suffix, data := range map[string][]byte{"-stdout.jsonl": stdout.Bytes(), "-stderr.txt": stderr.Bytes()} {
 			if err := os.WriteFile(filepath.Join(artifacts, current.name+suffix), data, 0o600); err != nil {
@@ -335,7 +340,7 @@ func TestInstalledClaudeCatalogEffortPreferencesFakeUpstream(t *testing.T) {
 	mu.Lock()
 	captured := append([]map[string]any(nil), requests...)
 	mu.Unlock()
-	result := map[string]any{"passed": true, "claude_version": version, "paid_model_requests": 0, "mixed_none_default": true, "mixed_minimal_default": true, "saved_per_model_effort": true, "explicit_native_environment_effort": true}
+	result := map[string]any{"passed": true, "claude_version": version, "paid_model_requests": 0, "mixed_none_default": true, "mixed_minimal_default": true, "saved_per_model_effort": true, "explicit_native_environment_effort": true, "ultracode_maps_to_max": true}
 	for name, value := range map[string]any{"result.json": result, "requests.json": captured} {
 		data, _ := json.MarshalIndent(value, "", "  ")
 		if err := os.WriteFile(filepath.Join(artifacts, name), data, 0o600); err != nil {
