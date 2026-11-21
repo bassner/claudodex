@@ -45,6 +45,78 @@ func TestWebSocketLargeWireRequestRejectedBeforeConnecting(t *testing.T) {
 	conversation.mu.Unlock()
 }
 
+func TestWebSocketCancellationInterruptsBackpressuredUpload(t *testing.T) {
+	prefixRead := make(chan struct{})
+	releasePeer := make(chan struct{})
+	upgrader := websocket.Upgrader{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer conn.Close()
+		tcp := conn.UnderlyingConn().(*net.TCPConn)
+		if err := tcp.SetReadBuffer(4096); err != nil {
+			t.Error(err)
+			return
+		}
+		_, upload, err := conn.NextReader()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if _, err := io.CopyN(io.Discard, upload, 1024); err != nil {
+			t.Error(err)
+			return
+		}
+		close(prefixRead)
+		<-releasePeer
+	}))
+	defer upstream.Close()
+	defer close(releasePeer)
+
+	dialer := *websocket.DefaultDialer
+	dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		if err := conn.(*net.TCPConn).SetWriteBuffer(4096); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+		return conn, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conversation := &WebSocketConversation{}
+	got := make(chan error, 1)
+	go func() {
+		resp, err := conversation.CreateResponse(ctx, Client{BaseURL: upstream.URL, WebSocketDialer: &dialer}, Request{Instructions: strings.Repeat("x", 5<<20)}, Credentials{}, Route{}, false)
+		if err == nil {
+			_, err = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
+		_ = conversation.Close()
+		got <- err
+	}()
+	select {
+	case <-prefixRead:
+		cancel()
+	case <-ctx.Done():
+		t.Fatal("peer did not receive the request prefix")
+	}
+	select {
+	case err := <-got:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("blocked upload returned %v, want context cancellation", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancellation did not unblock the upload and release the conversation")
+	}
+}
+
 func TestWebSocketResponseHandshakeCarriesRoutingHintAndRetriesConnectFailures(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 	requestSeen := make(chan struct{}, 1)

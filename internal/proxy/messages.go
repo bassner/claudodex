@@ -125,6 +125,10 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		"queued_steering_locations":   queuedSteeringLocations(anthropicReq),
 		"converted_steering_items":    countConvertedSteeringItems(fullRequest.Input),
 	}
+	if reasoning := fullRequest.Reasoning; reasoning != nil {
+		traceBase["reasoning_effort"] = reasoning.Effort
+		traceBase["reasoning_summary"] = reasoning.Summary
+	}
 	if s.proxyTracePath() != "" {
 		windows, _ := modelcatalog.AutoCompactWindows(s.cfg.Models, s.cfg.ModelConfig)
 		if window, ok := windows[strings.ToLower(strings.TrimSpace(result.OriginalModel))]; ok {

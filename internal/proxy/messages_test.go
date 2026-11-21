@@ -2268,7 +2268,7 @@ func TestMessagesWaitsForSlowDownMessageDelayBeforeRetrying(t *testing.T) {
 	}
 }
 
-func TestMessagesRetriesEarlyWebSocketEmbeddedRetryAfter(t *testing.T) {
+func TestMessagesRetriesEarlyWebSocketEmbeddedRetryAfterDuringUpload(t *testing.T) {
 	home := t.TempDir()
 	saveTestAuth(t, home, "access-1")
 	t.Setenv("CLAUDODEX_FORCE_CODEX_WEBSOCKET", "true")
@@ -2285,10 +2285,9 @@ func TestMessagesRetriesEarlyWebSocketEmbeddedRetryAfter(t *testing.T) {
 		defer conn.Close()
 		switch handshakes.Add(1) {
 		case 1:
-			if _, _, err := conn.ReadMessage(); err != nil {
-				t.Fatal(err)
+			if err := rejectWebSocketUpload(conn, true); err != nil {
+				t.Error(err)
 			}
-			writeWSJSON(t, conn, map[string]any{"type": "error", "error": map[string]any{"status": 429, "code": "rate_limit_exceeded", "message": "retryable", "headers": map[string]any{"Retry-After": 0}}})
 		case 2:
 			if _, _, err := conn.ReadMessage(); err != nil {
 				t.Fatal(err)
@@ -2307,7 +2306,8 @@ func TestMessagesRetriesEarlyWebSocketEmbeddedRetryAfter(t *testing.T) {
 	}
 	defer server.Close()
 
-	resp, err := http.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-opus-4-6","stream":true,"messages":[{"role":"user","content":"x"}],"tools":[{"name":"Read","input_schema":{"type":"object"}}]}`))
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	resp, err := httpClient.Post("http://"+addr+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-opus-4-6","stream":true,"messages":[{"role":"user","content":"`+strings.Repeat("x", 5<<20)+`"}],"tools":[{"name":"Read","input_schema":{"type":"object"}}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}

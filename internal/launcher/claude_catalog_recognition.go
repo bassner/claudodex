@@ -11,6 +11,9 @@ func patchClaudeCatalogRecognition(data []byte, source claudeSource) bool {
 	var function, matches, expectedSHA string
 	candidate := "n"
 	switch source.Version {
+	case "2.1.330":
+		function, matches, expectedSHA = "dCt", "dP", claude330SHA
+		candidate = "r"
 	case "2.1.329":
 		function, matches, expectedSHA = "KBt", "lx", claude329SHA
 		candidate = "r"
@@ -41,7 +44,7 @@ func patchClaudeCatalogRecognition(data []byte, source claudeSource) bool {
 		return true // No overlay for any other source; strict selection owns verification.
 	}
 	env := "i"
-	if source.Version == "2.1.329" || source.Version == "2.1.326" || source.Version == "2.1.327" {
+	if source.Version == "2.1.330" || source.Version == "2.1.329" || source.Version == "2.1.326" || source.Version == "2.1.327" {
 		env = "s"
 	}
 	original := `function ` + function + `(e){return[` + env + `.ANTHROPIC_DEFAULT_FABLE_MODEL,` + env + `.ANTHROPIC_DEFAULT_OPUS_MODEL,` + env + `.ANTHROPIC_DEFAULT_SONNET_MODEL,` + env + `.ANTHROPIC_DEFAULT_HAIKU_MODEL].some((` + candidate + `)=>` + candidate + `!==void 0&&` + matches + `(` + candidate + `,e))}`

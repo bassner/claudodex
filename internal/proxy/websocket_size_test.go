@@ -1,9 +1,11 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,10 +27,12 @@ func TestMessagesLargeWebSocketFallsBackToHTTP(t *testing.T) {
 		missingID    bool
 		httpStatus   int
 		preferHTTP   bool
+		blockUpload  bool
 	}{
 		{name: "large_full_request", largeInput: true},
 		{name: "early_close_1009"},
 		{name: "resumed_close_1009", resume: true},
+		{name: "blocked_resumed_upload_close_1009", resume: true, blockUpload: true},
 		{name: "deferred_size_recovery_preserves_chain", resume: true, preferHTTP: true},
 		{name: "large_delta", resume: true, largeInput: true},
 		{name: "missing_reference_with_large_replay", resume: true, largeHistory: true, missingID: true},
@@ -56,6 +60,13 @@ func TestMessagesLargeWebSocketFallsBackToHTTP(t *testing.T) {
 						}
 						defer conn.Close()
 						for {
+							if tc.blockUpload && wsCalls.Load() != 0 {
+								if err := rejectWebSocketUpload(conn, false); err != nil {
+									t.Error(err)
+								}
+								wsCalls.Add(1)
+								return
+							}
 							var req map[string]any
 							if err := conn.ReadJSON(&req); err != nil {
 								return
@@ -116,6 +127,11 @@ func TestMessagesLargeWebSocketFallsBackToHTTP(t *testing.T) {
 						t.Fatal(err)
 					}
 					r := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body)))
+					if tc.blockUpload {
+						ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+						defer cancel()
+						r = r.WithContext(ctx)
+					}
 					r.Header.Set("x-claude-code-session-id", "size-session")
 					w := httptest.NewRecorder()
 					server.handleMessages(w, r)
@@ -134,6 +150,8 @@ func TestMessagesLargeWebSocketFallsBackToHTTP(t *testing.T) {
 					result := "fixture-result"
 					if tc.largeInput {
 						result += strings.Repeat("x", 9<<20)
+					} else if tc.blockUpload {
+						result += strings.Repeat("x", 5<<20)
 					}
 					messages = append(messages,
 						map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "tool_use", "id": "call_size", "name": "Read", "input": map[string]any{"file_path": "fixture.pdf"}}}},
@@ -173,6 +191,28 @@ func TestMessagesLargeWebSocketFallsBackToHTTP(t *testing.T) {
 			})
 		}
 	}
+}
+
+// Reject the request after a prefix, leaving most of the payload unread.
+func rejectWebSocketUpload(conn *websocket.Conn, rateLimit bool) error {
+	if tcp, ok := conn.UnderlyingConn().(*net.TCPConn); ok {
+		if err := tcp.SetReadBuffer(4096); err != nil {
+			return err
+		}
+	}
+	_, upload, err := conn.NextReader()
+	if err != nil {
+		return err
+	}
+	if _, err := io.CopyN(io.Discard, upload, 1024); err != nil {
+		return err
+	}
+	if rateLimit {
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","error":{"status":429,"code":"rate_limit_exceeded","message":"retryable","headers":{"Retry-After":0}}}`)); err != nil {
+			return err
+		}
+	}
+	return conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseMessageTooBig, "message too big"), time.Now().Add(time.Second))
 }
 
 func TestCommittedWebSocketSizeFailureDoesNotReplayOutput(t *testing.T) {

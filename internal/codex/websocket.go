@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -111,12 +112,6 @@ func (w *WebSocketConversation) CreateResponse(ctx context.Context, client Clien
 		}
 	}
 
-	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
-		w.closeLocked()
-		w.mu.Unlock()
-		return nil, err
-	}
-
 	reader, writer := io.Pipe()
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
@@ -126,15 +121,23 @@ func (w *WebSocketConversation) CreateResponse(ctx context.Context, client Clien
 	}
 	resp.Header.Set("content-type", "text/event-stream")
 
-	done := make(chan struct{})
+	stopCancel := context.AfterFunc(ctx, func() {
+		_ = writer.CloseWithError(ctx.Err())
+		_ = conn.Close()
+	})
+	upload := make(chan error, 1)
 	go func() {
-		select {
-		case <-ctx.Done():
-			_ = conn.Close()
-		case <-done:
+		err := conn.WriteMessage(websocket.TextMessage, payload)
+		if err != nil {
+			// A peer rejection can already be on the wire when a write fails.
+			// Give the reader time to drain it, then report the upload failure if
+			// the peer sends no terminal event. The raw socket permits concurrent
+			// deadline changes while Gorilla's single reader is active.
+			_ = conn.UnderlyingConn().SetReadDeadline(time.Now().Add(time.Second))
 		}
+		upload <- err
 	}()
-	go w.streamAsSSE(conn, writer, done)
+	go w.streamAsSSE(ctx, conn, writer, upload, stopCancel)
 	return resp, nil
 }
 
@@ -209,14 +212,38 @@ func (w *WebSocketConversation) closeLocked() {
 	w.key = websocketConnectionKey{}
 }
 
-func (w *WebSocketConversation) streamAsSSE(conn *websocket.Conn, writer *io.PipeWriter, done chan<- struct{}) {
-	defer close(done)
+func (w *WebSocketConversation) streamAsSSE(ctx context.Context, conn *websocket.Conn, writer *io.PipeWriter, upload <-chan error, stopCancel func() bool) {
 	defer w.mu.Unlock()
 	defer writer.Close()
+	completed := false
+	var uploadErr error
+	defer func() {
+		if !completed {
+			w.closeLocked()
+		}
+		if upload != nil {
+			uploadErr = <-upload
+		}
+		cancelStopped := stopCancel()
+		if uploadErr != nil || !cancelStopped || ctx.Err() != nil {
+			w.closeLocked()
+		}
+	}()
 	for {
 		messageType, data, err := conn.ReadMessage()
 		if err != nil {
-			w.closeLocked()
+			// Preserve the peer's close code even if the upload also failed.
+			var peerClose *websocket.CloseError
+			if !errors.As(err, &peerClose) {
+				select {
+				case uploadErr = <-upload:
+					upload = nil
+					if uploadErr != nil {
+						err = uploadErr
+					}
+				default:
+				}
+			}
 			_ = writer.CloseWithError(err)
 			return
 		}
@@ -225,14 +252,21 @@ func (w *WebSocketConversation) streamAsSSE(conn *websocket.Conn, writer *io.Pip
 		}
 		event := websocketEventName(data)
 		if _, err := fmt.Fprintf(writer, "event: %s\ndata: %s\n\n", event, bytes.TrimSpace(data)); err != nil {
-			w.closeLocked()
 			return
 		}
 		if isTerminalWebSocketError(event) {
-			w.closeLocked()
 			return
 		}
 		if isTerminalWebSocketEvent(event) {
+			// A normal completion implies the peer received the request.
+			// Bound cleanup if a peer sends completion before reading it all.
+			select {
+			case uploadErr = <-upload:
+				upload = nil
+			case <-time.After(time.Second):
+				return
+			}
+			completed = true
 			return
 		}
 	}

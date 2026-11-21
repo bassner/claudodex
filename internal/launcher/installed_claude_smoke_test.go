@@ -293,6 +293,8 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 		"Codex Plan",
 	}
 	switch claudeVersion {
+	case "2.1.330":
+		wants = append(wants, "function CR(){return process.env.CLAUDE_BRIDGE_OAUTH_TOKEN||void 0}")
 	case "2.1.329":
 		wants = append(wants, "function DA(){return process.env.CLAUDE_BRIDGE_OAUTH_TOKEN||void 0}")
 	case "2.1.327":
@@ -399,12 +401,17 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 			t.Fatalf("patched installed Claude missing %q for version=%s sha=%s", want, claudeVersion, sourceSHA)
 		}
 	}
-	if claudeVersion == "2.1.216" || claudeVersion == "2.1.218" || claudeVersion == "2.1.219" || claudeVersion == "2.1.220" || claudeVersion == "2.1.221" || claudeVersion == "2.1.222" || claudeVersion == "2.1.223" || claudeVersion == "2.1.226" || claudeVersion == "2.1.227" || claudeVersion == "2.1.228" || claudeVersion == "2.1.229" || claudeVersion == "2.1.233" || claudeVersion == "2.1.234" || claudeVersion == "2.1.245" || claudeVersion == "2.1.246" || claudeVersion == "2.1.247" || claudeVersion == "2.1.251" || claudeVersion == "2.1.252" || claudeVersion == "2.1.258" || claudeVersion == "2.1.259" || claudeVersion == "2.1.260" || claudeVersion == "2.1.261" || claudeVersion == "2.1.263" || claudeVersion == "2.1.273" || claudeVersion == "2.1.274" || claudeVersion == "2.1.276" || claudeVersion == "2.1.278" || claudeVersion == "2.1.281" || claudeVersion == "2.1.282" || claudeVersion == "2.1.283" || claudeVersion == "2.1.284" || claudeVersion == "2.1.286" || claudeVersion == "2.1.287" || claudeVersion == "2.1.288" || claudeVersion == "2.1.289" || claudeVersion == "2.1.291" || claudeVersion == "2.1.292" || claudeVersion == "2.1.294" || claudeVersion == "2.1.295" || claudeVersion == "2.1.296" || claudeVersion == "2.1.314" || claudeVersion == "2.1.316" || claudeVersion == "2.1.317" || claudeVersion == "2.1.318" || claudeVersion == "2.1.319" || claudeVersion == "2.1.322" || claudeVersion == "2.1.323" || claudeVersion == "2.1.325" || claudeVersion == "2.1.326" || claudeVersion == "2.1.327" || claudeVersion == "2.1.329" {
+	if claudeVersion == "2.1.216" || claudeVersion == "2.1.218" || claudeVersion == "2.1.219" || claudeVersion == "2.1.220" || claudeVersion == "2.1.221" || claudeVersion == "2.1.222" || claudeVersion == "2.1.223" || claudeVersion == "2.1.226" || claudeVersion == "2.1.227" || claudeVersion == "2.1.228" || claudeVersion == "2.1.229" || claudeVersion == "2.1.233" || claudeVersion == "2.1.234" || claudeVersion == "2.1.245" || claudeVersion == "2.1.246" || claudeVersion == "2.1.247" || claudeVersion == "2.1.251" || claudeVersion == "2.1.252" || claudeVersion == "2.1.258" || claudeVersion == "2.1.259" || claudeVersion == "2.1.260" || claudeVersion == "2.1.261" || claudeVersion == "2.1.263" || claudeVersion == "2.1.273" || claudeVersion == "2.1.274" || claudeVersion == "2.1.276" || claudeVersion == "2.1.278" || claudeVersion == "2.1.281" || claudeVersion == "2.1.282" || claudeVersion == "2.1.283" || claudeVersion == "2.1.284" || claudeVersion == "2.1.286" || claudeVersion == "2.1.287" || claudeVersion == "2.1.288" || claudeVersion == "2.1.289" || claudeVersion == "2.1.291" || claudeVersion == "2.1.292" || claudeVersion == "2.1.294" || claudeVersion == "2.1.295" || claudeVersion == "2.1.296" || claudeVersion == "2.1.314" || claudeVersion == "2.1.316" || claudeVersion == "2.1.317" || claudeVersion == "2.1.318" || claudeVersion == "2.1.319" || claudeVersion == "2.1.322" || claudeVersion == "2.1.323" || claudeVersion == "2.1.325" || claudeVersion == "2.1.326" || claudeVersion == "2.1.327" || claudeVersion == "2.1.329" || claudeVersion == "2.1.330" {
 		normalizer := "function CDX216("
 		pickerEnd := "function tAe("
 		tierCall := `n("`
 		tierCount := 3
 		switch claudeVersion {
+		case "2.1.330":
+			tierCount = 4
+			normalizer = "function CDX330("
+			pickerEnd = "function qb("
+			tierCall = `r("`
 		case "2.1.329":
 			tierCount = 4
 			normalizer = "function CDX329("
@@ -618,7 +625,7 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 			}
 		}
 		forbiddenMarkers := []string{"fable", "Fable", "mythos", "Mythos", "ANTHROPIC_DEFAULT_FABLE_MODEL"}
-		if claudeVersion == "2.1.314" || claudeVersion == "2.1.316" || claudeVersion == "2.1.317" || claudeVersion == "2.1.318" || claudeVersion == "2.1.319" || claudeVersion == "2.1.322" || claudeVersion == "2.1.323" || claudeVersion == "2.1.325" || claudeVersion == "2.1.326" || claudeVersion == "2.1.327" || claudeVersion == "2.1.329" {
+		if claudeVersion == "2.1.314" || claudeVersion == "2.1.316" || claudeVersion == "2.1.317" || claudeVersion == "2.1.318" || claudeVersion == "2.1.319" || claudeVersion == "2.1.322" || claudeVersion == "2.1.323" || claudeVersion == "2.1.325" || claudeVersion == "2.1.326" || claudeVersion == "2.1.327" || claudeVersion == "2.1.329" || claudeVersion == "2.1.330" {
 			forbiddenMarkers = []string{"mythos", "Mythos"}
 			if !bytes.Contains(picker, []byte(`r("fable",`)) || !bytes.Contains(picker, []byte(modelconfig.DefaultFableModel)) {
 				t.Fatal("Fable/Astra picker option missing")
@@ -656,6 +663,8 @@ func TestInstalledClaudeUIPatchSmoke(t *testing.T) {
 	}
 	var brandingReplacements []claude209UIBrandingReplacement
 	switch claudeVersion {
+	case "2.1.330":
+		brandingReplacements = claude330UIBrandingReplacements
 	case "2.1.329":
 		brandingReplacements = claude329UIBrandingReplacements
 	case "2.1.327":
@@ -821,6 +830,7 @@ func installedClaudeTargetsCoveredByLaterTest(version, target string) bool {
 		"2.1.326": 45,
 		"2.1.327": 46,
 		"2.1.329": 47,
+		"2.1.330": 48,
 	}
 	return order[version] > order[target]
 }
