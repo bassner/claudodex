@@ -62,13 +62,13 @@ func installedClaudeStartupAndModelCompaction(t *testing.T, contextHint bool) {
 	version := nativeCatalogRequire(t)
 	windowHeading, highContextFooter := "Select auto-compact window", "% until auto-compact"
 	windowMarker := windowHeading
-	if version == "2.1.330" || version == "2.1.329" || version == "2.1.326" || version == "2.1.327" {
+	if version == "2.1.331" || version == "2.1.330" || version == "2.1.329" || version == "2.1.326" || version == "2.1.327" {
 		windowHeading, highContextFooter = "Auto-compact window", "auto-compact is next"
 		// The new heading also occurs in the cancellation message. Only the
 		// open dialog contains this current-setting row.
 		windowMarker = "Current setting for "
 	}
-	if version == "2.1.330" || version == "2.1.329" || version == "2.1.327" {
+	if version == "2.1.331" || version == "2.1.330" || version == "2.1.329" || version == "2.1.327" {
 		highContextFooter = "auto-compact next"
 	}
 	tmux, err := exec.LookPath("tmux")
