@@ -66,6 +66,10 @@ func TestInstalledClaude331PatchTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 	if version := detectClaudeVersion(context.Background(), path); version != "2.1.331" {
+		if installedClaudeTargetsCoveredByLaterTest(version, "2.1.331") {
+			t.Logf("installed Claude %s targets are covered by its version-specific test", version)
+			return
+		}
 		t.Fatalf("installed Claude version = %s, want 2.1.331", version)
 	}
 	for name, check := range map[string]func(context.Context, string) bool{

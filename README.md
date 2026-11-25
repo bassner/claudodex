@@ -96,13 +96,13 @@ Claudodex is experimental. Each compatibility patch targets a specific Claude
 Code version and binary checksum for an operating system and CPU architecture.
 Current verified patches cover macOS on Apple Silicon, including Claude Code
 2.1.318, 2.1.319, 2.1.322, 2.1.323, 2.1.325, 2.1.326, 2.1.327, 2.1.329,
-2.1.330 and 2.1.331. If the installed Claude version has no supported patch,
+2.1.330, 2.1.331 and 2.1.332. If the installed Claude version has no supported patch,
 Claudodex uses a verified local copy from its cache or Claude's retained versions
 without changing system Claude. If none is available, launch stops with recovery
 steps:
 
 ```sh
-claude install 2.1.331
+claude install 2.1.332
 claudodex clx:doctor
 ```
 
